@@ -1,0 +1,4 @@
+sample	column	output_column	operator	expected	actual	reason
+SAMPLE_B	metadata_json	mean_depth	>=	30	12.0	12.0 >= 30 is False
+SAMPLE_C	coverage_tsv	chr1_meandepth	>=	30	10.0	10.0 >= 30 is False
+SAMPLE_D	qc_report	error_rate	<	0.01	0.0500	0.05 < 0.01 is False

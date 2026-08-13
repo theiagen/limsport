@@ -1,0 +1,7 @@
+columns:
+  - name: sample_id
+  - name: read_count
+    rename: total_reads
+  - name: status
+    rename: Status
+  - name: notes

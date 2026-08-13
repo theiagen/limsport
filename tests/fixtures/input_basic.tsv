@@ -1,0 +1,6 @@
+sample_id	read_count	status	notes
+SAMPLE_001	5000	PASS	ok
+SAMPLE_002	500	PASS	low reads
+SAMPLE_003	2000000	PASS	too many reads
+SAMPLE_004	8000	FAIL	bad status
+SAMPLE_005	NA	PASS	

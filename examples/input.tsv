@@ -1,0 +1,15 @@
+sample_id	read_count	quality_score	error_rate	status	length	lot_number	notes
+SAMPLE_001	50000	45	0.01	PASS	1000000	LOT-A	all checks pass
+SAMPLE_002	500	45	0.01	PASS	1000000	LOT-A	read_count below minimum
+SAMPLE_003	2000000	45	0.01	PASS	1000000	LOT-A	read_count above maximum
+SAMPLE_004	50000	20	0.01	PASS	1000000	LOT-A	quality_score too low
+SAMPLE_005	50000	45	0.10	PASS	1000000	LOT-A	error_rate too high
+SAMPLE_006	50000	45	0.01	FAIL	1000000	LOT-A	status does not match
+SAMPLE_007	50000	45	0.01	PASS	1200000	LOT-A	length outside 5% tolerance
+SAMPLE_008	NA	45	0.01	PASS	1000000	LOT-A	read_count is non-numeric
+SAMPLE_009	50000		0.01	PASS	1000000	LOT-A	quality_score is missing
+SAMPLE_010	50000	45	0.01	PASS	1000000	LOT-A	not requested in samples.txt
+SAMPLE_011	500	45	0.01	FAIL	1000000	LOT-A	fails read_count AND status simultaneously
+SAMPLE_012	50000	20	0.10	PASS	1200000	LOT-A	fails quality_score, error_rate, AND length simultaneously
+SAMPLE_013	50000	   	0.01	PASS	1000000	LOT-A	quality_score is whitespace-only, not empty
+SAMPLE_014	50000	45	0.01

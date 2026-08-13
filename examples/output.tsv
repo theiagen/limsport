@@ -1,0 +1,2 @@
+sample_id	total_reads	qc_score	error_rate	status	length	lot
+SAMPLE_001	50000	45	0.01	PASS	1000000	LOT-A

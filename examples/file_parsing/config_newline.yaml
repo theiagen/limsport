@@ -1,0 +1,9 @@
+# Demonstrates a hard error: the command's result contains a newline
+# (after bash's own trailing-newline stripping), which cannot be written
+# into a single TSV cell. Aborts the whole export, same as a failing command.
+columns:
+  - name: sample_id
+  - name: metadata_json
+    file_parsing:
+      command: |
+        printf 'first line\nsecond line\n'

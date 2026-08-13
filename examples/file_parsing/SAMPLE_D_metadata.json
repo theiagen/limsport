@@ -1,0 +1,10 @@
+{
+  "sample": "SAMPLE_D",
+  "run": {
+    "instrument": "NovaSeq",
+    "metrics": {
+      "mean_depth": 50.0,
+      "percent_mapped": 99.0
+    }
+  }
+}

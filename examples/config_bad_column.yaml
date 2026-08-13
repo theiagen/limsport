@@ -1,0 +1,5 @@
+# Demonstrates a hard error: references a column that doesn't exist in
+# input.tsv. limsport must refuse to run and must not create --output.
+columns:
+  - name: sample_id
+  - name: does_not_exist

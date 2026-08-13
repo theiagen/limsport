@@ -1,0 +1,10 @@
+# Demonstrates a hard error: the command references a JSON key that
+# doesn't exist (a realistic config typo -- e.g. "depth" instead of
+# "mean_depth"). The resulting Python KeyError is a non-zero exit, which
+# aborts the whole export just like any other file_parsing command failure.
+columns:
+  - name: sample_id
+  - name: metadata_json
+    file_parsing:
+      command: |
+        python3 -c "import json; print(json.load(open('$LIMSPORT_FILE'))['run']['metrics']['depth'])"

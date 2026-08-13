@@ -1,0 +1,9 @@
+=== QC SUMMARY ===
+run_id :: RUN00483
+generated :: 2026-01-15T09:41:00Z
+--- metrics ---
+total_reads :: 4881205
+error_rate :: 0.0030
+duplication_rate :: 0.093
+--- end metrics ---
+=== END REPORT ===
