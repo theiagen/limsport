@@ -1,4 +1,4 @@
-# limsport comprehensive example
+# LIMSport examples
 
 A single scenario exercising every QC comparison operator, every warning
 path, every column/sample transformation, and every hard-error path
@@ -57,7 +57,7 @@ limsport \
 ```
 
 This single run touches:
-- **Every operator**: `>=`, `<=` (as an ANDed range), `>`, `<`, `=`, `~=`
+- **Every operator**: `>=`, `<=` (as an AND range), `>`, `<`, `=`, `~=`
 - **Every warning**: an unknown name in `--samples` (`SAMPLE_999`), an
   ordinary out-of-range failure, a string mismatch, an approx-tolerance
   failure, a non-numeric-cell failure, and two different ways to trigger
