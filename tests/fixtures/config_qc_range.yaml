@@ -1,9 +1,0 @@
-columns:
-  - name: sample_id
-  - name: read_count
-    qc:
-      - {operator: ">=", value: 1000}
-      - {operator: "<=", value: 1000000}
-  - name: status
-    qc:
-      - {operator: "=", value: PASS}

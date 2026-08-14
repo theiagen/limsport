@@ -291,5 +291,11 @@ src/limsport/
 └── exceptions.py    the LIMSportError hierarchy cli.py catches
 ```
 
-Tests mirror this layout one-to-one (`tests/test_<module>.py`), plus
-fixtures under `tests/fixtures/`.
+Tests mirror this layout (`tests/test_<module>.py`). There's no shared
+fixtures directory -- every test builds whatever input/config files it
+needs directly under pytest's own `tmp_path`, right next to the
+assertions that use them. `config.py` and `transform.py` each split their
+tests across three files instead of one -- `test_<module>.py` for the core
+behavior, `test_<module>_file_parsing.py` and `test_<module>_qc_by.py`
+for those two features specifically -- since each module's tests would
+otherwise mix three fairly independent concerns in one growing file.

@@ -1,5 +1,0 @@
-columns:
-  - name: sample_id
-  - name: read_count
-    qc:
-      - {operator: "~=", value: 5000, tolerance_percent: 10}
