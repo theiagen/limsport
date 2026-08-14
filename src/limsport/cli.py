@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", "-i",
                         required=True, type=existing_file, help="input TSV table")
     parser.add_argument("--output", "-o",
-                        required=True, type=Path, help="output TSV path")
+                        type=Path, default=Path("limsport.tsv"), help="output TSV path (default: limsport.tsv).")
 
     # optional inputs
     parser.add_argument("--config", "-c",
@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--qc-report", "-r",
                         type=Path, help="optional path to write a QC failure report TSV")
     parser.add_argument("--delimiter", "-d",
-                        type=str, default=None, help="optional output delimiter (default: same as the input file's auto-detected delimiter)")
+                        type=str, default="\t", help="output delimiter (default: '\t')")
     parser.add_argument("--allow-file-parsing",
                         action="store_true", help="allow executing file_parsing commands from --config (required if the config uses them)",
     )
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except (LIMSportError, OSError) as e:
         # LIMSportError covers config/input-table domain errors (see
-        # exceptions.py). OSError covers write-side failures
+        # exceptions.py) while OSError covers write-side failures
         print(str(e), file=sys.stderr)
         return 1
 

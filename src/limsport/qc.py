@@ -31,15 +31,16 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
     if not raw:
         return False, "missing value"
 
-    if isinstance(condition.value, str):
+    if isinstance(condition.value, str): # only equivalence for strings
         # case-sensitive
         passed = (raw == condition.value)
         return passed, None if passed else f"value {raw!r} != {condition.value!r}"
 
     try:
+        # cast the raw value to a float
         actual = float(raw)
     except ValueError:
-        # A cell that can't be cast to a number is considered a QC fail
+        # cells that can't be cast to a numbers are QC fails
         return False, (
             f"non-numeric value {raw!r} cannot be compared with "
             f"{condition.operator.value} {condition.value}"
@@ -49,7 +50,7 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
     expected = float(condition.value)
 
     if condition.operator is QCOperator.APPROX:
-        # double-check this, is already checked in config validation
+        # assert-only: config validation already guarantees this
         assert condition.tolerance_percent is not None
 
         tolerance = abs(expected) * (condition.tolerance_percent / 100)
@@ -77,13 +78,14 @@ class ResolvedField(NamedTuple):
     column resolves to one per configured output, all sharing the same
     source `column` but each with its own `output_column` and `qc`.
 
-    `unmatched_reason` is set only for a qc_by column whose row matched
-    no rule and has no default: `qc` is empty same as "no QC configured,"
-    but this field distinguishes that real case from "this row simply
-    couldn't be checked," which evaluate_row reports as a failure rather
-    than treating as an automatic pass. Whether it ever gets set at all
-    is decided in transform.py's _resolve_qc_by, not here -- see the
-    DECISION POINT comment there to switch that to a silent pass instead.
+    `unmatched_reason` is set only for a conditional `qc` whose row
+    matched no rule and has no default: `qc` is empty same as "no QC
+    configured," but this field distinguishes that real case from "this
+    row simply couldn't be checked," which evaluate_row reports as a
+    failure rather than treating as an automatic pass. Whether it ever
+    gets set at all is decided in transform.py's _resolve_qc, not here --
+    see the DECISION POINT comment there to switch that to a silent pass
+    instead.
     """
 
     column: str

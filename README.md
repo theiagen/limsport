@@ -5,10 +5,11 @@ rename/select columns and run QC on each row, and writes a LIMS-importable
 TSV. Pass `--qc-report` and it'll also tell you exactly which samples
 failed which checks and why.
 
-With no config and no sample list, the output is just a copy of the input.
-Everything else — renaming, dropping columns, filtering samples, QC,
-delimiter conversion, pulling values out of referenced files — is opt-in
-through the config file and a few flags.
+With no config and no sample list, and an input that's already
+tab-delimited, there's nothing for the tool to do, so it writes nothing
+and exits successfully. Renaming, dropping columns, filtering samples,
+QC, delimiter conversion, pulling values out of referenced files — all of
+it is opt-in through the config file and a few flags.
 
 ## Installation
 
@@ -27,9 +28,9 @@ Requires Python 3.10+.
 limsport --input samples.tsv --output samples.lims.tsv
 ```
 
-With no `--config` or `--samples`, this just copies `samples.tsv` to
-`samples.lims.tsv` (see "Delimiter handling" below for the one exception).
-To actually transform and QC the data, add a config:
+With no `--config` or `--samples`, there's nothing to change, so nothing
+is written (see "Delimiter handling" below for the one exception). To
+actually transform and QC the data, add a config:
 
 ```
 limsport --input samples.tsv --config config.yaml --output samples.lims.tsv --qc-report qc_report.tsv
@@ -44,11 +45,11 @@ the fastest way to see the whole tool in action.
 | flag | required | meaning |
 |------|----------|---------|
 | `--input`, `-i` | yes | input TSV (or another delimited format, see below) |
-| `--output`, `-o` | yes | output path |
+| `--output`, `-o` | no | output path (default: `limsport.tsv`); not written at all if `--config`, `--samples`, and `--delimiter` are all omitted |
 | `--config`, `-c` | no | YAML config: column allow-list, renaming, QC, `file_parsing` |
 | `--samples`, `-s` | no | a file of sample names (one per line) to include; if omitted, every sample is included |
 | `--qc-report`, `-r` | no | write a TSV of every QC failure (sample, column, reason, ...) |
-| `--delimiter`, `-d` | no | output delimiter; defaults to the input's own (auto-detected) delimiter |
+| `--delimiter`, `-d` | no | output delimiter (default: tab, matching the default `limsport.tsv` output name) |
 | `--allow-file-parsing` | no | required if the config uses `file_parsing` (see below) |
 
 Exit codes: `0` on success, `1` for a config/input/file_parsing problem
@@ -119,17 +120,16 @@ value if there was no rename, or the specific `file_parsing` output name
 that failed), `operator`, `expected`, `actual`, `reason`. It's always
 written, even header-only when nothing failed, so callers can check the
 row count instead of the file's existence. `operator`/`expected` are
-blank for a `qc_by` failure with no matching rule (see below) — there's
-no condition to name, only the fact that none applied.
+blank for a conditional `qc` failure with no matching rule (see below) —
+there's no condition to name, only the fact that none applied.
 
-### `qc_by`: choosing QC thresholds per row
+### Conditional `qc`: choosing thresholds per row
 
-A column's `qc` list is fixed — every row is checked against the same
-thresholds. `qc_by` instead picks which threshold list applies to a row
-from *another column's value in that same row* — e.g. different genome
-size bounds per predicted organism, instead of one bound that has to fit
-every organism in the batch. `qc_by` and `qc` are mutually exclusive on
-the same column (like `rename`/`qc` and `file_parsing`).
+`qc` accepts two shapes. The plain list shown above is fixed — every row
+is checked against the same thresholds. The other shape picks which
+threshold list applies to a row from *another column's value in that
+same row* — e.g. different genome size bounds per predicted organism,
+instead of one bound that has to fit every organism in the batch:
 
 ```yaml
 columns:
@@ -137,7 +137,7 @@ columns:
     rename: predicted_taxon
 
   - name: assembly_length
-    qc_by:
+    qc:
       match: gambit_predicted_taxon    # another column's original name
       rules:
         "Escherichia coli":
@@ -150,24 +150,44 @@ columns:
         - {operator: ">=", value: 1500000}
 ```
 
+Which shape you get is purely structural — a YAML list is the plain
+form, a YAML mapping (`match`/`rules`/`default`) is the conditional
+form — so there's no separate keyword to learn and no way to
+accidentally write both on the same `qc:`.
+
 - `match` must be a column that exists (unambiguously) in the input
   header — it doesn't have to also be kept in the output `columns:` list.
 - `rules` maps an exact, case-sensitive value of `match` to the
-  `QCCondition` list to run for that row — same shape and semantics as an
-  ordinary `qc:` list, just selected per row instead of fixed.
+  `QCCondition` list to run for that row — same shape and semantics as
+  the plain list form, just selected per row instead of fixed.
 - A row whose `match` value isn't a key in `rules` uses `default` if one
   is configured. **Without a `default`, that's a QC failure** — reported
-  with a reason like `no qc_by rule matches gambit_predicted_taxon='Vibrio
+  with a reason like `no qc rule matches gambit_predicted_taxon='Vibrio
   cholerae' for column 'assembly_length', and no default is configured`,
   warned about, included in `--qc-report`, and dropped from the output —
   the same treatment as any other QC failure, not a silent pass. This
   only affects the specific row(s) with the unrecognized value; every row
   whose `match` value does have a rule is still checked normally.
-- Because a `qc_by` column reads its `match` value straight from that
+- Because a conditional `qc` reads its `match` value straight from that
   row, several columns can each key off a *different* `match` column in
   the same config (e.g. genome-size bounds keyed by predicted organism,
   read-quality bounds keyed by sequencing platform) with no shared
   top-level structure to keep in sync.
+- **This works identically inside a `file_parsing` output's own `qc:`**
+  — a parsed value can be checked against organism-specific thresholds
+  the same way a plain column can:
+  ```yaml
+  - name: coverage_tsv
+    file_parsing:
+      - name: quast_n50
+        command: |
+          awk -F'\t' '$1 == "N50" {print $2}' "$LIMSPORT_FILE"
+        qc:
+          match: gambit_predicted_taxon
+          rules:
+            "Escherichia coli":
+              - {operator: ">=", value: 20000}
+  ```
 
 ## `file_parsing`: extracting values from referenced files
 
@@ -265,10 +285,14 @@ from its header line, not the whole file, so one malformed row elsewhere
 can't break detection. If it can't be figured out confidently (a
 single-column file, say), that's a clean error rather than a silent guess.
 
-With no `--delimiter`, the output keeps the input's own delimiter.
-Combined with no `--config` or `--samples`, the file gets copied directly,
-never parsed or rewritten. Pass `--delimiter` to convert to something else on
-the way out.
+With no `--delimiter`, the output defaults to tab, matching the default
+`limsport.tsv` output name. If the input is already tab-delimited and
+neither `--config` nor `--samples` is given either, there's truly nothing
+to do, so nothing gets written. But if the input uses a different
+delimiter (comma, say), converting it to tab is itself a real change from
+the input — so it gets written, even with no `--config` or `--samples`.
+Pass `--delimiter` explicitly to keep the input's original delimiter
+instead, or to convert to a third one.
 
 ## Development
 
@@ -296,6 +320,6 @@ fixtures directory -- every test builds whatever input/config files it
 needs directly under pytest's own `tmp_path`, right next to the
 assertions that use them. `config.py` and `transform.py` each split their
 tests across three files instead of one -- `test_<module>.py` for the core
-behavior, `test_<module>_file_parsing.py` and `test_<module>_qc_by.py`
+behavior, `test_<module>_file_parsing.py` and `test_<module>_conditional_qc.py`
 for those two features specifically -- since each module's tests would
 otherwise mix three fairly independent concerns in one growing file.

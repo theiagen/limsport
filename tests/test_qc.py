@@ -209,13 +209,14 @@ def _unmatched_field(reason="no matching rule"):
     return ResolvedField("assembly_length", "assembly_length", "5000000", [], reason)
 
 
-def test_evaluate_row_reports_unmatched_qc_by_field_as_a_failure():
-    # A qc_by field with no matching rule and no default has an empty qc
-    # list, same shape as "no QC configured" -- but unmatched_reason
-    # distinguishes it, so it fails instead of silently passing.
+def test_evaluate_row_reports_unmatched_conditional_qc_field_as_a_failure():
+    # A conditional-qc field with no matching rule and no default has an
+    # empty qc list, same shape as "no QC configured" -- but
+    # unmatched_reason distinguishes it, so it fails instead of silently
+    # passing.
     #
     # NOTE: this asserts the ACTIVE behavior from transform.py's
-    # _resolve_qc_by DECISION POINT. If that's switched to the silent-pass
+    # _resolve_qc DECISION POINT. If that's switched to the silent-pass
     # ALTERNATIVE, this test needs to change too (unmatched_reason would
     # never be set, so this scenario can't arise this way anymore).
     outcome = evaluate_row([_unmatched_field()], "S1")
@@ -228,7 +229,7 @@ def test_evaluate_row_reports_unmatched_qc_by_field_as_a_failure():
     assert failure.expected is None
 
 
-def test_evaluate_row_unmatched_qc_by_field_does_not_suppress_other_fields():
+def test_evaluate_row_unmatched_conditional_qc_field_does_not_suppress_other_fields():
     passing_qc = _condition(">=", 1)
     fields = [
         _unmatched_field(),

@@ -51,8 +51,8 @@ def test_write_qc_report_header_only_when_no_failures(tmp_path):
 
 
 def test_write_qc_report_blanks_operator_and_expected_when_none(tmp_path):
-    # A qc_by failure with no matching rule (and no default) has no
-    # condition to point at -- operator/expected are None, and should
+    # A conditional-qc failure with no matching rule (and no default) has
+    # no condition to point at -- operator/expected are None, and should
     # write out as empty cells rather than "None".
     path = tmp_path / "report.tsv"
     failure = _failure(
@@ -60,7 +60,7 @@ def test_write_qc_report_blanks_operator_and_expected_when_none(tmp_path):
         operator=None,
         expected=None,
         actual="5000000",
-        reason="no qc_by rule matches taxon='Mystery Bug' for column 'assembly_length', and no default is configured",
+        reason="no qc rule matches taxon='Mystery Bug' for column 'assembly_length', and no default is configured",
     )
     report.write_qc_report(path, [failure])
     rows = list(table_io.iter_rows(path))
@@ -80,6 +80,14 @@ def test_log_no_qc_summary_emits_info_line_without_qc_wording(caplog):
     messages = [r.message for r in caplog.records]
     assert any("5/5" in m for m in messages)
     # must not claim QC happened when none did
+    assert not any("passed QC" in m for m in messages)
+
+
+def test_log_nothing_to_do_emits_info_line_without_qc_wording(caplog):
+    with caplog.at_level("INFO"):
+        report.log_nothing_to_do()
+    messages = [r.message for r in caplog.records]
+    assert any("nothing to do" in m for m in messages)
     assert not any("passed QC" in m for m in messages)
 
 

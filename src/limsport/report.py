@@ -9,7 +9,7 @@ from .config import QCFailure
 
 logger = logging.getLogger("limsport")
 
-_REPORT_HEADER = ["sample", "column", "output_column", "operator", "expected", "actual", "reason"]
+_QC_REPORT_HEADER = ["sample", "column", "output_column", "operator", "expected", "actual", "reason"]
 
 
 def log_summary(passed: int, total: int) -> None:
@@ -17,9 +17,13 @@ def log_summary(passed: int, total: int) -> None:
 
 
 def log_no_qc_summary(included: int, total: int) -> None:
-    # Used when no --config was given at all, so no QC ever ran -- saying
-    # "passed QC" here would claim a check that never happened.
+    # Used when no --config is given, so no QC ever ran
     logger.info("%d/%d samples included (no QC configured)", included, total)
+
+
+def log_nothing_to_do() -> None:
+    # Used when there's nothing to filter, transform, or re-delimit
+    logger.info("no config, samples, or delimiter change given; nothing to do")
 
 
 def log_qc_failures(failures: list[QCFailure]) -> None:
@@ -57,4 +61,4 @@ def write_qc_report(path: Path, failures: list[QCFailure]) -> None:
         ]
         for f in failures
     ]
-    table_io.write_tsv(path, _REPORT_HEADER, rows)
+    table_io.write_tsv(path, _QC_REPORT_HEADER, rows)

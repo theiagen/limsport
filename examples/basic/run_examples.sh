@@ -57,12 +57,12 @@ run_ok "main run: every operator, rename, allow-list, sample filtering, QC repor
     limsport --input "$DIR/input.tsv" --config "$DIR/config.yaml" --samples "$DIR/samples.txt" \
         --output "$DIR/output.tsv" --qc-report "$DIR/qc_report.tsv"
 
-run_ok "byte-identical fast path (no --config, no --samples)" \
+run_ok "nothing-to-do path (no --config, no --samples, no --delimiter)" \
     limsport --input "$DIR/input.tsv" --output "$TMP/copy.tsv"
-if diff -q "$DIR/input.tsv" "$TMP/copy.tsv" >/dev/null; then
-    echo "(confirmed byte-identical)"
+if [ -e "$TMP/copy.tsv" ]; then
+    echo "(WARNING: copy.tsv was written even though nothing would have changed)" >&2
 else
-    echo "(WARNING: copy differs from input -- fast path should be byte-identical)" >&2
+    echo "(confirmed: nothing was written)"
 fi
 echo
 
@@ -71,7 +71,7 @@ run_ok "delimiter conversion (same config, written as CSV)" \
         --output "$TMP/output.csv" --delimiter ,
 
 run_ok "no --config: --qc-report is skipped, not written empty" \
-    limsport --input "$DIR/input.tsv" --output "$TMP/copy2.tsv" --qc-report "$TMP/qc_report.tsv"
+    limsport --input "$DIR/input.tsv" --output "$TMP/copy.tsv" --qc-report "$TMP/qc_report.tsv"
 if [ -e "$TMP/qc_report.tsv" ]; then
     echo "(WARNING: qc_report.tsv was written even though no QC ran)" >&2
 else

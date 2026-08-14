@@ -4,19 +4,31 @@ from limsport import cli, table_io
 from factories import (
     config_qc_range,
     config_unknown_column,
-    hash_file,
+    file_parsing_scenario,
     input_basic,
     input_single_column,
     samples_subset,
 )
 
 
-def test_end_to_end_no_config_no_samples_is_byte_identical(tmp_path):
+def test_end_to_end_no_config_no_samples_writes_nothing(tmp_path):
+    # Nothing would change, so nothing is written -- writing a copy under
+    # a different name could look like a transformation happened when
+    # none did.
     src = input_basic(tmp_path)
     out = tmp_path / "out.tsv"
     rc = cli.main(["--input", str(src), "--output", str(out)])
     assert rc == 0
-    assert hash_file(out) == hash_file(src)
+    assert not out.exists()
+
+
+def test_output_defaults_to_limsport_tsv_in_the_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    input_path = input_basic(tmp_path)
+    config_path = config_qc_range(tmp_path)
+    rc = cli.main(["--input", str(input_path), "--config", str(config_path)])
+    assert rc == 0
+    assert (tmp_path / "limsport.tsv").exists()
 
 
 def test_end_to_end_with_config_and_qc_report(tmp_path, capsys):
@@ -158,9 +170,20 @@ def test_unwritable_output_path_returns_1_without_traceback(tmp_path, capsys):
     # --output's parent directory doesn't exist -- argparse can't check
     # this up front (unlike --input's existing_file type), so it surfaces
     # as an OSError from the write itself, which must still be reported
-    # cleanly rather than as a raw traceback.
+    # cleanly rather than as a raw traceback. A --config is required here
+    # so there's actually something to write -- otherwise this hits the
+    # no-op path, which never touches --output at all.
     out = tmp_path / "does_not_exist_dir" / "out.tsv"
-    rc = cli.main(["--input", str(input_basic(tmp_path)), "--output", str(out)])
+    rc = cli.main(
+        [
+            "--input",
+            str(input_basic(tmp_path)),
+            "--config",
+            str(config_qc_range(tmp_path)),
+            "--output",
+            str(out),
+        ]
+    )
     assert rc == 1
     stderr = capsys.readouterr().err
     assert "Traceback" not in stderr
@@ -184,25 +207,10 @@ def test_omitting_qc_report_writes_no_report_file(tmp_path):
     assert set(tmp_path.iterdir()) == {out, input_path, config_path}
 
 
-def _file_parsing_config_and_input(tmp_path):
-    data_file = tmp_path / "data.txt"
-    data_file.write_text("hello\n")
-    input_tsv = tmp_path / "input.tsv"
-    input_tsv.write_text(f"sample_id\tdata_path\nSAMPLE_001\t{data_file}\n")
-    config = tmp_path / "config.yaml"
-    config.write_text(
-        "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: data_path\n"
-        "    file_parsing:\n"
-        "      - name: extracted\n"
-        '        command: cat "$LIMSPORT_FILE"\n'
-    )
-    return input_tsv, config
-
-
 def test_file_parsing_without_flag_returns_1(tmp_path, capsys):
-    input_tsv, config = _file_parsing_config_and_input(tmp_path)
+    input_tsv, config = file_parsing_scenario(
+        tmp_path, data_content="hello\n", command='cat "$LIMSPORT_FILE"'
+    )
     out = tmp_path / "out.tsv"
     rc = cli.main(["--input", str(input_tsv), "--config", str(config), "--output", str(out)])
     assert rc == 1
@@ -211,7 +219,9 @@ def test_file_parsing_without_flag_returns_1(tmp_path, capsys):
 
 
 def test_file_parsing_with_flag_succeeds(tmp_path):
-    input_tsv, config = _file_parsing_config_and_input(tmp_path)
+    input_tsv, config = file_parsing_scenario(
+        tmp_path, data_content="hello\n", command='cat "$LIMSPORT_FILE"'
+    )
     out = tmp_path / "out.tsv"
     rc = cli.main(
         [

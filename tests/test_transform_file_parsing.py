@@ -5,33 +5,22 @@ import pytest
 
 from limsport import table_io, transform
 from limsport.exceptions import ConfigError
+from factories import file_parsing_scenario
 
 
-def _file_parsing_scenario(tmp_path):
-    """A data file + input TSV referencing its path + config that parses
-    it, shared by the file_parsing tests below."""
-    data_file = tmp_path / "data.txt"
-    data_file.write_text("abc:123:xyz\n")
-
-    input_tsv = tmp_path / "input.tsv"
-    input_tsv.write_text(f"sample_id\tdata_path\nSAMPLE_001\t{data_file}\n")
-
-    config = tmp_path / "config.yaml"
-    config.write_text(
-        "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: data_path\n"
-        "    file_parsing:\n"
-        "      - name: extracted\n"
-        '        command: \'cut -d: -f2 "$LIMSPORT_FILE"\'\n'
-        "        qc:\n"
-        '          - {operator: "=", value: "123"}\n'
+def _cut_scenario(tmp_path):
+    """The colon-delimited data file + `cut`-and-QC config shared by the
+    file_parsing tests below."""
+    return file_parsing_scenario(
+        tmp_path,
+        data_content="abc:123:xyz\n",
+        command='\'cut -d: -f2 "$LIMSPORT_FILE"\'',
+        qc_yaml='        qc:\n          - {operator: "=", value: "123"}\n',
     )
-    return input_tsv, config
 
 
 def test_file_parsing_requires_allow_flag(tmp_path):
-    input_tsv, config = _file_parsing_scenario(tmp_path)
+    input_tsv, config = _cut_scenario(tmp_path)
     out = tmp_path / "out.tsv"
     with pytest.raises(ConfigError, match="allow-file-parsing"):
         transform.run_export(input_tsv, config, None, out, None)  # allow_file_parsing defaults to False
@@ -39,7 +28,7 @@ def test_file_parsing_requires_allow_flag(tmp_path):
 
 
 def test_file_parsing_result_flows_through_qc_and_output(tmp_path):
-    input_tsv, config = _file_parsing_scenario(tmp_path)
+    input_tsv, config = _cut_scenario(tmp_path)
     out = tmp_path / "out.tsv"
     transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
 

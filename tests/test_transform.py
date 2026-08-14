@@ -4,8 +4,6 @@ from limsport import table_io, transform
 from limsport.exceptions import InputTableError
 from factories import (
     config_basic,
-    config_dupe_reference,
-    config_qc_approx,
     config_qc_range,
     config_unknown_column,
     hash_file,
@@ -16,15 +14,38 @@ from factories import (
     input_single_column,
     input_with_dupes,
     samples_subset,
-    samples_with_unknown,
 )
 
 
-def test_no_config_no_samples_is_byte_identical(tmp_path):
+def config_qc_approx(tmp_path):
+    path = tmp_path / "config_qc_approx.yaml"
+    path.write_text(
+        "columns:\n"
+        "  - name: sample_id\n"
+        "  - name: read_count\n"
+        "    qc:\n"
+        '      - {operator: "~=", value: 5000, tolerance_percent: 10}\n'
+    )
+    return path
+
+
+def config_dupe_reference(tmp_path):
+    path = tmp_path / "config_dupe_reference.yaml"
+    path.write_text("columns:\n  - name: sample_id\n  - name: read_count\n")
+    return path
+
+
+def samples_with_unknown(tmp_path):
+    path = tmp_path / "samples_with_unknown.txt"
+    path.write_text("SAMPLE_001\nSAMPLE_999\n")
+    return path
+
+
+def test_no_config_no_samples_writes_nothing(tmp_path):
     src = input_basic(tmp_path)
     out = tmp_path / "out.tsv"
     transform.run_export(src, None, None, out, None)
-    assert hash_file(out) == hash_file(src)
+    assert not out.exists()
 
 
 def test_samples_only_filters_rows_preserves_columns(tmp_path):
@@ -139,13 +160,15 @@ def test_column_with_empty_qc_list_never_drops_sample(tmp_path):
     assert len(rows) == 5
 
 
-def test_no_config_no_samples_with_comma_input_stays_byte_identical(tmp_path):
-    # No --delimiter given: output keeps the input's own detected delimiter
-    # (comma here) rather than being forced to tab.
+def test_no_config_no_samples_converts_non_tab_input_to_tab_by_default(tmp_path):
+    # No --delimiter given means the default, tab -- for a non-tab input
+    # (comma here), that's a real change from the input, so it's written
+    # (converted), not treated as a no-op.
     src = input_comma(tmp_path)
-    out = tmp_path / "out.csv"
+    out = tmp_path / "out.tsv"
     transform.run_export(src, None, None, out, None)
-    assert hash_file(out) == hash_file(src)
+    assert table_io.read_header(out) == ["sample_id", "read_count", "status"]
+    assert list(table_io.iter_rows(out))[0] == ["SAMPLE_001", "5000", "PASS"]
 
 
 def test_delimiter_override_converts_output(tmp_path):
@@ -180,13 +203,13 @@ def test_undetectable_delimiter_raises(tmp_path):
     assert not out.exists()
 
 
-def test_ragged_short_row_fast_path_stays_byte_identical(tmp_path):
+def test_ragged_short_row_no_op_path_never_inspects_rows(tmp_path):
     # No --config/--samples: row structure is never inspected, so a short
-    # row elsewhere in the file doesn't stop the copy from succeeding.
+    # row elsewhere in the file doesn't raise -- it's simply never read.
     src = input_ragged_short(tmp_path)
     out = tmp_path / "out.tsv"
     transform.run_export(src, None, None, out, None)
-    assert hash_file(out) == hash_file(src)
+    assert not out.exists()
 
 
 def test_ragged_short_row_becomes_missing_value_not_a_crash(tmp_path):
@@ -216,15 +239,16 @@ def test_ragged_long_row_raises_before_output_created(tmp_path):
     assert not out.exists()
 
 
-def test_no_config_no_samples_logs_no_qc_not_passed_qc(tmp_path, caplog):
-    # The byte-identical fast path never runs QC at all -- the summary
-    # line shouldn't claim it did.
+def test_no_config_no_samples_logs_nothing_to_do_not_passed_qc(tmp_path, caplog):
+    # This no-op path never runs QC and never writes an output file --
+    # the summary line shouldn't claim QC happened.
     out = tmp_path / "out.tsv"
     with caplog.at_level("INFO"):
         transform.run_export(input_basic(tmp_path), None, None, out, None)
     messages = [r.message for r in caplog.records]
-    assert any("5/5" in m and "no QC configured" in m for m in messages)
+    assert any("nothing to do" in m for m in messages)
     assert not any("passed QC" in m for m in messages)
+    assert not out.exists()
 
 
 def test_samples_only_no_config_logs_no_qc_not_passed_qc(tmp_path, caplog):

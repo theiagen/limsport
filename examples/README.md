@@ -10,7 +10,7 @@ command instead of copy-pasting from this file:
 |----------|--------|----------------|
 | `basic/` | `./examples/basic/run_examples.sh` | every QC comparison operator, every warning path, every column/sample transformation, and every hard-error path |
 | `file_parsing/` | `./examples/file_parsing/run_examples.sh` | the `file_parsing` feature specifically -- needs its own dataset since a `file_parsing` failure aborts the entire run and can't share `basic/`'s one successful pass |
-| `theiaprok_illumina_pe/` | `./examples/theiaprok_illumina_pe/run_examples.sh` | the same features against a real 491-column Terra data table and real `gs://` files, plus `qc_by` |
+| `theiaprok_illumina_pe/` | `./examples/theiaprok_illumina_pe/run_examples.sh` | the same features against a real 491-column Terra data table and real `gs://` files, plus conditional `qc` |
 
 Each script assumes `limsport` is installed (`pip install -e .` from the
 repo root) and is safe to re-run -- it only ever writes into `/tmp` or
@@ -88,19 +88,23 @@ This single run touches:
 A few more commands cover the rest of what the tool does outside of errors:
 
 ```
-# Byte-identical fast path: no --config, no --samples at all
+# Nothing-to-do path: no --config, no --samples, no --delimiter at all --
+# nothing would change, so nothing is written, not even --output
 limsport --input examples/basic/input.tsv --output /tmp/copy.tsv
-# -> "INFO: 14/14 samples included (no QC configured)"
-diff examples/basic/input.tsv /tmp/copy.tsv   # empty diff
+# -> "INFO: no config, samples, or delimiter change given; nothing to do"
+ls /tmp/copy.tsv   # No such file or directory
 
 # Delimiter conversion: same config, written as CSV instead of TSV
 limsport --input examples/basic/input.tsv --config examples/basic/config.yaml \
   --samples examples/basic/samples.txt --output /tmp/output.csv --delimiter ,
 ```
 
-With no `--config` at all, there's no QC to run, so the summary line says
-"included" rather than "passed QC" — and `--qc-report` is skipped
-entirely rather than writing an empty file, even if you pass it anyway:
+With no `--config` at all, there's no QC to run, so the summary line never
+claims "passed QC" — and `--qc-report` is skipped entirely rather than
+writing an empty file, even if you pass it anyway. (Add `--samples` without
+a `--config` and the summary instead says "N/M samples included" — it still
+writes `--output`, since a subset can only be produced by inspecting the
+file's rows, which is itself a real change from the input.)
 
 ```
 limsport --input examples/basic/input.tsv --output /tmp/copy.tsv --qc-report /tmp/qc_report.tsv
@@ -132,11 +136,9 @@ limsport --input examples/basic/input_ragged_too_long.tsv --samples examples/bas
 
 ## `file_parsing/`: parsing values out of referenced files
 
-A column marked with `file_parsing` treats its cell as a *file path* and
-runs a configured command against that file. The command's output
-becomes the effective cell value, which then flows through QC and into
-the output like any other field. It needs `--allow-file-parsing` on the
-CLI even when the config asks for it (see "error scenarios" below).
+See the main README's [`file_parsing`](../README.md#file_parsing-extracting-values-from-referenced-files)
+section for the mechanic itself (single- vs. multi-output, `--allow-file-parsing`
+gating, cloud paths). This scenario is the worked example.
 
 To make it clear this is genuinely arbitrary-format parsing and not just
 "another TSV reader," each of the three `file_parsing` columns here parses
@@ -207,7 +209,7 @@ limsport --input examples/file_parsing/input.tsv --config examples/file_parsing/
 Both exit `1` and never create `--output`, same as `basic/`'s
 error cases.
 
-## `theiaprok_illumina_pe/`: real data, real gs://, and qc_by
+## `theiaprok_illumina_pe/`: real data, real gs://, and conditional qc
 
 Everything above uses a small, hand-built fixture. This scenario instead
 uses a real Terra data table from PHB's `TheiaProk_Illumina_PE` workflow —
@@ -294,39 +296,48 @@ exit code `1`, no `--output` file created — a real 403 permission-denied
 error from a bucket the caller lacks access to would surface exactly the
 same way, with Google's own permission-denied text in place of the 404.
 
-### qc_by scenario (`config_qc_by.yaml`)
+### Conditional qc scenario (`config_conditional_qc.yaml`)
 
-The 21 different species in this table make a good case for `qc_by`:
-`config.yaml`'s `assembly_length` range (>= 2,000,000 and <= 6,500,000)
-is really an *E. coli*-sized bound applied to every organism, and it
-incorrectly flags `SAMN24249320` -- a real, correctly assembled ~6.95 Mb
-*Pseudomonas aeruginosa* genome -- as too large. `config_qc_by.yaml`
-instead keys `assembly_length`'s threshold off `gambit_predicted_taxon`,
-so each organism gets its own range.
+The 21 different species in this table make a good case for conditional
+`qc`: `config.yaml`'s `assembly_length` range (>= 2,000,000 and
+<= 6,500,000) is really an *E. coli*-sized bound applied to every
+organism, and it incorrectly flags `SAMN24249320` -- a real, correctly
+assembled ~6.95 Mb *Pseudomonas aeruginosa* genome -- as too large.
+`config_conditional_qc.yaml` instead keys `assembly_length`'s threshold
+off `gambit_predicted_taxon`, so each organism gets its own range --
+**and does the same for `quast_n50`**, a value pulled out of each
+sample's real `gs://` QUAST report via `file_parsing`, proving the same
+mechanism works identically on a parsed value, not just a plain column.
 
-`samples_qc_by.txt` picks 4 real samples: one each of the three organisms
-`config_qc_by.yaml` defines a rule for (*E. coli*, *K. pneumoniae*,
-*P. aeruginosa*), plus one real *Salmonella enterica* sample (`369711`)
-whose organism has no rule and no `default:` -- deliberately, to
-demonstrate that case against real data instead of a synthetic one.
+`samples_conditional_qc.txt` picks 4 real samples: one each of the three
+organisms `config_conditional_qc.yaml` defines rules for (*E. coli*,
+*K. pneumoniae*, *P. aeruginosa*), plus one real *Salmonella enterica*
+sample (`369711`) whose organism has no rule and no `default:` on either
+check -- deliberately, to demonstrate that case against real data instead
+of a synthetic one.
 
 ```
 limsport \
   --input examples/theiaprok_illumina_pe/theiaprok_illumina_pe.tsv \
-  --config examples/theiaprok_illumina_pe/config_qc_by.yaml \
-  --samples examples/theiaprok_illumina_pe/samples_qc_by.txt \
-  --output examples/theiaprok_illumina_pe/output_qc_by.tsv \
-  --qc-report examples/theiaprok_illumina_pe/qc_report_qc_by.tsv
+  --config examples/theiaprok_illumina_pe/config_conditional_qc.yaml \
+  --samples examples/theiaprok_illumina_pe/samples_conditional_qc.txt \
+  --output examples/theiaprok_illumina_pe/output_conditional_qc.tsv \
+  --qc-report examples/theiaprok_illumina_pe/qc_report_conditional_qc.tsv \
+  --allow-file-parsing
 ```
 
-`SAMN24249320` now passes (its real 6,953,034 bp genome is within
-*P. aeruginosa*'s own 5.5–7.1 Mb range), and `369711` fails with a blank
-`operator`/`expected` in the report -- there's no condition to point at,
-only the fact that *Salmonella enterica* has no rule:
+`SAMN24249320` now passes both checks (its real 6,953,034 bp genome is
+within *P. aeruginosa*'s own 5.5–7.1 Mb range, and its real
+`quast_n50` of 177,799 clears *P. aeruginosa*'s 100,000 floor), and
+`369711` fails *both* with a blank `operator`/`expected` in the report --
+there's no condition to point at, only the fact that *Salmonella
+enterica* has no rule for either the plain column or the file_parsing
+output:
 
 ```
 sample  column           output_column    operator  expected  actual   reason
-369711  assembly_length  assembly_length                      4653361  no qc_by rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured
+369711  assembly_length  assembly_length                      4653361  no qc rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured
+369711  quast_report     quast_n50                             217441  no qc rule matches gambit_predicted_taxon='Salmonella enterica' for file_parsing output 'quast_n50' (column 'quast_report'), and no default is configured
 ```
 
 ### Error scenarios

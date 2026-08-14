@@ -2,10 +2,10 @@
 # Runs every command documented in examples/README.md's
 # "theiaprok_illumina_pe/" section: the main run (real gs:// file_parsing
 # against a real 491-column Terra data table), the localization-failure
-# demo, the qc_by demo, and the two hard-error scenarios.
+# demo, the conditional-qc demo, and the two hard-error scenarios.
 #
-# The main run, the localization-failure demo, and the qc_by run all
-# shell out to real `gcloud storage cp` calls against real gs:// paths
+# The main run, the localization-failure demo, and the conditional-qc run
+# all shell out to real `gcloud storage cp` calls against real gs:// paths
 # (two real, public/workspace buckets, plus one deliberately nonexistent
 # one) -- they need `gcloud` installed and authenticated with read access
 # to reproduce in full. If `gcloud` isn't on PATH at all, those three are
@@ -86,13 +86,14 @@ if [ "$HAVE_GCLOUD" -eq 1 ]; then
         limsport --input "$DIR/input_forbidden_bucket.tsv" --config "$DIR/config_forbidden_bucket.yaml" \
             --output "$TMP/out.tsv" --allow-file-parsing
 
-    run_ok "qc_by: organism-specific assembly_length thresholds against real samples" \
-        limsport --input "$DIR/theiaprok_illumina_pe.tsv" --config "$DIR/config_qc_by.yaml" --samples "$DIR/samples_qc_by.txt" \
-            --output "$DIR/output_qc_by.tsv" --qc-report "$DIR/qc_report_qc_by.tsv"
+    run_ok "conditional qc: organism-specific thresholds on a plain column and a file_parsing output" \
+        limsport --input "$DIR/theiaprok_illumina_pe.tsv" --config "$DIR/config_conditional_qc.yaml" \
+            --samples "$DIR/samples_conditional_qc.txt" --output "$DIR/output_conditional_qc.tsv" \
+            --qc-report "$DIR/qc_report_conditional_qc.tsv" --allow-file-parsing
 else
     skip "main run: real gs:// file_parsing against a 491-column table"
     skip "localization failure: a nonexistent/inaccessible gs:// bucket"
-    skip "qc_by: organism-specific assembly_length thresholds against real samples"
+    skip "conditional qc: organism-specific thresholds on a plain column and a file_parsing output"
 fi
 
 run_fail "error 1: a config column name typo (\"assembly_lenght\")" \

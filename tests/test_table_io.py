@@ -3,13 +3,11 @@ import pytest
 from limsport import table_io
 from limsport.exceptions import InputTableError
 from factories import (
-    hash_file,
     input_basic,
     input_comma,
     input_ragged_long,
     input_ragged_short,
     input_single_column,
-    input_with_dupes,
 )
 
 
@@ -52,13 +50,6 @@ def test_iter_rows_raises_on_a_row_longer_than_the_header(tmp_path):
         list(table_io.iter_rows(input_ragged_long(tmp_path)))
 
 
-def test_count_rows_does_not_validate_row_width(tmp_path):
-    # count_rows is used by the byte-identical fast path, which never
-    # inspects row structure -- it must not raise on a ragged file.
-    assert table_io.count_rows(input_ragged_short(tmp_path)) == 4
-    assert table_io.count_rows(input_ragged_long(tmp_path)) == 4
-
-
 def test_read_header_auto_detects_comma_delimiter(tmp_path):
     path = input_comma(tmp_path)
     assert table_io.read_header(path) == ["sample_id", "read_count", "status"]
@@ -96,15 +87,3 @@ def test_write_read_round_trip_with_quotes(tmp_path):
     assert list(table_io.iter_rows(path)) == rows
 
 
-def test_copy_file_verbatim_is_byte_identical(tmp_path):
-    src = input_basic(tmp_path)
-    dst = tmp_path / "copy.tsv"
-    table_io.copy_file_verbatim(src, dst)
-    assert hash_file(dst) == hash_file(src)
-
-
-def test_copy_file_verbatim_preserves_duplicate_headers(tmp_path):
-    src = input_with_dupes(tmp_path)
-    dst = tmp_path / "copy.tsv"
-    table_io.copy_file_verbatim(src, dst)
-    assert hash_file(dst) == hash_file(src)

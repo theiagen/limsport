@@ -1,5 +1,5 @@
-"""Runs a column's file_parsing outputs: downloads a gs:// file if
-needed, runs each configured command against it via bash, and returns
+"""Runs file_parsing: downloads a gs:// file if needed,
+runs each configured command against it via bash, and returns
 each single-line result.
 
 Gated behind --allow-file-parsing (see cli.py), since this runs commands
@@ -39,10 +39,11 @@ def _safe_basename(raw_path: str) -> str:
 
 
 def _cleanup(tmp_dir: Path) -> None:
+    """Remove temporary download directory"""
     try:
         shutil.rmtree(tmp_dir)
     except OSError as e:
-        # A cleanup failure shouldn't hard fail, but it shouldn't be silent either
+        # cleanup failures shouldn't hard fail but shouldn't be silent either
         logger.warning("failed to remove temporary download directory %s: %s", tmp_dir, e)
 
 

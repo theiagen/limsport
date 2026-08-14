@@ -116,31 +116,33 @@ def config_qc_range(tmp_path):
     return path
 
 
-def config_qc_approx(tmp_path):
-    path = tmp_path / "config_qc_approx.yaml"
-    path.write_text(
-        "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: read_count\n"
-        "    qc:\n"
-        '      - {operator: "~=", value: 5000, tolerance_percent: 10}\n'
-    )
-    return path
-
-
-def config_dupe_reference(tmp_path):
-    path = tmp_path / "config_dupe_reference.yaml"
-    path.write_text("columns:\n  - name: sample_id\n  - name: read_count\n")
-    return path
-
-
 def samples_subset(tmp_path):
     path = tmp_path / "samples_subset.txt"
     path.write_text("SAMPLE_001\nSAMPLE_003\n")
     return path
 
 
-def samples_with_unknown(tmp_path):
-    path = tmp_path / "samples_with_unknown.txt"
-    path.write_text("SAMPLE_001\nSAMPLE_999\n")
-    return path
+def file_parsing_scenario(tmp_path, *, data_content, command, qc_yaml=""):
+    """A data file + input TSV referencing its path (as `data_path`) +
+    config with one file_parsing output (`extracted`) that runs `command`
+    against it, optionally followed by a `qc:` block -- the shared shape
+    behind every single-output file_parsing scenario in the test suite.
+    Returns (input_tsv, config).
+    """
+    data_file = tmp_path / "data.txt"
+    data_file.write_text(data_content)
+
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text(f"sample_id\tdata_path\nSAMPLE_001\t{data_file}\n")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "columns:\n"
+        "  - name: sample_id\n"
+        "  - name: data_path\n"
+        "    file_parsing:\n"
+        "      - name: extracted\n"
+        f"        command: {command}\n"
+        f"{qc_yaml}"
+    )
+    return input_tsv, config
