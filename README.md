@@ -118,7 +118,56 @@ failing three outputs produces three rows. Columns: `sample`, `column`
 value if there was no rename, or the specific `file_parsing` output name
 that failed), `operator`, `expected`, `actual`, `reason`. It's always
 written, even header-only when nothing failed, so callers can check the
-row count instead of the file's existence.
+row count instead of the file's existence. `operator`/`expected` are
+blank for a `qc_by` failure with no matching rule (see below) — there's
+no condition to name, only the fact that none applied.
+
+### `qc_by`: choosing QC thresholds per row
+
+A column's `qc` list is fixed — every row is checked against the same
+thresholds. `qc_by` instead picks which threshold list applies to a row
+from *another column's value in that same row* — e.g. different genome
+size bounds per predicted organism, instead of one bound that has to fit
+every organism in the batch. `qc_by` and `qc` are mutually exclusive on
+the same column (like `rename`/`qc` and `file_parsing`).
+
+```yaml
+columns:
+  - name: gambit_predicted_taxon
+    rename: predicted_taxon
+
+  - name: assembly_length
+    qc_by:
+      match: gambit_predicted_taxon    # another column's original name
+      rules:
+        "Escherichia coli":
+          - {operator: ">=", value: 4600000}
+          - {operator: "<=", value: 5900000}
+        "Klebsiella pneumoniae":
+          - {operator: ">=", value: 5200000}
+          - {operator: "<=", value: 5900000}
+      default:                          # optional
+        - {operator: ">=", value: 1500000}
+```
+
+- `match` must be a column that exists (unambiguously) in the input
+  header — it doesn't have to also be kept in the output `columns:` list.
+- `rules` maps an exact, case-sensitive value of `match` to the
+  `QCCondition` list to run for that row — same shape and semantics as an
+  ordinary `qc:` list, just selected per row instead of fixed.
+- A row whose `match` value isn't a key in `rules` uses `default` if one
+  is configured. **Without a `default`, that's a QC failure** — reported
+  with a reason like `no qc_by rule matches gambit_predicted_taxon='Vibrio
+  cholerae' for column 'assembly_length', and no default is configured`,
+  warned about, included in `--qc-report`, and dropped from the output —
+  the same treatment as any other QC failure, not a silent pass. This
+  only affects the specific row(s) with the unrecognized value; every row
+  whose `match` value does have a rule is still checked normally.
+- Because a `qc_by` column reads its `match` value straight from that
+  row, several columns can each key off a *different* `match` column in
+  the same config (e.g. genome-size bounds keyed by predicted organism,
+  read-quality bounds keyed by sequencing platform) with no shared
+  top-level structure to keep in sync.
 
 ## `file_parsing`: extracting values from referenced files
 

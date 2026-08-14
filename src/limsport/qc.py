@@ -76,12 +76,21 @@ class ResolvedField(NamedTuple):
     A plain column resolves to exactly one of these; a file_parsing
     column resolves to one per configured output, all sharing the same
     source `column` but each with its own `output_column` and `qc`.
+
+    `unmatched_reason` is set only for a qc_by column whose row matched
+    no rule and has no default: `qc` is empty same as "no QC configured,"
+    but this field distinguishes that real case from "this row simply
+    couldn't be checked," which evaluate_row reports as a failure rather
+    than treating as an automatic pass. Whether it ever gets set at all
+    is decided in transform.py's _resolve_qc_by, not here -- see the
+    DECISION POINT comment there to switch that to a silent pass instead.
     """
 
     column: str
     output_column: str
     value: str
     qc: list[QCCondition]
+    unmatched_reason: str | None = None
 
 
 def evaluate_field(field: ResolvedField, sample: str) -> QCFailure | None:
@@ -110,6 +119,19 @@ def evaluate_row(fields: list[ResolvedField], sample: str) -> QCOutcome:
     """Check every QC-configured field for one sample's row."""
     failures: list[QCFailure] = []
     for field in fields:
+        if field.unmatched_reason is not None:
+            failures.append(
+                QCFailure(
+                    sample=sample,
+                    column=field.column,
+                    output_column=field.output_column,
+                    operator=None,
+                    expected=None,
+                    actual=field.value,
+                    reason=field.unmatched_reason,
+                )
+            )
+            continue
         if not field.qc:
             continue  # fields with no QC rules are never evaluated or cast
         failure = evaluate_field(field, sample)

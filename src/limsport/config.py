@@ -133,12 +133,37 @@ class FileParsingOutput(BaseModel):
         return timeout_seconds
 
 
+class QCByRule(BaseModel):
+    """Organism/discriminator-conditioned QC for one column: which
+    condition list applies to a given row depends on another column's
+    (`match`) raw value for that row, looked up in `rules`.
+
+    A row whose `match` value isn't a key in `rules` uses `default` if
+    given. Without a `default`, it's reported in the QC report
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    match: str = Field(min_length=1)
+    rules: dict[str, list[QCCondition]]
+    default: list[QCCondition] | None = None
+
+    @field_validator("rules")
+    @classmethod
+    def _rules_not_empty(cls, rules: dict[str, list[QCCondition]]) -> dict[str, list[QCCondition]]:
+        if not rules:
+            raise ValueError("qc_by.rules must not be empty")
+        return rules
+
+
 class ColumnConfig(BaseModel):
     """An entry in the config's `columns` list: one column to keep in the
     output, with optional rename and QC rules.
 
     A column with `file_parsing` set gets its output name(s) and QC from
-    a list instead.
+    a list instead. A column with `qc_by` set gets its QC conditions
+    chosen per row from another column's value, instead of one fixed
+    `qc` list.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -146,6 +171,7 @@ class ColumnConfig(BaseModel):
     name: str
     rename: str | None = None
     qc: list[QCCondition] = Field(default_factory=list)
+    qc_by: QCByRule | None = None
     file_parsing: list[FileParsingOutput] | None = None
 
     @field_validator("file_parsing")
@@ -162,10 +188,16 @@ class ColumnConfig(BaseModel):
         return outputs
 
     @model_validator(mode="after")
-    def _rename_and_qc_forbidden_with_file_parsing(self) -> "ColumnConfig":
-        # Once file_parsing is set, output identity and QC come from its
-        # outputs list -- letting both coexist would leave it ambiguous
-        # which QC applies to which of possibly several output values.
+    def _mutually_exclusive_qc_declarations(self) -> "ColumnConfig":
+        # A column's QC conditions come from exactly one place: its own
+        # qc, its qc_by rules, or (for a file_parsing column) each
+        # output's own qc. Allowing more than one to coexist would leave
+        # it ambiguous which one actually governs a given row/output.
+        if self.qc_by is not None and self.qc:
+            raise ValueError(
+                "qc and qc_by cannot both be set on the same column; "
+                "use qc_by.default for a fallback instead of column-level qc"
+            )
         if self.file_parsing is not None:
             if self.rename is not None:
                 raise ValueError(
@@ -175,6 +207,11 @@ class ColumnConfig(BaseModel):
             if self.qc:
                 raise ValueError(
                     "qc is not valid on a file_parsing column; "
+                    "set qc per output inside file_parsing[].qc instead"
+                )
+            if self.qc_by is not None:
+                raise ValueError(
+                    "qc_by is not valid on a file_parsing column; "
                     "set qc per output inside file_parsing[].qc instead"
                 )
         return self
@@ -237,13 +274,17 @@ class QCFailure(BaseModel):
     instead names the specific output that failed. Keeping both means the
     report is never ambiguous about which output cell a failure actually
     maps to.
+
+    `operator`/`expected` are None for a qc_by column whose row matched
+    no rule and has no default -- there's no condition to point at, only
+    the fact that none applied (see `reason`).
     """
 
     sample: str
     column: str
     output_column: str
-    operator: QCOperator
-    expected: int | float | str | bool
+    operator: QCOperator | None
+    expected: int | float | str | bool | None
     actual: str | None
     reason: str
 

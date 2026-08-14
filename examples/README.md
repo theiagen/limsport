@@ -286,6 +286,41 @@ exit code `1`, no `--output` file created — a real 403 permission-denied
 error from a bucket the caller lacks access to would surface exactly the
 same way, with Google's own permission-denied text in place of the 404.
 
+### qc_by scenario (`config_qc_by.yaml`)
+
+The 21 different species in this table make a good case for `qc_by`:
+`config.yaml`'s `assembly_length` range (>= 2,000,000 and <= 6,500,000)
+is really an *E. coli*-sized bound applied to every organism, and it
+incorrectly flags `SAMN24249320` -- a real, correctly assembled ~6.95 Mb
+*Pseudomonas aeruginosa* genome -- as too large. `config_qc_by.yaml`
+instead keys `assembly_length`'s threshold off `gambit_predicted_taxon`,
+so each organism gets its own range.
+
+`samples_qc_by.txt` picks 4 real samples: one each of the three organisms
+`config_qc_by.yaml` defines a rule for (*E. coli*, *K. pneumoniae*,
+*P. aeruginosa*), plus one real *Salmonella enterica* sample (`369711`)
+whose organism has no rule and no `default:` -- deliberately, to
+demonstrate that case against real data instead of a synthetic one.
+
+```
+limsport \
+  --input examples/theiaprok_illumina_pe/theiaprok_illumina_pe.tsv \
+  --config examples/theiaprok_illumina_pe/config_qc_by.yaml \
+  --samples examples/theiaprok_illumina_pe/samples_qc_by.txt \
+  --output examples/theiaprok_illumina_pe/output_qc_by.tsv \
+  --qc-report examples/theiaprok_illumina_pe/qc_report_qc_by.tsv
+```
+
+`SAMN24249320` now passes (its real 6,953,034 bp genome is within
+*P. aeruginosa*'s own 5.5–7.1 Mb range), and `369711` fails with a blank
+`operator`/`expected` in the report -- there's no condition to point at,
+only the fact that *Salmonella enterica* has no rule:
+
+```
+sample  column           output_column    operator  expected  actual   reason
+369711  assembly_length  assembly_length                      4653361  no qc_by rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured
+```
+
 ### theiaprok_illumina_pe error scenarios
 
 ```

@@ -50,8 +50,8 @@ def write_qc_report(path: Path, failures: list[QCFailure]) -> None:
             f.sample,
             f.column,
             f.output_column,
-            f.operator.value,
-            str(f.expected),
+            f.operator.value if f.operator is not None else "",
+            str(f.expected) if f.expected is not None else "",
             f.actual or "",
             f.reason,
         ]
