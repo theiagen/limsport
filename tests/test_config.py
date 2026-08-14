@@ -295,12 +295,21 @@ def test_rejects_unknown_top_level_key():
         ExportConfig.model_validate({"columns": [{"name": "a"}], "not_a_real_key": True})
 
 
+_QC_BY_MINIMAL = {"match": "taxon", "rules": {"x": [{"operator": ">=", "value": 1}]}}
+
+
 def _qc_by_config(**qc_by_kwargs):
     """A minimal ExportConfig payload with one qc_by column, whose own
     fields (match, rules, default) are overridden by qc_by_kwargs --
     shared by the qc_by validation tests below."""
-    defaults = {"match": "taxon", "rules": {"x": [{"operator": ">=", "value": 1}]}}
-    return {"columns": [{"name": "a", "qc_by": {**defaults, **qc_by_kwargs}}]}
+    return {"columns": [{"name": "a", "qc_by": {**_QC_BY_MINIMAL, **qc_by_kwargs}}]}
+
+
+def _column_with_qc_by(**column_kwargs):
+    """A column carrying the same minimal qc_by plus whatever else
+    column_kwargs adds -- shared by the qc_by mutual-exclusion tests
+    below, which each pair qc_by with a conflicting column-level field."""
+    return {"columns": [{"name": "a", "qc_by": _QC_BY_MINIMAL, **column_kwargs}]}
 
 
 def test_qc_by_accepts_match_rules_and_optional_default():
@@ -347,31 +356,13 @@ def test_qc_by_rejects_unknown_subkeys():
 
 def test_qc_by_and_column_level_qc_are_mutually_exclusive():
     with pytest.raises(Exception):
-        ExportConfig.model_validate(
-            {
-                "columns": [
-                    {
-                        "name": "a",
-                        "qc": [{"operator": ">=", "value": 1}],
-                        "qc_by": {"match": "taxon", "rules": {"x": [{"operator": ">=", "value": 1}]}},
-                    }
-                ]
-            }
-        )
+        ExportConfig.model_validate(_column_with_qc_by(qc=[{"operator": ">=", "value": 1}]))
 
 
 def test_qc_by_rejected_on_a_file_parsing_column():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {
-                "columns": [
-                    {
-                        "name": "a",
-                        "file_parsing": [{"name": "out", "command": "cat"}],
-                        "qc_by": {"match": "taxon", "rules": {"x": [{"operator": ">=", "value": 1}]}},
-                    }
-                ]
-            }
+            _column_with_qc_by(file_parsing=[{"name": "out", "command": "cat"}])
         )
 
 

@@ -78,8 +78,9 @@ def _resolve_qc_by(column: ColumnConfig, match_value: str) -> tuple[list[QCCondi
     """
     qc_by = column.qc_by
     assert qc_by is not None
-    if match_value in qc_by.rules:
-        return qc_by.rules[match_value], None
+    conditions = qc_by.rules.get(match_value)
+    if conditions is not None:
+        return conditions, None
     if qc_by.default is not None:
         return qc_by.default, None
 
@@ -103,7 +104,7 @@ def _resolve_qc_by(column: ColumnConfig, match_value: str) -> tuple[list[QCCondi
     # --- end ACTIVE ---
 
     # --- ALTERNATIVE: silently let the row through unchecked -- treated
-    # exactly like a column with no `qc:` at all. If you switch: 
+    # exactly like a column with no `qc:` at all. If you switch:
     # tests/test_qc.py::test_evaluate_row_reports_unmatched_qc_by_field_as_a_failure,
     # test_evaluate_row_unmatched_qc_by_field_does_not_suppress_other_fields, and
     # tests/test_transform.py::test_qc_by_unmatched_with_no_default_fails_and_reports_blank_operator
@@ -170,21 +171,23 @@ def run_export(
         _validate_columns_exist(config.columns, name_to_indices, input_path)
         _validate_file_parsing_allowed(config.columns, allow_file_parsing)
         output_header = [name for c in config.columns for name in c.output_names]
-        # make column order match header
-        column_index = {c.name: name_to_indices[c.name][0] for c in config.columns}
-        column_by_name = {c.name: c for c in config.columns}
-        # qc_by reads its match value straight from the raw row, not from
-        # another config column's resolved field, so a qc_by column's
-        # match doesn't have to also be kept in the output.
-        qc_by_match_index = {
-            c.name: name_to_indices[c.qc_by.match][0] for c in config.columns if c.qc_by is not None
-        }
+        # One row-resolution plan per config column, in output order: its
+        # own raw cell's index, plus -- only for a qc_by column -- its
+        # match column's index. qc_by reads that value straight from the
+        # raw row, not from another config column's resolved field, so
+        # its match column doesn't have to also be kept in the output.
+        resolved_columns = [
+            (
+                c,
+                name_to_indices[c.name][0],
+                name_to_indices[c.qc_by.match][0] if c.qc_by is not None else None,
+            )
+            for c in config.columns
+        ]
     else:
         # no config: pass every column through unchanged, in its original order.
         output_header = header
-        column_index = {}
-        column_by_name = {}
-        qc_by_match_index = {}
+        resolved_columns = []
 
     requested_samples = _load_sample_list(samples_path) if samples_path is not None else None
     seen_samples: set[str] = set()
@@ -211,9 +214,9 @@ def run_export(
             # from one input column, so build a flat list instead of a
             # one-value-per-column dict.
             fields: list[qc.ResolvedField] = []
-            for name, idx in column_index.items():
-                match_value = row[qc_by_match_index[name]] if name in qc_by_match_index else None
-                fields.extend(_resolve_column(column_by_name[name], row[idx], match_value))
+            for column, idx, match_idx in resolved_columns:
+                match_value = row[match_idx] if match_idx is not None else None
+                fields.extend(_resolve_column(column, row[idx], match_value))
 
             outcome = qc.evaluate_row(fields, sample)
             all_failures.extend(outcome.failures)

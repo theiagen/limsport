@@ -204,14 +204,9 @@ class ColumnConfig(BaseModel):
                     "rename is not valid on a file_parsing column; "
                     "set the output name via file_parsing[].name instead"
                 )
-            if self.qc:
+            if self.qc or self.qc_by is not None:
                 raise ValueError(
-                    "qc is not valid on a file_parsing column; "
-                    "set qc per output inside file_parsing[].qc instead"
-                )
-            if self.qc_by is not None:
-                raise ValueError(
-                    "qc_by is not valid on a file_parsing column; "
+                    "qc/qc_by are not valid on a file_parsing column; "
                     "set qc per output inside file_parsing[].qc instead"
                 )
         return self

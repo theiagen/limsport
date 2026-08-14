@@ -2,15 +2,23 @@ from limsport import table_io, report
 from limsport.config import QCFailure, QCOperator
 
 
-def _failure(sample="S1", column="read_count", output_column=None):
+def _failure(
+    sample="S1",
+    column="read_count",
+    output_column=None,
+    operator=QCOperator.GE,
+    expected=1000,
+    actual="500",
+    reason="500.0 >= 1000 is False",
+):
     return QCFailure(
         sample=sample,
         column=column,
         output_column=output_column if output_column is not None else column,
-        operator=QCOperator.GE,
-        expected=1000,
-        actual="500",
-        reason="500.0 >= 1000 is False",
+        operator=operator,
+        expected=expected,
+        actual=actual,
+        reason=reason,
     )
 
 
@@ -47,10 +55,8 @@ def test_write_qc_report_blanks_operator_and_expected_when_none(tmp_path):
     # condition to point at -- operator/expected are None, and should
     # write out as empty cells rather than "None".
     path = tmp_path / "report.tsv"
-    failure = QCFailure(
-        sample="S1",
+    failure = _failure(
         column="assembly_length",
-        output_column="assembly_length",
         operator=None,
         expected=None,
         actual="5000000",

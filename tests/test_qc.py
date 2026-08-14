@@ -205,6 +205,10 @@ def test_evaluate_row_multiple_outputs_from_one_source_column_report_independent
     assert outcome.failures[0].output_column == "mean_depth"
 
 
+def _unmatched_field(reason="no matching rule"):
+    return ResolvedField("assembly_length", "assembly_length", "5000000", [], reason)
+
+
 def test_evaluate_row_reports_unmatched_qc_by_field_as_a_failure():
     # A qc_by field with no matching rule and no default has an empty qc
     # list, same shape as "no QC configured" -- but unmatched_reason
@@ -214,8 +218,7 @@ def test_evaluate_row_reports_unmatched_qc_by_field_as_a_failure():
     # _resolve_qc_by DECISION POINT. If that's switched to the silent-pass
     # ALTERNATIVE, this test needs to change too (unmatched_reason would
     # never be set, so this scenario can't arise this way anymore).
-    field = ResolvedField("assembly_length", "assembly_length", "5000000", [], "no matching rule")
-    outcome = evaluate_row([field], "S1")
+    outcome = evaluate_row([_unmatched_field()], "S1")
     assert outcome.passed is False
     failure = outcome.failures[0]
     assert failure.column == "assembly_length"
@@ -228,7 +231,7 @@ def test_evaluate_row_reports_unmatched_qc_by_field_as_a_failure():
 def test_evaluate_row_unmatched_qc_by_field_does_not_suppress_other_fields():
     passing_qc = _condition(">=", 1)
     fields = [
-        ResolvedField("assembly_length", "assembly_length", "5000000", [], "no matching rule"),
+        _unmatched_field(),
         ResolvedField("read_count", "read_count", "5000", [passing_qc]),
     ]
     outcome = evaluate_row(fields, "S1")
