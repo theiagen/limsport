@@ -1,7 +1,7 @@
 import pytest
 
 from limsport.config import ColumnConfig
-from limsport.qc import evaluate_column, evaluate_condition, evaluate_sample
+from limsport.qc import ResolvedField, evaluate_condition, evaluate_field, evaluate_row
 
 
 def _condition(operator, value):
@@ -56,9 +56,12 @@ def test_range_semantics_below_within_above():
             "qc": [{"operator": ">=", "value": 1000}, {"operator": "<=", "value": 1000000}],
         }
     )
-    assert evaluate_column("500", column, "S1") is not None  # below range: fails
-    assert evaluate_column("5000", column, "S1") is None  # within range: passes
-    assert evaluate_column("2000000", column, "S1") is not None  # above range: fails
+    def _field(value):
+        return ResolvedField(column.name, column.output_name, value, column.qc)
+
+    assert evaluate_field(_field("500"), "S1") is not None  # below range: fails
+    assert evaluate_field(_field("5000"), "S1") is None  # within range: passes
+    assert evaluate_field(_field("2000000"), "S1") is not None  # above range: fails
 
 
 @pytest.mark.parametrize(
@@ -149,31 +152,54 @@ def test_whitespace_only_cell_treated_as_missing_value():
     assert reason == "missing value"
 
 
-def test_column_with_no_qc_always_passes():
-    column = ColumnConfig.model_validate({"name": "notes"})
-    assert evaluate_column("anything", column, "S1") is None
-    assert evaluate_column("", column, "S1") is None
+def test_field_with_no_qc_always_passes():
+    assert evaluate_field(ResolvedField("notes", "notes", "anything", []), "S1") is None
+    assert evaluate_field(ResolvedField("notes", "notes", "", []), "S1") is None
 
 
-def test_evaluate_sample_aggregates_failures_across_columns():
-    columns = [
-        ColumnConfig.model_validate(
-            {"name": "read_count", "qc": [{"operator": ">=", "value": 1000}]}
-        ),
-        ColumnConfig.model_validate({"name": "status", "qc": [{"operator": "=", "value": "PASS"}]}),
+def test_evaluate_field_reports_source_column_and_output_column_separately():
+    # A file_parsing output's failure should point at both the source
+    # column it came from and the specific output that failed, even when
+    # those names differ.
+    condition = _condition(">=", 1000)
+    field = ResolvedField("coverage_tsv", "mean_depth", "500", [condition])
+    failure = evaluate_field(field, "S1")
+    assert failure is not None
+    assert failure.column == "coverage_tsv"
+    assert failure.output_column == "mean_depth"
+
+
+def test_evaluate_row_aggregates_failures_across_fields():
+    read_count_qc = _condition(">=", 1000)
+    status_qc = _condition("=", "PASS")
+    fields = [
+        ResolvedField("read_count", "read_count", "500", [read_count_qc]),
+        ResolvedField("status", "status", "FAIL", [status_qc]),
     ]
-    row = {"read_count": "500", "status": "FAIL"}
-    outcome = evaluate_sample(row, "S1", columns)
+    outcome = evaluate_row(fields, "S1")
     assert outcome.passed is False
     assert {f.column for f in outcome.failures} == {"read_count", "status"}
 
 
-def test_evaluate_sample_all_pass():
-    columns = [
-        ColumnConfig.model_validate(
-            {"name": "read_count", "qc": [{"operator": ">=", "value": 1000}]}
-        )
-    ]
-    outcome = evaluate_sample({"read_count": "5000"}, "S1", columns)
+def test_evaluate_row_all_pass():
+    read_count_qc = _condition(">=", 1000)
+    fields = [ResolvedField("read_count", "read_count", "5000", [read_count_qc])]
+    outcome = evaluate_row(fields, "S1")
     assert outcome.passed is True
     assert outcome.failures == []
+
+
+def test_evaluate_row_multiple_outputs_from_one_source_column_report_independently():
+    # Two outputs sharing the same source column (a multi-output
+    # file_parsing case) fail independently -- one failing shouldn't
+    # suppress or merge with the other.
+    depth_qc = _condition(">=", 30)
+    mapq_qc = _condition(">=", 50)
+    fields = [
+        ResolvedField("coverage_tsv", "mean_depth", "10", [depth_qc]),
+        ResolvedField("coverage_tsv", "mean_mapq", "60", [mapq_qc]),
+    ]
+    outcome = evaluate_row(fields, "S1")
+    assert outcome.passed is False
+    assert len(outcome.failures) == 1
+    assert outcome.failures[0].output_column == "mean_depth"

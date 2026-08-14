@@ -112,57 +112,102 @@ always means the text `"true"`, not the number `1`.
 
 ### The QC report
 
-`--qc-report` writes one row per failing sample/column pair, so a sample
-failing three columns produces three rows. Columns: `sample`, `column`
-(the input's original name), `output_column` (its renamed name, or the
-same value if there was no rename), `operator`, `expected`, `actual`,
-`reason`. It's always written, even header-only when nothing failed, so
-callers can check the row count instead of the file's existence.
+`--qc-report` writes one row per failing sample/output pair, so a sample
+failing three outputs produces three rows. Columns: `sample`, `column`
+(the input's original name), `output_column` (its renamed name, the same
+value if there was no rename, or the specific `file_parsing` output name
+that failed), `operator`, `expected`, `actual`, `reason`. It's always
+written, even header-only when nothing failed, so callers can check the
+row count instead of the file's existence.
 
 ## `file_parsing`: extracting values from referenced files
 
 A column marked `file_parsing` treats its cell as a file path instead of
-a literal value. The configured command runs against that file, and its
-output becomes the cell's real value, flowing through QC and into the
-output like any other field.
+a literal value. `file_parsing` is always a list of one or more named
+outputs, each with its own command, run against that file — a single
+entry pulls out one value, several pull out several values from the
+*same* file into separate output columns. Each output's command result
+becomes an output column's real value, flowing through that output's own
+QC and into the output table like any other field.
+
+A column with `file_parsing` gets its output name(s) and QC entirely
+from that list — `rename` and `qc` on the column itself aren't valid
+alongside it.
+
+One output, one command:
 
 ```yaml
 columns:
   - name: coverage_report
-    rename: mean_depth
     file_parsing:
-      command: |
-        awk -F'\t' '$1 == "chr1" {print $7}' "$LIMSPORT_FILE"
-      timeout_seconds: 30       # optional; omit for no timeout
-    qc:
-      - {operator: ">=", value: 30}
+      - name: mean_depth
+        command: |
+          awk -F'\t' '$1 == "chr1" {print $7}' "$LIMSPORT_FILE"
+        timeout_seconds: 30       # optional; omit for no timeout
+        qc:
+          - {operator: ">=", value: 30}
 ```
 
-- The command runs via `bash -c`, so pipes and any tool you like work
-  (`grep | cut`, `python3 -c "..."`, `jq`, whatever it needs).
-- The file's path only ever reaches the command through the
+Several outputs pulled from the same file, each with its own command and
+its own QC:
+
+```yaml
+columns:
+  - name: coverage_report
+    file_parsing:
+      - name: mean_depth
+        command: |
+          awk -F'\t' '$1 == "chr1" {print $7}' "$LIMSPORT_FILE"
+        qc:
+          - {operator: ">=", value: 30}
+
+      - name: coverage_pct
+        command: |
+          awk -F'\t' '$1 == "chr1" {print $6}' "$LIMSPORT_FILE"
+        qc:
+          - {operator: ">=", value: 95}
+
+      - name: mean_mapq
+        command: |
+          awk -F'\t' '$1 == "chr1" {print $9}' "$LIMSPORT_FILE"
+        timeout_seconds: 10       # each output can set its own timeout
+```
+
+- Every command in one column's `file_parsing` list runs via `bash -c`
+  against the *same* localized copy of the file, so pipes and any tool
+  you like work (`grep | cut`, `python3 -c "..."`, `jq`, whatever it
+  needs) and a `gs://` source is only downloaded once no matter how many
+  outputs pull values from it.
+- The file's path only ever reaches each command through the
   `$LIMSPORT_FILE` environment variable, never spliced into the command
   string, since the path comes from TSV data and is less trusted than the
   config itself. Quote it (`"$LIMSPORT_FILE"`) the way you would in any
   bash script.
 - A `gs://` path gets downloaded first, via `gcloud storage cp` into a
-  fresh temp directory. The command runs against that local copy, and the
-  download is deleted afterward no matter what, even if the command fails.
-- The result has to be a single line. Trailing newlines get stripped, the
-  same way bash's own `$(...)` behaves (most commands end their output
-  with one), but a newline *inside* the result is a hard error.
-- A failing command (non-zero exit) is a hard error too. Both of these
-  abort the entire export, not just that one row; a broken `file_parsing`
-  command is a config problem, not a per-row data issue.
+  fresh temp directory. Every output's command runs against that local
+  copy, and the download is deleted afterward no matter what, even if a
+  command fails.
+- Each output's result has to be a single line. Trailing newlines get
+  stripped, the same way bash's own `$(...)` behaves (most commands end
+  their output with one), but a newline *inside* a result is a hard error.
+- A failing command (non-zero exit) is a hard error too, and aborts any
+  remaining outputs for that column. Both of these abort the entire
+  export, not just that one row; a broken `file_parsing` command is a
+  config problem, not a per-row data issue.
+- QC failures are independent per output: if one output in a multi-output
+  `file_parsing` column fails its `qc:`, that's what drops the sample —
+  the QC report's `column` names the shared source column, and
+  `output_column` names the specific output that actually failed.
 - **Needs `--allow-file-parsing` on the command line even when the config
   asks for it.** Having `file_parsing` in a config isn't consent by
   itself; whoever's running the tool might not be who wrote the config.
   Without the flag, it refuses outright before reading a single row.
 
 `examples/file_parsing/` has a full worked scenario — JSON via
-`python3 -c`, a different TSV schema via `awk`, an invented report format
-via `grep`/`cut`/`tr` — plus the error paths: a failing command, an
-embedded newline, and the flag being left off.
+`python3 -c`, a different TSV schema via `awk` (including a multi-output
+column pulling several values out of one report), an invented report
+format via `grep`/`cut`/`tr` — plus the error paths: a failing command,
+an embedded newline, and the flag being left off.
 
 ## Delimiter handling
 

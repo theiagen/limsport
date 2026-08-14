@@ -6,6 +6,7 @@ listed in it make it into the output (see transform.py). Each column can
 also be renamed and given QC rules.
 """
 
+from collections.abc import Iterable
 from enum import Enum
 from pathlib import Path
 from typing import ClassVar
@@ -14,6 +15,15 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .exceptions import ConfigError
+
+
+def _find_duplicates(names: Iterable[str]) -> set[str]:
+    """Return every name that appears more than once in `names`."""
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for name in names:
+        (dupes if name in seen else seen).add(name)
+    return dupes
 
 
 class QCOperator(str, Enum):
@@ -79,10 +89,15 @@ class QCCondition(BaseModel):
         return self
 
 
-class FileParsingInstruction(BaseModel):
-    """Runs via bash against the column's raw cell value (a file path,
-    optionally a gs:// URI). Its output becomes the cell's real value and
-    flows through QC and into the output like any other field.
+class FileParsingOutput(BaseModel):
+    """One named value extracted from a column's file: `command` runs via
+    bash against the raw cell value (a file path, optionally a gs://
+    URI), and its output becomes this output's value, flowing through
+    its own `qc` and into the output table as its own column.
+
+    A column's `file_parsing` is always a list -- one entry for
+    each extracted value. All commands for one column's file_parsing run
+    against the same localized copy of the file.
 
     Requires --allow-file-parsing on the CLI even when the config asks
     for it, since it means running a command the config author wrote.
@@ -90,8 +105,10 @@ class FileParsingInstruction(BaseModel):
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
+    name: str = Field(min_length=1)
     command: str = Field(min_length=1)
     timeout_seconds: float | None = None
+    qc: list[QCCondition] = Field(default_factory=list)
 
     @field_validator("command")
     @classmethod
@@ -118,19 +135,67 @@ class FileParsingInstruction(BaseModel):
 
 class ColumnConfig(BaseModel):
     """An entry in the config's `columns` list: one column to keep in the
-    output, with optional rename and QC rules."""
+    output, with optional rename and QC rules.
+
+    A column with `file_parsing` set gets its output name(s) and QC from
+    a list instead.
+    """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     name: str
     rename: str | None = None
     qc: list[QCCondition] = Field(default_factory=list)
-    file_parsing: FileParsingInstruction | None = None
+    file_parsing: list[FileParsingOutput] | None = None
+
+    @field_validator("file_parsing")
+    @classmethod
+    def _file_parsing_outputs_not_empty_and_unique(
+        cls, outputs: list[FileParsingOutput] | None
+    ) -> list[FileParsingOutput] | None:
+        if outputs is not None:
+            if not outputs:
+                raise ValueError("file_parsing must not be an empty list")
+            dupes = _find_duplicates(o.name for o in outputs)
+            if dupes:
+                raise ValueError(f"Duplicate file_parsing output name(s): {sorted(dupes)}")
+        return outputs
+
+    @model_validator(mode="after")
+    def _rename_and_qc_forbidden_with_file_parsing(self) -> "ColumnConfig":
+        # Once file_parsing is set, output identity and QC come from its
+        # outputs list -- letting both coexist would leave it ambiguous
+        # which QC applies to which of possibly several output values.
+        if self.file_parsing is not None:
+            if self.rename is not None:
+                raise ValueError(
+                    "rename is not valid on a file_parsing column; "
+                    "set the output name via file_parsing[].name instead"
+                )
+            if self.qc:
+                raise ValueError(
+                    "qc is not valid on a file_parsing column; "
+                    "set qc per output inside file_parsing[].qc instead"
+                )
+        return self
 
     @property
     def output_name(self) -> str:
-        """The column's name in the output table: the rename if given, else the original name."""
+        """The column's name in the output table: the rename if given, else the original name.
+
+        Not meaningful for a file_parsing column -- use output_names instead.
+        """
         return self.rename or self.name
+
+    @property
+    def output_names(self) -> list[str]:
+        """Every name this column contributes to the output header, in order.
+
+        A file_parsing column can contribute one name per configured output
+        """
+        if self.file_parsing is not None:
+            return [o.name for o in self.file_parsing]
+        return [self.output_name]
 
 
 class ExportConfig(BaseModel):
@@ -150,23 +215,28 @@ class ExportConfig(BaseModel):
     def _validate_columns(cls, columns: list[ColumnConfig]) -> list[ColumnConfig]:
         if not columns:
             raise ValueError("config 'columns' must not be empty")
-        seen: set[str] = set()
-        dupes: set[str] = set()
-        for c in columns:
-            (dupes if c.name in seen else seen).add(c.name)
+
+        dupes = _find_duplicates(c.name for c in columns)
         if dupes:
             raise ValueError(f"Duplicate column name(s) in config: {sorted(dupes)}")
+
+        output_dupes = _find_duplicates(name for c in columns for name in c.output_names)
+        if output_dupes:
+            raise ValueError(f"Duplicate output column name(s) in config: {sorted(output_dupes)}")
         return columns
 
 
 class QCFailure(BaseModel):
-    """One sample's failing check on one column, reported both as a log
+    """One sample's failing check on one output, reported both as a log
     line and a row in the --qc-report TSV.
 
-    `column` is always the input's original name. `output_column` is what
-    it's renamed to (same as `column` if it wasn't renamed) -- keeping
-    both means the report is never ambiguous about which output cell a
-    failure actually maps to.
+    `column` is always the input's original (source) column name.
+    `output_column` is that column's single output name -- its rename, or
+    itself if there was no rename -- except for a file_parsing column,
+    where several outputs can share one `column` and `output_column`
+    instead names the specific output that failed. Keeping both means the
+    report is never ambiguous about which output cell a failure actually
+    maps to.
     """
 
     sample: str

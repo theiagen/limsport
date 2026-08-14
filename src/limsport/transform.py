@@ -54,6 +54,23 @@ def _load_sample_list(path: Path) -> set[str]:
     return names
 
 
+def _resolve_column(column: ColumnConfig, raw_cell: str) -> list[qc.ResolvedField]:
+    """Resolve one column's raw cell into its output field(s).
+
+    A plain column resolves to itself unchanged. A file_parsing column's
+    raw cell is a path, not the real value(s) -- its command(s) run
+    first, so QC and the output both see the parsed result(s) instead of
+    the path, resolving to one field per configured output.
+    """
+    if column.file_parsing is None:
+        return [qc.ResolvedField(column.name, column.output_name, raw_cell, column.qc)]
+    values = file_parsing.run(column.file_parsing, raw_cell)
+    return [
+        qc.ResolvedField(column.name, output.name, value, output.qc)
+        for output, value in zip(column.file_parsing, values)
+    ]
+
+
 def run_export(
     input_path: Path,
     config_path: Path | None,
@@ -83,7 +100,7 @@ def run_export(
     if config is not None:
         _validate_columns_exist(config.columns, name_to_indices, input_path)
         _validate_file_parsing_allowed(config.columns, allow_file_parsing)
-        output_header = [c.output_name for c in config.columns]
+        output_header = [name for c in config.columns for name in c.output_names]
         # make column order match header
         column_index = {c.name: name_to_indices[c.name][0] for c in config.columns}
         column_by_name = {c.name: c for c in config.columns}
@@ -114,24 +131,19 @@ def run_export(
         candidates += 1
 
         if config is not None:
-            # A file_parsing column's raw cell is a path, not the real
-            # value -- run its command first, so QC and the output both
-            # see the parsed result instead of the path.
-            row_dict: dict[str, str] = {}
+            # A file_parsing column can resolve to several output fields
+            # from one input column, so build a flat list instead of a
+            # one-value-per-column dict.
+            fields: list[qc.ResolvedField] = []
             for name, idx in column_index.items():
-                raw_cell = row[idx]
-                column = column_by_name[name]
-                if column.file_parsing is not None:
-                    row_dict[name] = file_parsing.run(column.file_parsing, raw_cell)
-                else:
-                    row_dict[name] = raw_cell
+                fields.extend(_resolve_column(column_by_name[name], row[idx]))
 
-            outcome = qc.evaluate_sample(row_dict, sample, config.columns)
+            outcome = qc.evaluate_row(fields, sample)
             all_failures.extend(outcome.failures)
             if not outcome.passed:
                 # row failed qc, do not add to output, skip to next item in loop
                 continue
-            output_rows.append([row_dict[name] for name in column_index])
+            output_rows.append([field.value for field in fields])
         else:
             output_rows.append(row)
 

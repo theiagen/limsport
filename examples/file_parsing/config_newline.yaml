@@ -5,5 +5,6 @@ columns:
   - name: sample_id
   - name: metadata_json
     file_parsing:
-      command: |
-        printf 'first line\nsecond line\n'
+      - name: mean_depth
+        command: |
+          printf 'first line\nsecond line\n'

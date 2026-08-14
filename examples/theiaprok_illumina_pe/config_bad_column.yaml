@@ -1,0 +1,7 @@
+# Demonstrates a hard error: references a column that doesn't exist in
+# this Terra data table's header (a realistic typo -- "assembly_length"
+# misspelled). Aborts before any output is written.
+columns:
+  - name: "entity:theiaprok_illumina_pe_v4-2-0_id"
+    rename: sample_id
+  - name: assembly_lenght

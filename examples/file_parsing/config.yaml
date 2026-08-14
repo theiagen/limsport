@@ -1,6 +1,11 @@
 # Demonstrates file_parsing against three genuinely different, non-TSV(ish)
-# formats -- each column uses a different tool to extract one value from a
-# different kind of file, and QC then runs against the *extracted* value.
+# formats -- each column uses a different tool to extract value(s) from a
+# different kind of file, and QC then runs against the *extracted* value(s).
+#
+# `file_parsing` is always a list of named outputs: one entry pulls out a
+# single value (metadata_json, qc_report below), several entries pull out
+# several values from the *same* file (coverage_tsv below, which has more
+# than one column of interest).
 #
 # `command:` uses YAML's literal block scalar (|) throughout, rather than a
 # plain or quoted scalar -- these commands are full of colons (JSON, awk
@@ -10,30 +15,36 @@ columns:
   - name: sample_id
 
   - name: metadata_json
-    rename: mean_depth
     file_parsing:
       # JSON, extracted with `python3 -c` (as opposed to a shell one-liner)
-      command: |
-        python3 -c "import json; print(json.load(open('$LIMSPORT_FILE'))['run']['metrics']['mean_depth'])"
-    qc:
-      - {operator: ">=", value: 30}
+      - name: mean_depth
+        command: |
+          python3 -c "import json; print(json.load(open('$LIMSPORT_FILE'))['run']['metrics']['mean_depth'])"
+        qc:
+          - {operator: ">=", value: 30}
 
   - name: coverage_tsv
-    rename: chr1_meandepth
     file_parsing:
       # A *different* TSV schema than the outer table (mimics `samtools
-      # coverage` output) -- awk picks out the chr1 row's meandepth column.
-      command: |
-        awk -F'\t' '$1 == "chr1" {print $7}' "$LIMSPORT_FILE"
-    qc:
-      - {operator: ">=", value: 30}
+      # coverage` output) -- two outputs pull two different columns out of
+      # the same chr1 row, each with its own awk command and its own QC.
+      - name: chr1_meandepth
+        command: |
+          awk -F'\t' '$1 == "chr1" {print $7}' "$LIMSPORT_FILE"
+        qc:
+          - {operator: ">=", value: 30}
+      - name: chr1_coverage_pct
+        command: |
+          awk -F'\t' '$1 == "chr1" {print $6}' "$LIMSPORT_FILE"
+        qc:
+          - {operator: ">=", value: 95}
 
   - name: qc_report
-    rename: error_rate
     file_parsing:
       # A deliberately invented, non-standard "::"-delimited report format
       # with section markers -- grep finds the line, cut/tr pull the value.
-      command: |
-        grep '^error_rate ::' "$LIMSPORT_FILE" | cut -d: -f3 | tr -d ' '
-    qc:
-      - {operator: "<", value: 0.01}
+      - name: error_rate
+        command: |
+          grep '^error_rate ::' "$LIMSPORT_FILE" | cut -d: -f3 | tr -d ' '
+        qc:
+          - {operator: "<", value: 0.01}

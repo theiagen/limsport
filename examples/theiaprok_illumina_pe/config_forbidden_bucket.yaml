@@ -1,0 +1,17 @@
+# Demonstrates the localization-failure error path against a real gs://
+# path the caller doesn't have access to (or that doesn't exist at all --
+# gcloud reports both as a plain non-zero exit, so the handling is
+# identical either way). limsport doesn't swallow or reword gcloud's own
+# error text: whatever `gcloud storage cp` prints to stderr -- a 404
+# "not found", a 403 "permission denied", or anything else -- is passed
+# straight through inside the FileParsingError message, so a caller who
+# hits this in practice sees Google's own explanation of what to fix
+# (e.g. requesting bucket access) rather than a generic failure.
+columns:
+  - name: "entity:theiaprok_illumina_pe_v4-2-0_id"
+    rename: sample_id
+  - name: quast_report
+    file_parsing:
+      - name: quast_n50
+        command: |
+          awk -F'\t' '$1 == "N50" {print $2}' "$LIMSPORT_FILE"

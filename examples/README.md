@@ -5,7 +5,10 @@ path, every column/sample transformation, and every hard-error path
 `limsport` supports. `file_parsing/` is a second, separate scenario for
 just the `file_parsing` feature — it needs its own dataset, since a
 `file_parsing` failure aborts the entire run and can't share the main
-scenario's one successful pass.
+scenario's one successful pass. `theiaprok_illumina_pe/` is a third
+scenario built on a real Terra data table instead of a hand-built
+fixture, exercising the same features at real scale and against real
+`gs://` files.
 
 ## Files
 
@@ -31,7 +34,7 @@ scenario's one successful pass.
 
   SAMPLE_011/012 show that a sample failing multiple columns gets one
   `QCFailure`/report row/warning line **per failing column**, not just
-  the first one hit. `evaluate_sample` doesn't short-circuit across
+  the first one hit. `evaluate_row` doesn't short-circuit across
   columns (it does short-circuit *within* one column's own `qc:` list,
   which is why the range check on `read_count` only ever reports whichever
   of `>=`/`<=` it hits first).
@@ -134,14 +137,22 @@ a **different, non-standard format** with a **different tool**:
 | column          | file format                                          | tool           |
 |------------------|-------------------------------------------------------|----------------|
 | `metadata_json`  | JSON, with the value nested three levels deep         | `python3 -c`   |
-| `coverage_tsv`   | a *different* TSV schema (mimics `samtools coverage`) | `awk`          |
+| `coverage_tsv`   | a *different* TSV schema (mimics `samtools coverage`) | `awk` (two outputs) |
 | `qc_report`      | an invented `key :: value` report format with section markers | `grep` + `cut` + `tr` (piped) |
+
+`coverage_tsv` is also the scenario's multi-output example: `file_parsing`
+is a list there with **two** entries (`chr1_meandepth` and
+`chr1_coverage_pct`), each its own `awk` command and its own `qc:`,
+pulling two different columns out of the same chr1 row of one file —
+exactly the "one file, several output columns" case `file_parsing`
+supports, as opposed to `metadata_json`/`qc_report`'s single-entry lists.
 
 - `input.tsv` — 4 samples, each pointing at its own JSON/TSV/report trio.
   `SAMPLE_A` passes every check; `SAMPLE_B`/`SAMPLE_C`/`SAMPLE_D` each
-  fail exactly one of the three parsed-and-QC'd values, isolating each
+  fail exactly one of the four parsed-and-QC'd values, isolating each
   format's extraction the same way the main scenario isolates each
-  operator.
+  operator. `chr1_coverage_pct` passes for every sample, so it never
+  competes with the "exactly one failure" isolation above.
 - `config.yaml` — uses YAML's literal block scalar (`command: |`) for
   every command instead of a plain or quoted scalar. These commands are
   full of colons (JSON access, `awk -F`, `grep` patterns), which a plain
@@ -187,3 +198,102 @@ limsport --input examples/file_parsing/input.tsv --config examples/file_parsing/
 
 Both exit `1` and never create `--output`, same as the main scenario's
 error cases.
+
+## theiaprok_illumina_pe scenario (`theiaprok_illumina_pe/`)
+
+Everything above uses a small, hand-built fixture. This scenario instead
+uses a real Terra data table from PHB's `TheiaProk_Illumina_PE` workflow —
+491 columns, 70 samples — to exercise the same features against real
+scale and, critically, against **real `gs://` files in Google Cloud
+Storage** rather than local paths. It's the one scenario that needs
+`gcloud` installed and authenticated with read access to the referenced
+buckets to reproduce in full.
+
+- `theiaprok_illumina_pe.tsv` — the real data table, unmodified.
+- `config.yaml` — keeps 11 of the 491 columns: a pass-through
+  (`assembler`), every QC operator against genuine bioinformatics QC
+  metrics (`assembly_length` for the `>=`/`<=` range, `n50_value` for
+  `>`, `number_contigs` for `<`, `gambit_predicted_taxon` for `=`,
+  `combined_mean_q_clean` for `~=`), two more realistic single-condition
+  checks (`est_coverage_clean`, `fastq_scan_num_reads_clean_pairs`), and
+  a multi-output `file_parsing` column (`quast_report`) that downloads
+  each sample's real QUAST report from `gs://` once and runs three
+  independent `awk` commands against it — `quast_n50`, `quast_gc_pct`,
+  `quast_total_length` — cross-validating the extracted values against
+  the native `n50`/`assembly_length` columns pulled from the same row.
+- `samples.txt` — 8 real sample IDs chosen to isolate specific outcomes,
+  plus one that doesn't exist (`SAMPLE_DOES_NOT_EXIST`, for the unknown-
+  sample warning):
+
+  | sample                                      | demonstrates |
+  |----------------------------------------------|--------------|
+  | `19050801924`, `461023`, `SRR16579222_Ecoli_stxPos2completeOperons` | pass every check |
+  | `03-98DDCS`                                   | `fastq_scan_num_reads_clean_pairs` is genuinely blank in the source data → "missing value", not a crafted fixture |
+  | `155734`                                      | fails only `gambit_predicted_taxon` (it's *Klebsiella pneumoniae*, not *E. coli*) |
+  | `480757`                                       | fails only `est_coverage_clean` (28.6x, just under the 30x minimum) |
+  | `CL2021-00283104`                              | a genuinely fragmented assembly — fails `n50_value`, `number_contigs`, *and* `est_coverage_clean` together, plus the file_parsing-derived `quast_n50` (which agrees with `n50_value` exactly: both read `10000`) |
+  | `SAMN24249320`                                 | a *Pseudomonas aeruginosa* sample — fails `gambit_predicted_taxon` *and* `assembly_length` (a ~6.95 Mb genome is out of range for thresholds tuned around *E. coli*) |
+
+  Unlike the hand-built scenarios above, real QC failures aren't isolated
+  one-per-sample — `CL2021-00283104` shows that a genuinely bad assembly
+  fails several unrelated metrics at once, and `SAMN24249320` shows a
+  threshold picked for one species legitimately rejecting another. Only
+  `19050801924`, `461023`, and `SRR16579222_Ecoli_stxPos2completeOperons`
+  pass every check and appear in `output.tsv`; all 9 QC failures across
+  the other 5 real samples are in `qc_report.tsv`.
+- `output.tsv` / `qc_report.tsv` — the committed result of the command below.
+
+```
+limsport \
+  --input examples/theiaprok_illumina_pe/theiaprok_illumina_pe.tsv \
+  --config examples/theiaprok_illumina_pe/config.yaml \
+  --samples examples/theiaprok_illumina_pe/samples.txt \
+  --output examples/theiaprok_illumina_pe/output.tsv \
+  --qc-report examples/theiaprok_illumina_pe/qc_report.tsv \
+  --allow-file-parsing
+```
+
+### Confirming a localization failure surfaces Google's own error
+
+`file_parsing`'s `_localize` step shells out to `gcloud storage cp` and,
+on a non-zero exit, wraps *gcloud's own stderr text* into the
+`FileParsingError` it raises — it never rewrites or swallows it. That
+matters in practice: if whoever runs this config doesn't have read access
+to the bucket a sample's file lives in (or the path is simply wrong),
+they need Google's own explanation to know what to fix (request bucket
+access, fix a typo, etc.), not a generic "failed" message.
+
+`input_forbidden_bucket.tsv` + `config_forbidden_bucket.yaml` demonstrate
+this against a real, nonexistent bucket (the same code path a genuine
+permission error takes — both are just a non-zero `gcloud` exit with a
+message on stderr):
+
+```
+limsport \
+  --input examples/theiaprok_illumina_pe/input_forbidden_bucket.tsv \
+  --config examples/theiaprok_illumina_pe/config_forbidden_bucket.yaml \
+  --output /tmp/out.tsv \
+  --allow-file-parsing
+# -> "gs://this-bucket-does-not-exist-or-you-lack-access-to-it/report.tsv:
+#     failed to localize with gcloud storage cp (exit 1): ERROR:
+#     (gcloud.storage.cp) gs://this-bucket-does-not-exist-or-you-lack-access-to-it
+#     not found: 404."
+```
+
+Confirmed against this repo's actual `file_parsing.py` (not just read from
+the source): the message above is gcloud's real, unedited stderr output,
+exit code `1`, no `--output` file created — a real 403 permission-denied
+error from a bucket the caller lacks access to would surface exactly the
+same way, with Google's own permission-denied text in place of the 404.
+
+### theiaprok_illumina_pe error scenarios
+
+```
+# 1. a config column name typo ("assembly_lenght")
+limsport --input examples/theiaprok_illumina_pe/theiaprok_illumina_pe.tsv --config examples/theiaprok_illumina_pe/config_bad_column.yaml --output /tmp/out.tsv
+# -> "config references column 'assembly_lenght', which is not in the input header"
+
+# 2. file_parsing used without the safety flag
+limsport --input examples/theiaprok_illumina_pe/theiaprok_illumina_pe.tsv --config examples/theiaprok_illumina_pe/config.yaml --samples examples/theiaprok_illumina_pe/samples.txt --output /tmp/out.tsv
+# -> "config uses file_parsing on column(s) ['quast_report'], but --allow-file-parsing was not given"
+```

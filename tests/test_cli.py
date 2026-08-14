@@ -191,7 +191,8 @@ def _file_parsing_config_and_input(tmp_path):
         "  - name: sample_id\n"
         "  - name: data_path\n"
         "    file_parsing:\n"
-        '      command: cat "$LIMSPORT_FILE"\n'
+        "      - name: extracted\n"
+        '        command: cat "$LIMSPORT_FILE"\n'
     )
     return input_tsv, config
 

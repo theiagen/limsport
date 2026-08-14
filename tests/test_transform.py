@@ -228,11 +228,11 @@ def _file_parsing_scenario(tmp_path):
         "columns:\n"
         "  - name: sample_id\n"
         "  - name: data_path\n"
-        "    rename: extracted\n"
         "    file_parsing:\n"
-        '      command: \'cut -d: -f2 "$LIMSPORT_FILE"\'\n'
-        "    qc:\n"
-        '      - {operator: "=", value: "123"}\n'
+        "      - name: extracted\n"
+        '        command: \'cut -d: -f2 "$LIMSPORT_FILE"\'\n'
+        "        qc:\n"
+        '          - {operator: "=", value: "123"}\n'
     )
     return input_tsv, config
 
@@ -270,7 +270,8 @@ def test_file_parsing_command_failure_aborts_whole_export(tmp_path):
         "  - name: sample_id\n"
         "  - name: data_path\n"
         "    file_parsing:\n"
-        "      command: exit 1\n"
+        "      - name: extracted\n"
+        "        command: exit 1\n"
     )
     out = tmp_path / "out.tsv"
     with pytest.raises(Exception, match="exit 1"):
@@ -289,12 +290,13 @@ def test_file_parsing_not_invoked_for_samples_filtered_out(tmp_path, monkeypatch
     samples.write_text("SAMPLE_001\n")  # SAMPLE_002 deliberately not requested
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n  - name: sample_id\n  - name: data_path\n    file_parsing:\n      command: cat\n"
+        "columns:\n  - name: sample_id\n  - name: data_path\n    file_parsing:\n"
+        "      - name: extracted\n        command: cat\n"
     )
 
     calls = []
     monkeypatch.setattr(
-        transform.file_parsing, "run", lambda instruction, raw_value: calls.append(raw_value) or "ok"
+        transform.file_parsing, "run", lambda outputs, raw_value: calls.append(raw_value) or ["ok"]
     )
 
     out = tmp_path / "out.tsv"
@@ -318,19 +320,83 @@ def test_file_parsing_runs_independently_per_column_no_caching(tmp_path, monkeyp
         "columns:\n"
         "  - name: sample_id\n"
         "  - name: path_a\n"
-        "    file_parsing:\n      command: cat\n"
+        "    file_parsing:\n      - name: a_out\n        command: cat\n"
         "  - name: path_b\n"
-        "    file_parsing:\n      command: cat\n"
+        "    file_parsing:\n      - name: b_out\n        command: cat\n"
     )
 
     calls = []
     monkeypatch.setattr(
-        transform.file_parsing, "run", lambda instruction, raw_value: calls.append(raw_value) or "ok"
+        transform.file_parsing, "run", lambda outputs, raw_value: calls.append(raw_value) or ["ok"]
     )
 
     out = tmp_path / "out.tsv"
     transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
     assert calls == [str(data_file), str(data_file)]
+
+
+def _multi_output_scenario(tmp_path, coverage_pct="99.98"):
+    """A single tab-delimited report file with three columns of interest,
+    referenced by one config column that pulls all three into separate
+    output columns, shared by the multi-output tests below.
+    `coverage_pct` (>= 95 to pass its QC) is parameterized so a caller
+    can drive that output's QC failure independently of the other two."""
+    data_file = tmp_path / "coverage.tsv"
+    data_file.write_text(f"chr1\t42.5\t{coverage_pct}\t60.0\n")
+
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text(f"sample_id\tcoverage_tsv\nSAMPLE_001\t{data_file}\n")
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "columns:\n"
+        "  - name: sample_id\n"
+        "  - name: coverage_tsv\n"
+        "    file_parsing:\n"
+        "      - name: mean_depth\n"
+        '        command: awk -F"\\t" \'{print $2}\' "$LIMSPORT_FILE"\n'
+        "        qc:\n"
+        '          - {operator: ">=", value: 30}\n'
+        "      - name: coverage_pct\n"
+        '        command: awk -F"\\t" \'{print $3}\' "$LIMSPORT_FILE"\n'
+        "        qc:\n"
+        '          - {operator: ">=", value: 95}\n'
+        "      - name: mean_mapq\n"
+        '        command: awk -F"\\t" \'{print $4}\' "$LIMSPORT_FILE"\n'
+    )
+    return input_tsv, config
+
+
+def test_file_parsing_multi_output_produces_multiple_columns_from_one_source(tmp_path):
+    input_tsv, config = _multi_output_scenario(tmp_path)
+    out = tmp_path / "out.tsv"
+    transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+
+    header = table_io.read_header(out)
+    rows = list(table_io.iter_rows(out))
+    assert header == ["sample_id", "mean_depth", "coverage_pct", "mean_mapq"]
+    assert rows == [["SAMPLE_001", "42.5", "99.98", "60.0"]]
+
+
+def test_file_parsing_multi_output_qc_applies_independently_per_output(tmp_path):
+    # Only one of the three outputs (coverage_pct) fails its own
+    # threshold; the other two outputs from the same source column pass.
+    input_tsv, config = _multi_output_scenario(tmp_path, coverage_pct="50.0")  # fails >= 95
+    out = tmp_path / "out.tsv"
+    qc_report = tmp_path / "qc_report.tsv"
+    transform.run_export(input_tsv, config, None, out, qc_report, allow_file_parsing=True)
+
+    rows = list(table_io.iter_rows(out))
+    assert rows == []  # the sample is dropped: one failing output fails the whole row
+
+    report_rows = list(table_io.iter_rows(qc_report))
+    assert len(report_rows) == 1
+    sample, column, output_column, *_ = report_rows[0]
+    assert sample == "SAMPLE_001"
+    # column identifies the shared source column; output_column identifies
+    # which specific extracted output actually failed.
+    assert column == "coverage_tsv"
+    assert output_column == "coverage_pct"
 
 
 def test_allow_file_parsing_flag_is_harmless_when_config_has_no_file_parsing(fixtures_dir, tmp_path):

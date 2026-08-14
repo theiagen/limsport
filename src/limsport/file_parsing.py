@@ -1,6 +1,6 @@
-"""Runs a column's file_parsing instruction: downloads a gs:// file if
-needed, runs the configured command against it via bash, and returns its
-single-line result.
+"""Runs a column's file_parsing outputs: downloads a gs:// file if
+needed, runs each configured command against it via bash, and returns
+each single-line result.
 
 Gated behind --allow-file-parsing (see cli.py), since this runs commands
 from the config file against a path that came from the TSV data.
@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .config import FileParsingInstruction
+from .config import FileParsingOutput
 from .exceptions import FileParsingError
 
 logger = logging.getLogger("limsport")
@@ -70,41 +70,55 @@ def _localize(raw_path: str) -> tuple[str, Path | None]:
     return str(local_path), tmp_dir
 
 
-def run(instruction: FileParsingInstruction, raw_value: str) -> str:
-    """Download raw_value first if it's a cloud path, run
-    instruction.command against it with $LIMSPORT_FILE set, clean up
-    afterward, and return the single-line result.
+def _run_command(output: FileParsingOutput, env: dict[str, str], raw_value: str) -> str:
+    """Run one output's command with the given environment (which
+    already has $LIMSPORT_FILE set), and return its single-line result.
+
+    Raises FileParsingError for a failing command, a timeout, or a
+    result that contains a newline. raw_value is only used to identify
+    the failing row in error messages.
+    """
+    try:
+        result = subprocess.run(
+            ["bash", "-c", output.command],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=output.timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise FileParsingError(f"file_parsing command timed out for {raw_value!r}") from e
+
+    if result.returncode != 0:
+        raise FileParsingError(
+            f"file_parsing command failed (exit {result.returncode}) for {raw_value!r}: "
+            f"{result.stderr.strip()}"
+        )
+
+    # strip trailing newlines, fail on embedded ones
+    output_value = result.stdout.rstrip("\n")
+    if "\n" in output_value or "\r" in output_value:
+        raise FileParsingError(
+            f"file_parsing command for {raw_value!r} produced a value containing "
+            f"a newline, which cannot be written to a TSV cell: {output_value!r}"
+        )
+    return output_value
+
+
+def run(outputs: list[FileParsingOutput], raw_value: str) -> list[str]:
+    """Download raw_value first if it's a cloud path, run each output's
+    command against it in order (sharing that one localized copy and
+    environment), clean up afterward, and return the results in the same
+    order as outputs.
 
     Raises FileParsingError for a failing command, a missing cloud CLI
-    tool, a timeout, or a result that contains a newline.
+    tool, a timeout, or a result that contains a newline. A failure on
+    any one output aborts the rest.
     """
     local_path, tmp_dir = _localize(raw_value)
     try:
-        try:
-            result = subprocess.run(
-                ["bash", "-c", instruction.command],
-                env={**os.environ, "LIMSPORT_FILE": local_path},
-                capture_output=True,
-                text=True,
-                timeout=instruction.timeout_seconds,
-            )
-        except subprocess.TimeoutExpired as e:
-            raise FileParsingError(f"file_parsing command timed out for {raw_value!r}") from e
-
-        if result.returncode != 0:
-            raise FileParsingError(
-                f"file_parsing command failed (exit {result.returncode}) for {raw_value!r}: "
-                f"{result.stderr.strip()}"
-            )
-
-        # strip trailing newlines, fail on embedded ones
-        output = result.stdout.rstrip("\n")
-        if "\n" in output or "\r" in output:
-            raise FileParsingError(
-                f"file_parsing command for {raw_value!r} produced a value containing "
-                f"a newline, which cannot be written to a TSV cell: {output!r}"
-            )
-        return output
+        env = {**os.environ, "LIMSPORT_FILE": local_path}
+        return [_run_command(o, env, raw_value) for o in outputs]
     finally:
         if tmp_dir is not None:
             _cleanup(tmp_dir)

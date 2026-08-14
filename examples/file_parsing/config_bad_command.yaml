@@ -6,5 +6,6 @@ columns:
   - name: sample_id
   - name: metadata_json
     file_parsing:
-      command: |
-        python3 -c "import json; print(json.load(open('$LIMSPORT_FILE'))['run']['metrics']['depth'])"
+      - name: mean_depth
+        command: |
+          python3 -c "import json; print(json.load(open('$LIMSPORT_FILE'))['run']['metrics']['depth'])"

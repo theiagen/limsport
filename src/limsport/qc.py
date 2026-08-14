@@ -3,8 +3,9 @@ condition/column/sample, decide pass or fail and why.
 """
 
 import operator as op
+from typing import NamedTuple
 
-from .config import ColumnConfig, QCCondition, QCFailure, QCOperator, QCOutcome
+from .config import QCCondition, QCFailure, QCOperator, QCOutcome
 
 # ordering comparisons are matched to the stdlib operator functions.
 _ORDERING_OPS = {
@@ -67,35 +68,51 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
     return passed, None if passed else f"{actual} {condition.operator.value} {condition.value} is False"
 
 
-def evaluate_column(cell: str | None, column: ColumnConfig, sample: str) -> QCFailure | None:
-    """Check one cell against all of a column's conditions (&&)
+class ResolvedField(NamedTuple):
+    """One value bound for a row, ready for QC: which source column it
+    came from, its output name in the output header, its resolved
+    value, and the QC conditions (if any) to check it against.
+
+    A plain column resolves to exactly one of these; a file_parsing
+    column resolves to one per configured output, all sharing the same
+    source `column` but each with its own `output_column` and `qc`.
+    """
+
+    column: str
+    output_column: str
+    value: str
+    qc: list[QCCondition]
+
+
+def evaluate_field(field: ResolvedField, sample: str) -> QCFailure | None:
+    """Check one resolved field against its own QC conditions (&&)
 
     Exits on the first failing condition
     """
-    for condition in column.qc:
-        passed, reason = evaluate_condition(cell, condition)
+    for condition in field.qc:
+        passed, reason = evaluate_condition(field.value, condition)
         if not passed:
             # confirm reason is a string when fail
             assert reason is not None
             return QCFailure(
                 sample=sample,
-                column=column.name,
-                output_column=column.output_name,
+                column=field.column,
+                output_column=field.output_column,
                 operator=condition.operator,
                 expected=condition.value,
-                actual=cell,
+                actual=field.value,
                 reason=reason,
             )
     return None
 
 
-def evaluate_sample(row: dict[str, str], sample: str, columns: list[ColumnConfig]) -> QCOutcome:
-    """Check every QC-configured column for one sample's row."""
+def evaluate_row(fields: list[ResolvedField], sample: str) -> QCOutcome:
+    """Check every QC-configured field for one sample's row."""
     failures: list[QCFailure] = []
-    for column in columns:
-        if not column.qc:
-            continue  # columns with no QC rules are never evaluated or cast
-        failure = evaluate_column(row.get(column.name), column, sample)
+    for field in fields:
+        if not field.qc:
+            continue  # fields with no QC rules are never evaluated or cast
+        failure = evaluate_field(field, sample)
 
         if failure is not None:
             failures.append(failure)
