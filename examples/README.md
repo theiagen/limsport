@@ -1,16 +1,24 @@
 # LIMSport examples
 
-A single scenario exercising every QC comparison operator, every warning
-path, every column/sample transformation, and every hard-error path
-`limsport` supports. `file_parsing/` is a second, separate scenario for
-just the `file_parsing` feature — it needs its own dataset, since a
-`file_parsing` failure aborts the entire run and can't share the main
-scenario's one successful pass. `theiaprok_illumina_pe/` is a third
-scenario built on a real Terra data table instead of a hand-built
-fixture, exercising the same features at real scale and against real
-`gs://` files.
+Three self-contained scenarios, one per subdirectory, each with its own
+input/config/output fixtures and its own `run_examples.sh` that runs
+every command below in order (the successful runs and the deliberate
+error cases alike) so you can reproduce the whole scenario with one
+command instead of copy-pasting from this file:
 
-## Files
+| scenario | run it | what it's for |
+|----------|--------|----------------|
+| `basic/` | `./examples/basic/run_examples.sh` | every QC comparison operator, every warning path, every column/sample transformation, and every hard-error path |
+| `file_parsing/` | `./examples/file_parsing/run_examples.sh` | the `file_parsing` feature specifically -- needs its own dataset since a `file_parsing` failure aborts the entire run and can't share `basic/`'s one successful pass |
+| `theiaprok_illumina_pe/` | `./examples/theiaprok_illumina_pe/run_examples.sh` | the same features against a real 491-column Terra data table and real `gs://` files, plus `qc_by` |
+
+Each script assumes `limsport` is installed (`pip install -e .` from the
+repo root) and is safe to re-run -- it only ever writes into `/tmp` or
+back over its own scenario's committed output files.
+
+## `basic/`: every operator, warning, and hard error
+
+### Files
 
 - `input.tsv` — 14 samples. Every sample except `SAMPLE_001` is set up to
   fail (or get excluded/flagged as unknown) in one specific, isolated way:
@@ -48,15 +56,15 @@ fixture, exercising the same features at real scale and against real
   exist in the input at all.
 - `output.tsv` / `qc_report.tsv` — the committed result of the command below.
 
-## Reproduce it
+### Reproduce it
 
 ```
 limsport \
-  --input examples/input.tsv \
-  --config examples/config.yaml \
-  --samples examples/samples.txt \
-  --output examples/output.tsv \
-  --qc-report examples/qc_report.tsv
+  --input examples/basic/input.tsv \
+  --config examples/basic/config.yaml \
+  --samples examples/basic/samples.txt \
+  --output examples/basic/output.tsv \
+  --qc-report examples/basic/qc_report.tsv
 ```
 
 This single run touches:
@@ -81,13 +89,13 @@ A few more commands cover the rest of what the tool does outside of errors:
 
 ```
 # Byte-identical fast path: no --config, no --samples at all
-limsport --input examples/input.tsv --output /tmp/copy.tsv
+limsport --input examples/basic/input.tsv --output /tmp/copy.tsv
 # -> "INFO: 14/14 samples included (no QC configured)"
-diff examples/input.tsv /tmp/copy.tsv   # empty diff
+diff examples/basic/input.tsv /tmp/copy.tsv   # empty diff
 
 # Delimiter conversion: same config, written as CSV instead of TSV
-limsport --input examples/input.tsv --config examples/config.yaml \
-  --samples examples/samples.txt --output /tmp/output.csv --delimiter ,
+limsport --input examples/basic/input.tsv --config examples/basic/config.yaml \
+  --samples examples/basic/samples.txt --output /tmp/output.csv --delimiter ,
 ```
 
 With no `--config` at all, there's no QC to run, so the summary line says
@@ -95,11 +103,11 @@ With no `--config` at all, there's no QC to run, so the summary line says
 entirely rather than writing an empty file, even if you pass it anyway:
 
 ```
-limsport --input examples/input.tsv --output /tmp/copy.tsv --qc-report /tmp/qc_report.tsv
+limsport --input examples/basic/input.tsv --output /tmp/copy.tsv --qc-report /tmp/qc_report.tsv
 ls /tmp/qc_report.tsv   # No such file or directory
 ```
 
-## Error scenarios
+### Error scenarios
 
 Everything above only ever produces *warnings* — the run still finishes
 and writes an output file. These three files instead trigger a *hard
@@ -108,21 +116,21 @@ raw traceback), and never creates `--output` at all.
 
 ```
 # 1. config references a column that doesn't exist in the input header
-limsport --input examples/input.tsv --config examples/config_bad_column.yaml --output /tmp/out.tsv
+limsport --input examples/basic/input.tsv --config examples/basic/config_bad_column.yaml --output /tmp/out.tsv
 # -> "config references column 'does_not_exist', which is not in the input header"
 
 # 2. config isn't valid YAML syntax at all
-limsport --input examples/input.tsv --config examples/config_malformed.yaml --output /tmp/out.tsv
+limsport --input examples/basic/input.tsv --config examples/basic/config_malformed.yaml --output /tmp/out.tsv
 # -> "invalid YAML: while parsing a flow sequence ..."
 
 # 3. a data row has MORE fields than the header (unlike SAMPLE_014's short
 #    row above, a long row is never padded or truncated, since guessing
 #    which extra field to drop could quietly corrupt data)
-limsport --input examples/input_ragged_too_long.tsv --samples examples/samples.txt --output /tmp/out.tsv
+limsport --input examples/basic/input_ragged_too_long.tsv --samples examples/basic/samples.txt --output /tmp/out.tsv
 # -> "row has 4 columns, expected 2 (based on the header): ['SAMPLE_B', '100', '200', 'extra']"
 ```
 
-## file_parsing scenario (`file_parsing/`)
+## `file_parsing/`: parsing values out of referenced files
 
 A column marked with `file_parsing` treats its cell as a *file path* and
 runs a configured command against that file. The command's output
@@ -150,7 +158,7 @@ supports, as opposed to `metadata_json`/`qc_report`'s single-entry lists.
 - `input.tsv` — 4 samples, each pointing at its own JSON/TSV/report trio.
   `SAMPLE_A` passes every check; `SAMPLE_B`/`SAMPLE_C`/`SAMPLE_D` each
   fail exactly one of the four parsed-and-QC'd values, isolating each
-  format's extraction the same way the main scenario isolates each
+  format's extraction the same way `basic/` isolates each
   operator. `chr1_coverage_pct` passes for every sample, so it never
   competes with the "exactly one failure" isolation above.
 - `config.yaml` — uses YAML's literal block scalar (`command: |`) for
@@ -173,9 +181,9 @@ command runs, then deleted afterward) aren't demonstrated here since that
 needs real cloud credentials and a real bucket. It's covered by mocked
 unit tests in `tests/test_file_parsing.py` instead.
 
-### file_parsing error scenarios
+### Error scenarios
 
-Unlike the main scenario's `config_bad_column.yaml`/`config_malformed.yaml`,
+Unlike `basic/`'s `config_bad_column.yaml`/`config_malformed.yaml`,
 these two failure modes are specific to `file_parsing`: a failing command
 or a disallowed newline aborts the *entire* export, which is why they
 need their own dataset instead of getting mixed into `input.tsv`'s
@@ -196,10 +204,10 @@ limsport --input examples/file_parsing/input.tsv --config examples/file_parsing/
 # -> "... produced a value containing a newline, which cannot be written to a TSV cell: ..."
 ```
 
-Both exit `1` and never create `--output`, same as the main scenario's
+Both exit `1` and never create `--output`, same as `basic/`'s
 error cases.
 
-## theiaprok_illumina_pe scenario (`theiaprok_illumina_pe/`)
+## `theiaprok_illumina_pe/`: real data, real gs://, and qc_by
 
 Everything above uses a small, hand-built fixture. This scenario instead
 uses a real Terra data table from PHB's `TheiaProk_Illumina_PE` workflow —
@@ -321,7 +329,7 @@ sample  column           output_column    operator  expected  actual   reason
 369711  assembly_length  assembly_length                      4653361  no qc_by rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured
 ```
 
-### theiaprok_illumina_pe error scenarios
+### Error scenarios
 
 ```
 # 1. a config column name typo ("assembly_lenght")
