@@ -164,9 +164,19 @@ def run_export(
     if config is not None:
         _validate_columns_exist(config.columns, name_to_indices, input_path)
         _validate_file_parsing_allowed(config.columns, allow_file_parsing)
-        output_header = [name for c in config.columns for name in c.output_names]
-        # reorder columns to match the config's order
-        resolved_columns = [(c, name_to_indices[c.name][0]) for c in config.columns]
+
+        # ------------------------------------------------------------------
+        # OUTPUT COLUMNS ARE ORDERED LIKE THE CONFIG
+        ordered_columns = config.columns
+        # ------------------------------------------------------------------
+        # ---                             OR                             ---
+        # ------------------------------------------------------------------
+        # OUTPUT COLUMNS ARE KEPT IN THE SAME ORDER AS THE INPUT
+        # ordered_columns = sorted(config.columns, key=lambda c: name_to_indices[c.name][0])
+        # ------------------------------------------------------------------
+
+        output_header = [name for c in ordered_columns for name in c.output_names]
+        resolved_columns = [(c, name_to_indices[c.name][0]) for c in ordered_columns]
         match_index = {name: name_to_indices[name][0] for name in _collect_match_columns(config.columns)}
     else:
         # no config: pass every column through unchanged
@@ -179,7 +189,7 @@ def run_export(
 
     output_rows: list[list[str]] = []
     all_failures: list[QCFailure] = []
-    total_rows = 0  
+    total_rows = 0
     candidate_rows = 0 # rows after sample-list filtering, before QC
     passed_rows = 0 # rows after QC
 
@@ -196,14 +206,14 @@ def run_export(
         candidate_rows += 1
 
         if config is not None:
-            # A file_parsing column can resolve to several output fields
-            # from one input column, so build a flat list instead of a
-            # one-value-per-column dict.
+
+            # extract the match value(s)
             match_values = {name: row[idx] for name, idx in match_index.items()}
             fields: list[qc.ResolvedField] = []
             for column, idx in resolved_columns:
                 fields.extend(_resolve_column(column, row[idx], match_values))
 
+            # perform the qc check
             outcome = qc.evaluate_row(fields, sample)
             all_failures.extend(outcome.failures)
             if not outcome.passed:

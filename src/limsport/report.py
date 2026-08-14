@@ -23,7 +23,7 @@ def log_no_qc_summary(included: int, total: int) -> None:
 
 def log_nothing_to_do() -> None:
     # Used when there's nothing to filter, transform, or re-delimit
-    logger.info("no config, samples, or delimiter change given; nothing to do")
+    logger.info("no config, samples, or delimiter change given; nothing to do!")
 
 
 def log_qc_failures(failures: list[QCFailure]) -> None:

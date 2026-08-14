@@ -69,6 +69,29 @@ def test_config_reorders_renames_and_drops_columns(tmp_path):
     assert len(rows) == 5
 
 
+def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
+    # input_basic's header is sample_id, read_count, status, notes -- this
+    # config lists the same columns in a deliberately different order, to
+    # prove the output follows the config's declared order rather than
+    # coincidentally matching the input's (config_basic above happens to
+    # list its columns in input order, so it can't tell the two apart).
+    # See the DECISION POINT in run_export if this ever needs to flip to
+    # input order instead.
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "columns:\n"
+        "  - name: status\n"
+        "  - name: sample_id\n"
+        "  - name: notes\n"
+        "  - name: read_count\n"
+        "    rename: total_reads\n"
+    )
+    out = tmp_path / "out.tsv"
+    transform.run_export(input_basic(tmp_path), config, None, out, None)
+    header = table_io.read_header(out)
+    assert header == ["status", "sample_id", "notes", "total_reads"]
+
+
 def test_unknown_config_column_raises_before_output_created(tmp_path):
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
