@@ -1,3 +1,0 @@
-sample	column	output_column	operator	expected	actual	reason
-369711	assembly_length	assembly_length			4653361	no qc rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured
-369711	quast_report	quast_n50			217441	no qc rule matches gambit_predicted_taxon='Salmonella enterica' for file_parsing output 'quast_n50' (column 'quast_report'), and no default is configured

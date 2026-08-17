@@ -6,7 +6,7 @@ Three self-contained scenarios, one per subdirectory, each with its own input/co
 |----------|--------|----------------|
 | `basic/` | `./examples/basic/run_examples.sh` | every QC comparison operator, every warning path, every column/sample transformation, and every hard-error path |
 | `file_parsing/` | `./examples/file_parsing/run_examples.sh` | the `file_parsing` feature specifically: needs its own dataset since a `file_parsing` failure aborts the entire run and can't share `basic/`'s one successful pass |
-| `theiaprok_illumina_pe/` | `./examples/theiaprok_illumina_pe/run_examples.sh` | the same features against a real 491-column Terra data table and real `gs://` files, plus conditional `qc` |
+| `theiaprok_illumina_pe/` | `./examples/theiaprok_illumina_pe/run_examples.sh` | the same features, plus conditional `qc`, against a real 491-column Terra data table and real `gs://` files |
 
 Each script assumes `limsport` is installed (`pip install -e .` from the repo root) and is safe to re-run: it only ever writes into `/tmp` or back over its own scenario's committed output files.
 
@@ -154,22 +154,31 @@ Both exit `1` and never create `--output`, same as `basic/`'s error cases.
 
 ## `theiaprok_illumina_pe/`: real data, real gs://, and conditional qc
 
-Everything above uses a small, hand-built fixture. This scenario instead uses a real Terra data table from PHB's `TheiaProk_Illumina_PE` workflow (491 columns, 70 samples) to exercise the same features against real scale and against **real `gs://` files in Google Cloud Storage** rather than local paths. It's the one scenario that needs `gcloud` installed and authenticated with read access to the referenced buckets to reproduce in full.
+Everything above uses a small, hand-built fixture. This scenario instead uses a real Terra data table from PHB's `TheiaProk_Illumina_PE` workflow (491 columns, 70 samples) to exercise the same features against real scale and against **real `gs://` files in Google Cloud Storage** rather than local paths, plus conditional `qc` (a threshold chosen per row from another column's value instead of one fixed rule for every organism). It's the one scenario that needs `gcloud` installed and authenticated with read access to the referenced buckets to reproduce in full.
 
 - `theiaprok_illumina_pe.tsv`: the real data table, unmodified.
-- `config.yaml`: keeps 11 of the 491 columns. A pass-through (`assembler`), every QC operator against genuine bioinformatics QC metrics (`assembly_length` for the `>=`/`<=` range, `n50_value` for `>`, `number_contigs` for `<`, `gambit_predicted_taxon` for `=`, `combined_mean_q_clean` for `~=`), two more realistic single-condition checks (`est_coverage_clean`, `fastq_scan_num_reads_clean_pairs`), and a multi-output `file_parsing` column (`quast_report`) that downloads each sample's real QUAST report from `gs://` once and runs three independent `awk` commands against it (`quast_n50`, `quast_gc_pct`, `quast_total_length`), cross-validating the extracted values against the native `n50`/`assembly_length` columns pulled from the same row.
-- `samples.txt`: 8 real sample IDs chosen to isolate specific outcomes, plus one that doesn't exist (`SAMPLE_DOES_NOT_EXIST`, for the unknown-sample warning):
+- `config.yaml`: keeps 10 of the 491 input columns (12 in the output, once `quast_report`'s `file_parsing` expands to three). A pass-through (`assembler`), every QC operator against genuine bioinformatics QC metrics (`n50_value` for `>`, `number_contigs` for `<`, `combined_mean_q_clean` for `~=`), two more realistic single-condition checks (`est_coverage_clean`, `fastq_scan_num_reads_clean_pairs`), and a multi-output `file_parsing` column (`quast_report`) that downloads each sample's real QUAST report from `gs://` once and runs three independent `awk` commands against it (`quast_n50`, `quast_gc_pct`, `quast_total_length`), cross-validating the extracted values against the native `n50`/`assembly_length` columns pulled from the same row.
+
+  `assembly_length` and `quast_n50` both use *conditional* qc instead: the right threshold for either one depends on which organism a sample actually is (`gambit_predicted_taxon`, kept as a pass-through `predicted_taxon` column and used as the match key), not one fixed range for every organism. A fixed *E. coli*-sized range (>= 2,000,000 and <= 6,500,000) would incorrectly flag `SAMN24249320` -- a real, correctly assembled ~6.95 Mb *Pseudomonas aeruginosa* genome -- as too large; here, *Pseudomonas* gets its own, correct range and `SAMN24249320` passes both checks instead. There's deliberately no `default:` on either rule set -- a real *Salmonella enterica* sample (`369711`) is included in `samples.txt` specifically to show what happens when a row's organism has no matching rule: a real QC failure ("no qc rule matches...") on *both* the plain column and the file_parsing output, not a silent pass.
+- `samples.txt`: 9 real sample IDs chosen to isolate specific outcomes, plus one that doesn't exist (`SAMPLE_DOES_NOT_EXIST`, for the unknown-sample warning):
 
   | sample                                      | demonstrates |
   |----------------------------------------------|--------------|
-  | `19050801924`, `461023`, `SRR16579222_Ecoli_stxPos2completeOperons` | pass every check |
+  | `19050801924`, `461023`, `SRR16579222_Ecoli_stxPos2completeOperons` | *E. coli* samples that pass every check |
+  | `155734`                                      | a *Klebsiella pneumoniae* sample that passes every check, including `assembly_length`/`quast_n50` under *K. pneumoniae*'s own conditional range |
+  | `SAMN24249320`                                 | a *Pseudomonas aeruginosa* sample (~6.95 Mb genome, `quast_n50` of 177,799) that passes every check, including `assembly_length`/`quast_n50`, once each gets *P. aeruginosa*'s own conditional range |
+  | `369711`                                       | a *Salmonella enterica* sample whose organism has no conditional rule: fails `assembly_length` *and* `quast_n50` with a blank `operator`/`expected` in the report -- there's no condition to point at, only the fact that no rule (and no `default:`) matches |
   | `03-98DDCS`                                   | `fastq_scan_num_reads_clean_pairs` is genuinely blank in the source data → "missing value", not a crafted fixture |
-  | `155734`                                      | fails only `gambit_predicted_taxon` (it's *Klebsiella pneumoniae*, not *E. coli*) |
   | `480757`                                       | fails only `est_coverage_clean` (28.6x, just under the 30x minimum) |
   | `CL2021-00283104`                              | a genuinely fragmented assembly: fails `n50_value`, `number_contigs`, *and* `est_coverage_clean` together, plus the file_parsing-derived `quast_n50` (which agrees with `n50_value` exactly: both read `10000`) |
-  | `SAMN24249320`                                 | a *Pseudomonas aeruginosa* sample: fails `gambit_predicted_taxon` *and* `assembly_length` (a ~6.95 Mb genome is out of range for thresholds tuned around *E. coli*) |
 
-  Unlike the hand-built scenarios above, real QC failures aren't isolated one-per-sample. `CL2021-00283104` shows that a genuinely bad assembly fails several unrelated metrics at once, and `SAMN24249320` shows a threshold picked for one species legitimately rejecting another. Only `19050801924`, `461023`, and `SRR16579222_Ecoli_stxPos2completeOperons` pass every check and appear in `output.tsv`; all 9 QC failures across the other 5 real samples are in `qc_report.tsv`.
+  Unlike the hand-built scenarios above, real QC failures aren't isolated one-per-sample. `CL2021-00283104` shows that a genuinely bad assembly fails several unrelated metrics at once, and `369711` shows a sample whose organism simply isn't covered by any rule. Only `19050801924`, `461023`, `SRR16579222_Ecoli_stxPos2completeOperons`, `155734`, and `SAMN24249320` pass every check and appear in `output.tsv`; all 8 QC failures across the other 4 real samples are in `qc_report.tsv`, including `369711`'s no-matching-rule failures shown with a blank `operator`/`expected`:
+
+  ```
+  sample  column           output_column    operator  expected  actual   reason
+  369711  assembly_length  assembly_length                      4653361  no qc rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured
+  369711  quast_report     quast_n50                             217441  no qc rule matches gambit_predicted_taxon='Salmonella enterica' for file_parsing output 'quast_n50' (column 'quast_report'), and no default is configured
+  ```
 - `output.tsv` / `qc_report.tsv`: the committed result of the command below.
 
 ```
@@ -201,30 +210,6 @@ limsport \
 ```
 
 The message above is gcloud's real, unedited stderr output: exit code `1`, no `--output` file created. A real 403 permission-denied error from a bucket the caller lacks access to would surface the same way, with Google's own permission-denied text in place of the 404.
-
-### Conditional qc scenario (`config_conditional_qc.yaml`)
-
-The 21 different species in this table make a good case for conditional `qc`: `config.yaml`'s `assembly_length` range (>= 2,000,000 and <= 6,500,000) is really an *E. coli*-sized bound applied to every organism, and it incorrectly flags `SAMN24249320` (a real, correctly assembled ~6.95 Mb *Pseudomonas aeruginosa* genome) as too large. `config_conditional_qc.yaml` instead keys `assembly_length`'s threshold off `gambit_predicted_taxon`, so each organism gets its own range, **and does the same for `quast_n50`**, a value pulled out of each sample's real `gs://` QUAST report via `file_parsing`.
-
-`samples_conditional_qc.txt` picks 4 real samples: one each of the three organisms `config_conditional_qc.yaml` defines rules for (*E. coli*, *K. pneumoniae*, *P. aeruginosa*), plus one real *Salmonella enterica* sample (`369711`) whose organism has no rule and no `default:` on either check.
-
-```
-limsport \
-  --input examples/theiaprok_illumina_pe/theiaprok_illumina_pe.tsv \
-  --config examples/theiaprok_illumina_pe/config_conditional_qc.yaml \
-  --samples examples/theiaprok_illumina_pe/samples_conditional_qc.txt \
-  --output examples/theiaprok_illumina_pe/output_conditional_qc.tsv \
-  --qc-report examples/theiaprok_illumina_pe/qc_report_conditional_qc.tsv \
-  --allow-file-parsing
-```
-
-`SAMN24249320` now passes both checks (its real 6,953,034 bp genome is within *P. aeruginosa*'s own 5.5-7.1 Mb range, and its real `quast_n50` of 177,799 clears *P. aeruginosa*'s 100,000 floor). `369711` fails *both* with a blank `operator`/`expected` in the report: there's no condition to point at, only the fact that *Salmonella enterica* has no rule for either the plain column or the file_parsing output:
-
-```
-sample  column           output_column    operator  expected  actual   reason
-369711  assembly_length  assembly_length                      4653361  no qc rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured
-369711  quast_report     quast_n50                             217441  no qc rule matches gambit_predicted_taxon='Salmonella enterica' for file_parsing output 'quast_n50' (column 'quast_report'), and no default is configured
-```
 
 ### Error scenarios
 

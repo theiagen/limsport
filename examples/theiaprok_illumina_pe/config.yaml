@@ -1,15 +1,16 @@
 # A real Terra data table from PHB's TheiaProk_Illumina_PE workflow (491
 # columns, 70 samples) instead of a synthetic fixture -- this exercises the
-# column allow-list at real scale (491 columns down to 11), every QC
-# operator against genuine bioinformatics QC metrics, and file_parsing
-# against real gs:// report files, both single- and multi-output.
+# column allow-list at real scale (491 columns down to 10), every QC
+# operator against genuine bioinformatics QC metrics, file_parsing against
+# real gs:// report files (both single- and multi-output), and conditional
+# qc keyed on the predicted organism.
 #
-# Thresholds are deliberately tuned around a typical E. coli genome, so
-# QC failures cluster the way they would in a real, taxonomically mixed
-# batch: a sample's assembly_length/n50/contigs/coverage often fail
-# together (a genuinely fragmented assembly fails more than one metric at
-# once), and every non-E.-coli sample fails the taxon check by design --
-# see examples/README.md for the full breakdown across all 70 samples.
+# assembly_length and quast_n50 use *conditional* qc: the right threshold
+# for either one depends on which organism a sample actually is, not one
+# fixed range for every organism. There's deliberately no `default:` on
+# either -- a real Salmonella enterica sample (369711, see samples.txt) has
+# no matching rule for either check, which surfaces as a real QC failure
+# ("no qc rule matches...") rather than a silent pass.
 columns:
   - name: "entity:theiaprok_illumina_pe_v4-2-0_id"
     rename: sample_id
@@ -17,14 +18,21 @@ columns:
   - name: assembler                # pass-through: kept, never QC'd
 
   - name: gambit_predicted_taxon
-    rename: predicted_taxon
-    qc:
-      - {operator: "=", value: "Escherichia coli"}
+    rename: predicted_taxon        # pass-through: also the match key for the conditional qc below
 
-  - name: assembly_length          # range check: >= and <= combined
+  - name: assembly_length
     qc:
-      - {operator: ">=", value: 2000000}
-      - {operator: "<=", value: 6500000}
+      match: gambit_predicted_taxon
+      rules:
+        "Escherichia coli":
+          - {operator: ">=", value: 4600000}
+          - {operator: "<=", value: 5900000}
+        "Klebsiella pneumoniae":
+          - {operator: ">=", value: 5200000}
+          - {operator: "<=", value: 5900000}
+        "Pseudomonas aeruginosa":
+          - {operator: ">=", value: 5500000}
+          - {operator: "<=", value: 7100000}
 
   - name: n50_value
     rename: n50
@@ -53,7 +61,7 @@ columns:
 
   - name: quast_report
     file_parsing:
-      # Cross-validates the native assembly_length/n50/GC% columns above
+      # Cross-validates the native assembly_length/GC% columns above
       # against the same numbers pulled straight out of QUAST's own
       # report.tsv for that sample -- three outputs from one gs:// file,
       # localized once and parsed with three independent awk commands.
@@ -61,7 +69,14 @@ columns:
         command: |
           awk -F'\t' '$1 == "N50" {print $2}' "$LIMSPORT_FILE"
         qc:
-          - {operator: ">=", value: 20000}
+          match: gambit_predicted_taxon
+          rules:
+            "Escherichia coli":
+              - {operator: ">=", value: 50000}
+            "Klebsiella pneumoniae":
+              - {operator: ">=", value: 80000}
+            "Pseudomonas aeruginosa":
+              - {operator: ">=", value: 100000}
       - name: quast_gc_pct
         command: |
           awk -F'\t' '$1 == "GC (%)" {print $2}' "$LIMSPORT_FILE"

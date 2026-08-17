@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Runs every command documented in examples/README.md's
 # "theiaprok_illumina_pe/" section: the main run (real gs:// file_parsing
-# against a real 491-column Terra data table), the localization-failure
-# demo, the conditional-qc demo, and the two hard-error scenarios.
+# and conditional qc, together, against a real 491-column Terra data
+# table), the localization-failure demo, and the two hard-error scenarios.
 #
-# The main run, the localization-failure demo, and the conditional-qc run
-# all shell out to real `gcloud storage cp` calls against real gs:// paths
-# (two real, public/workspace buckets, plus one deliberately nonexistent
-# one) -- they need `gcloud` installed and authenticated with read access
-# to reproduce in full. If `gcloud` isn't on PATH at all, those three are
-# skipped (not counted as failures) rather than run against a tool that
-# can't possibly work; if it's present but unauthenticated or offline,
-# they'll fail for real, which itself is expected -- see examples/README.md's
-# "Confirming a localization failure surfaces Google's own error" section.
+# The main run and the localization-failure demo both shell out to real
+# `gcloud storage cp` calls against real gs:// paths (a real, public/
+# workspace bucket, plus one deliberately nonexistent one) -- they need
+# `gcloud` installed and authenticated with read access to reproduce in
+# full. If `gcloud` isn't on PATH at all, those two are skipped (not
+# counted as failures) rather than run against a tool that can't possibly
+# work; if it's present but unauthenticated or offline, they'll fail for
+# real, which itself is expected -- see examples/README.md's "Confirming a
+# localization failure surfaces Google's own error" section.
 #
 # Safe to re-run -- it only writes back over this folder's own committed
 # output*.tsv/qc_report*.tsv (which should come out byte-identical) or
@@ -78,22 +78,16 @@ skip() {
 }
 
 if [ "$HAVE_GCLOUD" -eq 1 ]; then
-    run_ok "main run: real gs:// file_parsing (single- and multi-output) against a 491-column table" \
+    run_ok "main run: real gs:// file_parsing (single- and multi-output) and conditional qc against a 491-column table" \
         limsport --input "$DIR/theiaprok_illumina_pe.tsv" --config "$DIR/config.yaml" --samples "$DIR/samples.txt" \
             --output "$DIR/output.tsv" --qc-report "$DIR/qc_report.tsv" --allow-file-parsing
 
     run_fail "localization failure: a nonexistent/inaccessible gs:// bucket" \
         limsport --input "$DIR/input_forbidden_bucket.tsv" --config "$DIR/config_forbidden_bucket.yaml" \
             --output "$TMP/out.tsv" --allow-file-parsing
-
-    run_ok "conditional qc: organism-specific thresholds on a plain column and a file_parsing output" \
-        limsport --input "$DIR/theiaprok_illumina_pe.tsv" --config "$DIR/config_conditional_qc.yaml" \
-            --samples "$DIR/samples_conditional_qc.txt" --output "$DIR/output_conditional_qc.tsv" \
-            --qc-report "$DIR/qc_report_conditional_qc.tsv" --allow-file-parsing
 else
-    skip "main run: real gs:// file_parsing against a 491-column table"
+    skip "main run: real gs:// file_parsing and conditional qc against a 491-column table"
     skip "localization failure: a nonexistent/inaccessible gs:// bucket"
-    skip "conditional qc: organism-specific thresholds on a plain column and a file_parsing output"
 fi
 
 run_fail "error 1: a config column name typo (\"assembly_lenght\")" \

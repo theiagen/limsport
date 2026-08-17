@@ -2,11 +2,9 @@
 
 `limsport` reads a TSV of samples, applies an optional YAML config to rename/select columns and run QC on each row, and writes a LIMS-importable TSV. Pass `--qc-report` to see exactly which samples failed which checks and why.
 
-With no config, no sample list, and an already tab-delimited input, nothing happens. Renaming, dropping columns, filtering samples, QC, delimiter conversion, and pulling values out of referenced files are all opt-in through the config file and a few flags.
-
 ## Installation
 
-Not published anywhere yet, so install from a checkout:
+LIMSport is currently unpublished, so install with pip like so:
 
 ```
 pip install -e .
@@ -20,29 +18,29 @@ This registers a `limsport` console script (see `pyproject.toml`). Requires Pyth
 limsport --input samples.tsv --output samples.lims.tsv
 ```
 
-With no `--config` or `--samples`, there's nothing to change, so nothing is written (see "Delimiter handling" below for the one exception). To transform and QC the data, add a config:
+If neither `--config` nor `--samples` are provided, nothing happens. To transform and/or QC the data, add a configuration file:
 
 ```
 limsport --input samples.tsv --config config.yaml --output samples.lims.tsv --qc-report qc_report.tsv
 ```
 
-`examples/` walks through every operator, every warning and error path, and a separate scenario for `file_parsing`, with its own README. Fastest way to see the whole tool in action.
+See `examples/` for more examples.
 
 ## CLI reference
 
 | flag | required | meaning |
 |------|----------|---------|
 | `--input`, `-i` | yes | input TSV (or another delimited format, see below) |
-| `--output`, `-o` | no | output path (default: `limsport.tsv`); not written at all if `--config`, `--samples`, and `--delimiter` are all omitted |
+| `--output`, `-o` | no | output path (default: `limsport.tsv`); not written if `--config`, `--samples`, and `--delimiter` are all omitted |
 | `--config`, `-c` | no | YAML config: column allow-list, renaming, QC, `file_parsing` |
 | `--samples`, `-s` | no | a file of sample names (one per line) to include; if omitted, every sample is included |
 | `--qc-report`, `-r` | no | write a TSV of every QC failure (sample, column, reason, ...) |
-| `--delimiter`, `-d` | no | output delimiter (default: tab, matching the default `limsport.tsv` output name) |
+| `--delimiter`, `-d` | no | output delimiter (default: tab) |
 | `--allow-file-parsing` | no | required if the config uses `file_parsing` (see below) |
 
 ## The config file
 
-A config is a YAML file with one required key, `columns`, listing every column to keep in the output. Anything not listed gets dropped. Order matters too: the output's columns come out in the order you list them here.
+A config is a YAML file with one required key, `columns`, listing every column to keep in the output. Only columns that are listed are kept. Output columns are returned in the order they appear in the config.
 
 ```yaml
 columns:
@@ -50,25 +48,25 @@ columns:
 
   - name: read_count
     rename: total_reads # renamed in the output
-    qc:
-      - {operator: ">=", value: 1000} # both conditions must pass
-      - {operator: "<=", value: 1000000} # treated as an "AND"
+    qc: # all of these conditions must pass for the row to be included in the output
+      - {operator: ">=", value: 1000}
+      - {operator: "<=", value: 1000000} # each item is treated as an "AND"
 
   - name: status
     qc:
-      - {operator: "=", value: PASS} # case-sensitive string match
+      - {operator: "=", value: PASS} # case-sensitive string matching
 
   - name: length
     qc:
-      - {operator: "~=", value: 1000000, tolerance_percent: 5} # within 5%
+      - {operator: "~=", value: 1000000, tolerance_percent: 5} # within 5% of value
 
   - name: lot_number # kept and renamed, but never QC'd
     rename: lot
 ```
 
-A sample failing a `qc:` rule gets dropped from the output and reported (see below), but that doesn't abort the run.
+A sample failing a `qc:` rule gets dropped from the output and reported.
 
-A few things do abort the whole run before any output is written: a config column that doesn't exist in the input header, a column name that's ambiguous (shows up more than once in the header), or a data row with more fields than the header.
+Malformatted configs either (a) have config columns that are not present in the input table, (b) have ambiguous column names. These will cause the program to exit.
 
 ### QC operators
 
@@ -78,13 +76,9 @@ A few things do abort the whole run before any output is written: a config colum
 | `=` | equality | number or string | string comparison is exact and case-sensitive |
 | `~=` | within `tolerance_percent`% of `value`, either direction | number | requires a companion `tolerance_percent` field |
 
-A column can list several conditions to express a range, like `read_count` above. They're ANDed, and checking stops at the first failure, so the reported reason is whichever condition got checked first, not necessarily every condition that would have failed.
+Empty or whitespace-only cells fail due to `"missing_value"`. Cells that are not able to be cast as a number fail QC (`"non-numeric value 'NA' cannot be compared with >= 1000"`).
 
-An empty or whitespace-only cell always fails as `"missing value"`, never compared against anything. A cell that won't parse as a number against a numeric operator fails as an ordinary QC failure instead of crashing (e.g. `"non-numeric value 'NA' cannot be compared with >= 1000"`), so one bad cell doesn't take down the whole batch. Boolean YAML values (`value: true`) are rejected outright, since `true` almost always means the text `"true"`, not the number `1`.
-
-### The QC report
-
-`--qc-report` writes one row per failing sample/output pair, so a sample failing three outputs produces three rows. Columns: `sample`, `column` (the input's original name), `output_column` (its renamed name, the same value if there was no rename, or the specific `file_parsing` output name that failed), `operator`, `expected`, `actual`, `reason`. It's always written, even header-only when nothing failed, so callers can check the row count instead of the file's existence. `operator`/`expected` are blank for a conditional `qc` failure with no matching rule (see below), since there's no condition to name, just the fact that none applied.
+Boolean conditions are not accepted at this time.
 
 ### Conditional `qc`: choosing thresholds per row
 
@@ -129,7 +123,7 @@ Which shape you get is purely structural: a YAML list is the plain form, a YAML 
               - {operator: ">=", value: 20000}
   ```
 
-## `file_parsing`: extracting values from referenced files
+### `file_parsing`: extracting values from referenced files
 
 A column marked `file_parsing` treats its cell as a file path instead of a literal value. `file_parsing` is always a list of one or more named outputs, each with its own command run against that file: a single entry pulls out one value, several pull out several values from the *same* file into separate output columns. Each output's command result becomes an output column's real value, flowing through that output's own QC and into the output table like any other field.
 
@@ -183,6 +177,20 @@ columns:
 
 `examples/file_parsing/` has a full worked scenario: JSON via `python3 -c`, a different TSV schema via `awk` (including a multi-output column pulling several values out of one report), an invented report format via `grep`/`cut`/`tr`, plus the error paths: a failing command, an embedded newline, and the flag left off.
 
+## The QC report
+
+`--qc-report` writes one row per failing sample/output pair, so a sample failing three outputs produces three rows. It contains the following columns:
+
+- `sample`
+- `column` (the input's original column name)
+- `output_column` (the renamed column, the same value if there was no rename, or the specific `file_parsing` output name)
+- `operator`
+- `expected`
+- `actual`
+- `reason`
+
+The header is always written. `operator`/`expected` are blank for a conditional `qc` failure with no matching rule (see below).
+
 ## Delimiter handling
 
 The input's delimiter (tab, comma, semicolon, or pipe) is auto-detected from its header line, not the whole file, so one malformed row elsewhere can't break detection. If it can't be figured out confidently, it errors out.
@@ -211,3 +219,9 @@ src/limsport/
 ```
 
 Tests mirror this layout (`tests/test_<module>.py`). There's no shared fixtures directory: every test builds whatever input/config files it needs directly under pytest's own `tmp_path`, right next to the assertions that use them. `config.py` and `transform.py` each split their tests across three files instead of one: `test_<module>.py` for the core behavior, `test_<module>_file_parsing.py` and `test_<module>_conditional_qc.py` for those two features specifically.
+
+
+## To-Do:
+
+- [ ] enable cell-parsing (eg BUSCO, etc.)
+- [ ]
