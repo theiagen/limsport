@@ -224,4 +224,5 @@ Tests mirror this layout (`tests/test_<module>.py`). There's no shared fixtures 
 ## To-Do:
 
 - [ ] enable cell-parsing (eg BUSCO, etc.)
-- [ ]
+- [ ] set level QC - if "NTC" fails fail the entire run
+- [ ] config builder from a html thingy
