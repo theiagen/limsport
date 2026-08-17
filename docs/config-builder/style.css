@@ -1,0 +1,843 @@
+/*
+ * Every rule below is scoped under .limsport-config-builder so this
+ * stylesheet is safe to load on a page that ALSO has its own site-wide CSS
+ * (e.g. inlined directly into a docs page, not just the standalone
+ * index.html) -- without scoping, bare element selectors like `button` or
+ * `select` would restyle every button/select on that page, not just this
+ * widget's own.
+ *
+ * .limsport-config-builder is applied two different ways depending on
+ * context:
+ *   - standalone index.html: on <body>, so `body.limsport-config-builder`
+ *     rules below apply -- the page owns its own background/typography.
+ *   - inlined into a docs page: on a wrapping <div>, so those same
+ *     `body.limsport-config-builder` rules do NOT match, and the widget
+ *     simply inherits the host page's background/font/text color instead
+ *     of imposing its own -- that's what makes it look seamless there.
+ */
+.limsport-config-builder {
+  /* Same brand green as docs/theme/stylesheets/extra.css's --brand-green,
+     used there as the accent color in BOTH light and dark mode -- so unlike
+     most of the palette below, --accent deliberately does NOT change in the
+     dark media block either. */
+  --brand-green: #1da74a;
+  /* Same brand blue as extra.css's --brand-blue -- used there ONLY as the
+     site's light-mode primary color (its header bar); slate/dark mode uses
+     green as its primary instead, with no blue equivalent. --action-accent
+     (Download/Copy specifically) follows that same site convention: blue
+     here in light mode, green in the dark media block below. */
+  --brand-blue: #116eb7;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f5f7fa; /* same hex as the docs theme's --table-header-hover */
+  --border: #dfe3e6;
+  --border-strong: #c7c7c7; /* docs theme's --md-default-fg-color--lighter tier, blended -- a bolder edge for the card/panel "boxes", vs. --border's subtle divider/input-outline use */
+  --text: #262626; /* same hex as the docs theme's light-mode table text */
+  --text-muted: #767676; /* same hex as the docs theme's light-mode placeholder text */
+  --accent: var(--brand-green);
+  --action-accent: var(--brand-blue);
+  --accent-contrast: #ffffff;
+  --danger: #a3402f;
+  --danger-bg: #fbeeec;
+  --code-bg: #ffffff;
+  --code-text: #000000;
+  --radius: calc(0.2 * var(--unit)); /* matches the docs theme's consistent corner radius */
+  /* Same font stacks as the docs theme's --md-text-font-family /
+     --md-code-font-family (site/assets/stylesheets/classic/main*.min.css) --
+     the site doesn't configure a custom `theme.font`, so those variables
+     resolve to exactly these fallback stacks. */
+  --mono: SFMono-Regular, Consolas, Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
+  /* 1 unit of spacing/type sizing below. Equal to 1rem standalone (the
+     unscaled page this stylesheet was designed against), but redefined to
+     0.8rem when embedded in the docs site -- see the [data-md-color-scheme]
+     rule further down for why. */
+  --unit: 1rem;
+  /* No fixed header to clear on the standalone page -- see the
+     [data-md-color-scheme] rule further down, which sets this to 2.4rem
+     when embedded in the docs site instead. */
+  --header-clearance: 0px;
+  /* Scales with the window instead of a hard cap, so the page doesn't sit
+     in a narrow column with large empty margins on wide monitors -- but
+     still stops growing indefinitely on ultra-wide displays. */
+  --page-max-width: min(1800px, 96vw);
+  /* Same downward triangle as .chevron (the collapse toggle), redrawn as an
+     SVG so it can be used as a <select>'s background-image -- the native
+     OS arrow can't be restyled or repositioned directly. */
+  --chevron-svg: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0L8 0L4 5Z' fill='%23767676'/%3E%3C/svg%3E");
+}
+
+/*
+ * Every size below (font-size, padding, gap, border-radius, ...) is written
+ * as `calc(N * var(--unit))` instead of a plain `Nrem` so it can be rescaled
+ * as a whole. That matters because `rem` is always relative to the
+ * DOCUMENT's root <html> font-size, not to anything in this widget's own
+ * ancestor chain -- and the docs theme sets `html{font-size:125%}` (see
+ * site/assets/stylesheets/classic/main*.min.css), while the standalone
+ * index.html this stylesheet was originally sized against has an
+ * unscaled (100%) root. Left alone, every size here would render ~25%
+ * larger when embedded in the docs site than intended. Scaling --unit down
+ * to 0.8rem (=16px÷20px) there exactly cancels that out, so the type scale
+ * and spacing match the compact scale used throughout the rest of the
+ * docs site instead of the enlarged one implied by its root font-size.
+ * [data-md-color-scheme] (present in EITHER "slate" or "light") is only
+ * ever set by Material/Zensical's own JS, so it doubles as "are we
+ * embedded in that site" regardless of which mode is active.
+ */
+[data-md-color-scheme] .limsport-config-builder {
+  --unit: 0.8rem;
+  /* The docs theme's own fixed header is sticky at the very top of the
+     viewport too -- site/assets/stylesheets/classic/main*.min.css puts
+     .md-sidebar's own sticky top at 2.4rem to clear it (rising to 4.8rem
+     only while the navigation.tabs bar is also showing). Without this,
+     .preview-pane's sticky top only clears empty space, not the header,
+     so it scrolls partly behind it. Plain rem here on purpose, NOT
+     calc(*var(--unit)) -- this needs to match the site's own fixed
+     rem-based header height exactly, not scale with this widget's own
+     type scale. */
+  --header-clearance: 2.4rem;
+}
+
+/* Fallback for a context with no Material theme wrapper around it (the
+   standalone index.html page): follow the OS/browser's own preference,
+   since there's no site-level toggle to defer to there.
+
+   Values below are computed from the docs theme's own compiled tokens
+   (site/assets/stylesheets/classic/{main,palette}*.min.css), not guessed:
+   the theme's --md-hue is 225deg, and slate mode sets
+   --md-default-bg-color: hsla(225,15%,14%,1) with default-fg-color /
+   code-fg-color / code-bg-color layered on top at their real alpha values
+   -- --bg/--code-bg/--text/--text-muted/--border/--code-text below are
+   those exact colors (alpha-blended onto an opaque hex where needed).
+   --surface intentionally equals --bg: the docs theme itself doesn't give
+   "boxed" content (admonitions, tables) a lighter background than the
+   page -- it differentiates them with a border only, so column-card etc.
+   here do the same. */
+@media (prefers-color-scheme: dark) {
+  .limsport-config-builder {
+    --bg: #1e2129;
+    --surface: #1e2129;
+    --surface-2: #272a35;
+    --border: #363840;
+    --border-strong: #5d5f66;
+    --text: #bfc1c6;
+    --text-muted: #8c8e95;
+    --action-accent: var(--brand-green); /* no blue equivalent in dark mode -- see the base block's comment */
+    --accent-contrast: #ffffff;
+    --danger: #e18579;
+    --danger-bg: #3a2320;
+    --code-bg: #272a35;
+    --code-text: #b6b9c3;
+    --chevron-svg: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0L8 0L4 5Z' fill='%238c8e95'/%3E%3C/svg%3E");
+  }
+}
+
+/*
+ * When embedded in the docs site, follow the SITE's own manual light/dark
+ * toggle (Material/Zensical stamps [data-md-color-scheme="slate"|"light"]
+ * on <html> once a reader picks a mode) instead of the OS preference above
+ * -- otherwise the widget can end up light while the reader has manually
+ * switched the site to dark (or vice versa). An attribute-selector rule has
+ * higher specificity than the plain-class rule inside the @media block
+ * above, so these two always win over it when the attribute is present;
+ * the @media fallback only takes effect when it isn't (the standalone
+ * page). Values mirror the block above -- keep both in sync.
+ */
+[data-md-color-scheme="slate"] .limsport-config-builder {
+  --bg: #1e2129;
+  --surface: #1e2129;
+  --surface-2: #272a35;
+  --border: #363840;
+  --border-strong: #5d5f66;
+  --text: #bfc1c6;
+  --text-muted: #8c8e95;
+  --action-accent: var(--brand-green);
+  --accent-contrast: #ffffff;
+  --danger: #e18579;
+  --danger-bg: #3a2320;
+  --code-bg: #272a35;
+  --code-text: #b6b9c3;
+  --chevron-svg: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0L8 0L4 5Z' fill='%238c8e95'/%3E%3C/svg%3E");
+}
+
+/* Re-assert the light values so an OS-level dark preference can't leak
+   through when the reader has explicitly picked light mode on the site. */
+[data-md-color-scheme="light"] .limsport-config-builder {
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f5f7fa;
+  --border: #dfe3e6;
+  --border-strong: #c7c7c7;
+  --text: #262626;
+  --text-muted: #767676;
+  --action-accent: var(--brand-blue);
+  --accent-contrast: #ffffff;
+  --danger: #a3402f;
+  --danger-bg: #fbeeec;
+  --code-bg: #ffffff;
+  --code-text: #000000;
+  --chevron-svg: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0L8 0L4 5Z' fill='%23767676'/%3E%3C/svg%3E");
+}
+
+.limsport-config-builder,
+.limsport-config-builder * {
+  box-sizing: border-box;
+}
+
+.limsport-config-builder .hidden {
+  display: none !important;
+}
+
+/* Only matches when .limsport-config-builder is on <body> (standalone page) --
+   see the file-top comment. */
+body.limsport-config-builder {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.6; /* matches the docs theme's .md-typeset line-height */
+}
+
+.limsport-config-builder code {
+  font-family: var(--mono);
+  background: var(--surface-2);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius);
+  font-size: 0.9em;
+}
+
+.limsport-config-builder .page-header {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: calc(2 * var(--unit)) calc(1.5 * var(--unit)) calc(1 * var(--unit));
+}
+
+.limsport-config-builder .page-header h1 {
+  margin: 0 0 calc(0.5 * var(--unit));
+  font-size: calc(1.6 * var(--unit));
+}
+
+.limsport-config-builder .page-header p {
+  color: var(--text-muted);
+  max-width: 70ch;
+}
+
+.limsport-config-builder .page-header a {
+  color: var(--accent);
+}
+
+.limsport-config-builder .toolbar {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 0 calc(1.5 * var(--unit)) calc(1 * var(--unit));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(0.75 * var(--unit));
+}
+
+.limsport-config-builder button {
+  font-family: inherit;
+  font-size: calc(0.9 * var(--unit));
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: calc(0.45 * var(--unit)) calc(0.9 * var(--unit));
+  cursor: pointer;
+}
+
+.limsport-config-builder button:hover {
+  border-color: var(--accent);
+}
+
+.limsport-config-builder button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.limsport-config-builder #download-btn,
+.limsport-config-builder #copy-btn {
+  background: var(--action-accent);
+  color: var(--accent-contrast);
+  border-color: var(--action-accent);
+}
+
+/* The generic button:hover rule above only darkens the border, which these
+   two already have -- give them their own visible hover feedback instead
+   (a darker shade of the same accent, not a different color, so it still
+   reads as "the same button, now pressed/hovered"). */
+.limsport-config-builder #download-btn:hover:not(:disabled),
+.limsport-config-builder #copy-btn:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Dark mode gets a darkened hover instead of the pure brand green above --
+   same two-tier override as the rest of the palette (media-query fallback
+   for the standalone page, attribute-selector for the docs site, which
+   wins on specificity regardless of source order). */
+@media (prefers-color-scheme: dark) {
+  .limsport-config-builder #download-btn:hover:not(:disabled),
+  .limsport-config-builder #copy-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 85%, black);
+    border-color: color-mix(in srgb, var(--accent) 85%, black);
+  }
+}
+
+[data-md-color-scheme="slate"] .limsport-config-builder #download-btn:hover:not(:disabled),
+[data-md-color-scheme="slate"] .limsport-config-builder #copy-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, black);
+  border-color: color-mix(in srgb, var(--accent) 85%, black);
+}
+
+.limsport-config-builder #download-btn:disabled,
+.limsport-config-builder #copy-btn:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.limsport-config-builder .toolbar-secondary {
+  color: var(--text-muted);
+}
+
+.limsport-config-builder .layout {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 0 calc(1.5 * var(--unit)) calc(3 * var(--unit));
+  display: grid;
+  /* minmax(0, 1fr), not plain 1fr -- a plain fr track still grows to fit an
+     unbreakable-content descendant's min-content width (e.g. a long
+     file_parsing command), which is what "blows out" the layout wider than
+     the viewport. minmax(0, ...) caps each track at its fair half share and
+     forces overflow to happen *inside* that track instead. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: calc(1.5 * var(--unit));
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .limsport-config-builder .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.limsport-config-builder .form-pane {
+  display: flex;
+  flex-direction: column;
+  /* No gap on purpose -- see the .column-card + .column-card overlap rule
+     below. Two 1px borders sitting close together (with any gap at all)
+     visually double up into what reads as one thicker, darker line; the
+     fix isn't more space, it's making them the SAME line. */
+  gap: 0;
+  min-width: 0;
+}
+
+.limsport-config-builder .column-card {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: calc(1 * var(--unit)) calc(1.25 * var(--unit)) calc(1.25 * var(--unit));
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.75 * var(--unit));
+  min-width: 0;
+}
+
+/* Grouped-list treatment: each card after the first sits exactly 1px
+   higher, landing its top border directly on top of the previous card's
+   bottom border so only ONE line ever renders between them (like table
+   border-collapse), instead of two 1px lines close enough together to read
+   as one thick, dark one. The touching edges are squared off since a
+   rounded corner would poke out oddly at a seam that's now a single flat
+   line; only the outermost corners of the whole stack stay rounded. */
+.limsport-config-builder .column-card + .column-card {
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.limsport-config-builder .column-card:not(:last-child) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.limsport-config-builder .column-card.collapsed {
+  gap: 0;
+}
+
+.limsport-config-builder .column-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.75 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: calc(0.75 * var(--unit));
+  color: var(--text-muted);
+  font-size: calc(0.85 * var(--unit));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.limsport-config-builder .column-header-title {
+  display: flex;
+  align-items: baseline;
+  gap: calc(0.5 * var(--unit));
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: calc(0.85 * var(--unit));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.limsport-config-builder .column-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  font-size: calc(0.9 * var(--unit));
+}
+
+.limsport-config-builder .column-header-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(0.25 * var(--unit));
+  flex: 0 0 auto;
+}
+
+.limsport-config-builder .btn-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+  padding: calc(0.35 * var(--unit));
+}
+
+.limsport-config-builder .btn-collapse .chevron {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.limsport-config-builder .column-card.collapsed .btn-collapse .chevron,
+.limsport-config-builder .file-parsing-output.collapsed .btn-collapse .chevron {
+  transform: rotate(-90deg);
+}
+
+.limsport-config-builder .output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: calc(0.75 * var(--unit));
+  color: var(--text-muted);
+  font-size: calc(0.85 * var(--unit));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.limsport-config-builder .output-header-title {
+  display: flex;
+  align-items: baseline;
+  gap: calc(0.5 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .output-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  font-size: calc(0.85 * var(--unit));
+}
+
+.limsport-config-builder .output-header-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(0.25 * var(--unit));
+  flex: 0 0 auto;
+}
+
+.limsport-config-builder .field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.25 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .field-label {
+  font-size: calc(0.85 * var(--unit));
+  color: var(--text-muted);
+}
+
+.limsport-config-builder input[type="text"],
+.limsport-config-builder select,
+.limsport-config-builder textarea {
+  font-family: inherit;
+  font-size: calc(0.95 * var(--unit));
+  padding: calc(0.45 * var(--unit)) calc(0.6 * var(--unit));
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+}
+
+.limsport-config-builder select {
+  /* Replace the native OS arrow (which can't be recolored or repositioned)
+     with the same triangle used for the collapse toggle, pulled in from
+     the edge instead of sitting flush against the border. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: var(--chevron-svg);
+  background-repeat: no-repeat;
+  background-position: right calc(0.65 * var(--unit)) center;
+  background-size: 8px 5px;
+  padding-right: calc(1.75 * var(--unit));
+}
+
+.limsport-config-builder textarea {
+  font-family: var(--mono);
+  font-size: calc(0.85 * var(--unit));
+  resize: vertical;
+  /* Commands are often one long, unbroken line (a real awk/python
+     one-liner). Let the textarea scroll that line horizontally within its
+     own fixed width rather than either overflowing the page or forcing
+     word-wraps in the middle of the command. */
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.limsport-config-builder .checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: calc(0.5 * var(--unit));
+  font-size: calc(0.9 * var(--unit));
+  color: var(--text-muted);
+}
+
+.limsport-config-builder .section {
+  border-top: 1px solid var(--border);
+  padding-top: calc(0.75 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .section h4 {
+  margin: 0 0 calc(0.5 * var(--unit));
+  font-size: calc(0.85 * var(--unit));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.limsport-config-builder .section.hidden {
+  display: none;
+}
+
+.limsport-config-builder .qc-editor {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.6 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .qc-body:empty {
+  display: none;
+}
+
+.limsport-config-builder .conditions {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.4 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .condition-row {
+  display: flex;
+  gap: calc(0.4 * var(--unit));
+  align-items: center;
+}
+
+.limsport-config-builder .cond-operator {
+  flex: 0 0 calc(5 * var(--unit));
+}
+
+.limsport-config-builder .cond-value {
+  flex: 1 1 auto;
+}
+
+.limsport-config-builder .cond-tolerance {
+  flex: 0 0 calc(7 * var(--unit));
+}
+
+.limsport-config-builder .cond-tolerance.hidden {
+  display: none;
+}
+
+.limsport-config-builder .conditional-qc {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.6 * var(--unit));
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  padding: calc(0.75 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .rules {
+  display: flex;
+  flex-direction: column;
+  /* No gap -- see the .rule-block + .rule-block overlap rule below. */
+  gap: 0;
+  min-width: 0;
+}
+
+.limsport-config-builder .rule-block {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: calc(0.6 * var(--unit));
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.5 * var(--unit));
+  background: var(--surface);
+  min-width: 0;
+}
+
+/* Same grouped-list overlap treatment as .column-card. :last-of-type (not
+   :last-child) because the "+ Add rule" button is appended as a trailing
+   sibling inside .rules alongside the .rule-block divs -- :last-of-type
+   still correctly means "the last .rule-block", ignoring that button. */
+.limsport-config-builder .rule-block + .rule-block {
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.limsport-config-builder .rule-block:not(:last-of-type) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.limsport-config-builder .rule-header {
+  display: flex;
+  gap: calc(0.5 * var(--unit));
+  align-items: center;
+}
+
+.limsport-config-builder .rule-key {
+  flex: 1;
+}
+
+.limsport-config-builder .default-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.4 * var(--unit));
+}
+
+.limsport-config-builder .default-body.hidden {
+  display: none;
+}
+
+.limsport-config-builder .file-parsing {
+  display: flex;
+  flex-direction: column;
+  /* No gap -- see the .file-parsing-output + .file-parsing-output overlap
+     rule below. */
+  gap: 0;
+  min-width: 0;
+}
+
+.limsport-config-builder .file-parsing-output {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: calc(0.75 * var(--unit));
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.5 * var(--unit));
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+/* Same grouped-list overlap treatment as .column-card. :last-of-type (not
+   :last-child) because the "+ Add another output..." button is appended
+   as a trailing sibling inside .file-parsing alongside the
+   .file-parsing-output divs. */
+.limsport-config-builder .file-parsing-output + .file-parsing-output {
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.limsport-config-builder .file-parsing-output:not(:last-of-type) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.limsport-config-builder .file-parsing-output.collapsed {
+  gap: 0;
+}
+
+.limsport-config-builder .output-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.5 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .hint {
+  font-size: calc(0.8 * var(--unit));
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.limsport-config-builder .btn-add {
+  align-self: flex-start;
+  border-style: dashed;
+  color: var(--action-accent);
+  background: transparent;
+  /* Hover intentionally stays green -- the generic button:hover rule
+     (border-color: var(--accent)) already applies here and is left alone
+     on purpose, giving these buttons a blue resting state but a green
+     hover state. */
+}
+
+/* .rules and .file-parsing are gap:0 (see the box-overlap rules above), so
+   their trailing "+ Add ..." button would otherwise sit flush against the
+   last box with no breathing room. .conditions never has this problem --
+   its rows aren't bordered boxes needing the overlap treatment, so it kept
+   its normal gap throughout, "+ Add condition" included. Match that same
+   spacing here explicitly instead. */
+.limsport-config-builder .rules > .btn-add,
+.limsport-config-builder .file-parsing > .btn-add {
+  margin-top: calc(0.4 * var(--unit));
+}
+
+.limsport-config-builder .btn-add-column {
+  font-size: calc(1 * var(--unit));
+  padding: calc(0.6 * var(--unit)) calc(1 * var(--unit));
+  /* .form-pane is gap:0 (its #columns child needs zero space before the
+     column-cards' own overlap rules can do their job) -- reintroduce the
+     breathing room here instead, same as .rules/.file-parsing above. */
+  margin-top: calc(0.4 * var(--unit));
+}
+
+.limsport-config-builder .btn-remove {
+  color: var(--danger);
+  border-color: transparent;
+  background: transparent;
+  font-size: calc(0.8 * var(--unit));
+  padding: calc(0.2 * var(--unit)) calc(0.5 * var(--unit));
+}
+
+.limsport-config-builder .btn-icon {
+  color: var(--danger);
+  border-color: transparent;
+  background: transparent;
+  padding: calc(0.1 * var(--unit)) calc(0.4 * var(--unit));
+  line-height: 1;
+}
+
+.limsport-config-builder .preview-pane {
+  position: sticky;
+  /* --header-clearance (0 standalone, 2.4rem embedded -- see where it's
+     defined) clears the docs site's own fixed header, which sits sticky
+     at the very top of the viewport too; without it this box would
+     scroll partly behind that bar instead of stopping below it. The
+     "+ Add ..." button's own small gap is layered on top of that as
+     breathing room. max-height's subtraction mirrors both, twice the
+     small-gap term, so that same buffer is echoed at the bottom of the
+     viewport too. */
+  top: calc(var(--header-clearance) + calc(0.4 * var(--unit)));
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: calc(1 * var(--unit)) calc(1.25 * var(--unit)) calc(1.25 * var(--unit));
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.75 * var(--unit));
+  max-height: calc(100vh - var(--header-clearance) - calc(0.8 * var(--unit)));
+  min-width: 0;
+}
+
+.limsport-config-builder .preview-pane h2 {
+  margin: 0;
+  font-size: calc(1 * var(--unit));
+}
+
+.limsport-config-builder #preview {
+  font-family: var(--mono);
+  font-size: calc(0.82 * var(--unit));
+  background: var(--code-bg);
+  color: var(--code-text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: calc(0.9 * var(--unit));
+  overflow: auto;
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 200px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: pre;
+}
+
+.limsport-config-builder .notice {
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: calc(0.6 * var(--unit)) calc(0.75 * var(--unit));
+  font-size: calc(0.85 * var(--unit));
+}
+
+.limsport-config-builder .notice.hidden,
+.limsport-config-builder .errors.hidden {
+  display: none;
+}
+
+.limsport-config-builder .errors {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: calc(0.6 * var(--unit)) calc(0.75 * var(--unit));
+  font-size: calc(0.85 * var(--unit));
+  /* Always show every error in full -- never scroll internally. If space
+     runs short, the yaml preview below (which can scroll) shrinks first. */
+  flex-shrink: 0;
+}
+
+.limsport-config-builder .errors-heading {
+  margin: 0 0 calc(0.4 * var(--unit));
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.limsport-config-builder .errors-list {
+  margin: 0;
+  padding-left: calc(1.1 * var(--unit));
+}
+
+.limsport-config-builder .preview-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(0.6 * var(--unit));
+}
+
+.limsport-config-builder .copy-status {
+  color: var(--action-accent);
+  font-size: calc(0.85 * var(--unit));
+}
