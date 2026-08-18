@@ -1,0 +1,14 @@
+# `columns` is omitted entirely -- this config exists only for its set_qc
+# rule, so every input column passes through unchanged (same as running
+# with no --config at all), while set_qc still gates the whole run.
+set_qc:
+  - name: "NTC has no organism flagged and low raw read count"
+    match:
+      sample_pattern: "NTC"
+    columns:
+      - column: screening_notes
+        qc:
+          - {operator: is_empty}
+      - column: raw_read_count
+        qc:
+          - {operator: "<=", value: 1000}

@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--samples", "-s",
                         type=existing_file, help="optional file listing sample names to include")
     parser.add_argument("--qc-report", "-r",
-                        type=Path, help="optional path to write a QC failure report TSV")
+                        type=Path, default=Path("qc_report.tsv"), help="QC failure report TSV path (default: qc_report.tsv)")
     parser.add_argument("--delimiter", "-d",
                         type=str, default="\t", help="output delimiter (default: '\t')")
     parser.add_argument("--allow-file-parsing",

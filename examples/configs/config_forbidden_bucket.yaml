@@ -14,4 +14,4 @@ columns:
     file_parsing:
       - name: quast_n50
         command: |
-          awk -F'\t' '$1 == "N50" {print $2}' "$LIMSPORT_FILE"
+          awk -F'\t' '$1 == "N50" {print $2}' "$FILE"

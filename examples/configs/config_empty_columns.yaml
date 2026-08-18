@@ -1,0 +1,14 @@
+# An explicit `columns: []` is always rejected, even with set_qc
+# configured -- unlike omitting `columns` entirely (see
+# config_columns_omitted.yaml), an empty list looks like a mistake, not a
+# deliberate "pass everything through".
+columns: []
+
+set_qc:
+  - name: "NTC has no organism flagged"
+    match:
+      sample_pattern: "NTC"
+    columns:
+      - column: screening_notes
+        qc:
+          - {operator: is_empty}

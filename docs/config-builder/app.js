@@ -400,7 +400,7 @@ function buildFileParsingEditor(column) {
 
     const commandInput = el("textarea", {
       rows: "3",
-      placeholder: 'shell command; the file to parse is available as $LIMSPORT_FILE, e.g.\ncut -d, -f2 "$LIMSPORT_FILE"',
+      placeholder: 'shell command; the file to parse is available as $FILE, e.g.\ncut -d, -f2 "$FILE"',
       text: fp.command,
     });
     commandInput.addEventListener("input", () => {

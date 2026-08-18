@@ -1,17 +1,37 @@
 /**
- * Wizard-state builders for the three scenarios in ../examples/. Shared by
- * app.js (the "load example" buttons) and tests/schema.test.mjs (which
- * proves each one, once run through buildConfig()+serializeYAML(), is
- * semantically identical to the real example/config.yaml fixture).
+ * Wizard-state builders for the two scenarios in ../examples/configs/
+ * (config.yaml and config_multi_format.yaml). Shared by app.js (the "load
+ * example" buttons) and tests/schema.test.mjs (which proves each one, once
+ * run through buildConfig()+serializeYAML(), is semantically identical to
+ * the real examples/configs/*.yaml fixture).
  */
 
-import { newColumn, newCondition, newRule, newFileParsingOutput } from "./schema.js";
+import {
+  newColumn,
+  newCondition,
+  newRule,
+  newFileParsingOutput,
+  newSetQCRule,
+  newSetQCCheck,
+} from "./schema.js";
 
 export function condition(operator, value, tolerancePercent) {
   const c = newCondition();
   c.operator = operator;
   c.value = String(value);
   if (tolerancePercent !== undefined) c.tolerancePercent = String(tolerancePercent);
+  return c;
+}
+
+export function caseInsensitiveCondition(operator, value) {
+  const c = condition(operator, value);
+  c.caseInsensitive = true;
+  return c;
+}
+
+export function noValueCondition(operator) {
+  const c = newCondition();
+  c.operator = operator;
   return c;
 }
 
@@ -22,93 +42,15 @@ export function ruleFor(key, ...conditions) {
   return rule;
 }
 
-export function basicExampleColumns() {
-  const columns = [];
-
-  const sampleId = newColumn();
-  sampleId.name = "sample_id";
-  columns.push(sampleId);
-
-  const readCount = newColumn();
-  readCount.name = "read_count";
-  readCount.rename = "total_reads";
-  readCount.qc = { kind: "list", conditions: [condition(">=", 1000), condition("<=", 1000000)] };
-  columns.push(readCount);
-
-  const qualityScore = newColumn();
-  qualityScore.name = "quality_score";
-  qualityScore.rename = "qc_score";
-  qualityScore.qc = { kind: "list", conditions: [condition(">", 30)] };
-  columns.push(qualityScore);
-
-  const errorRate = newColumn();
-  errorRate.name = "error_rate";
-  errorRate.qc = { kind: "list", conditions: [condition("<", 0.05)] };
-  columns.push(errorRate);
-
-  const status = newColumn();
-  status.name = "status";
-  status.qc = { kind: "list", conditions: [condition("=", "PASS")] };
-  columns.push(status);
-
-  const length = newColumn();
-  length.name = "length";
-  length.qc = { kind: "list", conditions: [condition("~=", 1000000, 5)] };
-  columns.push(length);
-
-  const lotNumber = newColumn();
-  lotNumber.name = "lot_number";
-  lotNumber.rename = "lot";
-  columns.push(lotNumber);
-
-  return columns;
+export function setQCCheckFor(column, ...conditions) {
+  const check = newSetQCCheck();
+  check.column = column;
+  check.conditions = conditions;
+  return check;
 }
 
-export function fileParsingExampleColumns() {
-  const columns = [];
-
-  const sampleId = newColumn();
-  sampleId.name = "sample_id";
-  columns.push(sampleId);
-
-  const metadataJson = newColumn();
-  metadataJson.name = "metadata_json";
-  metadataJson.isFileParsing = true;
-  const meanDepth = newFileParsingOutput();
-  meanDepth.name = "mean_depth";
-  meanDepth.command = `python3 -c "import json; print(json.load(open('$LIMSPORT_FILE'))['run']['metrics']['mean_depth'])"`;
-  meanDepth.qc = { kind: "list", conditions: [condition(">=", 30)] };
-  metadataJson.fileParsing = [meanDepth];
-  columns.push(metadataJson);
-
-  const coverageTsv = newColumn();
-  coverageTsv.name = "coverage_tsv";
-  coverageTsv.isFileParsing = true;
-  const chr1MeanDepth = newFileParsingOutput();
-  chr1MeanDepth.name = "chr1_meandepth";
-  chr1MeanDepth.command = `awk -F'\\t' '$1 == "chr1" {print $7}' "$LIMSPORT_FILE"`;
-  chr1MeanDepth.qc = { kind: "list", conditions: [condition(">=", 30)] };
-  const chr1CoveragePct = newFileParsingOutput();
-  chr1CoveragePct.name = "chr1_coverage_pct";
-  chr1CoveragePct.command = `awk -F'\\t' '$1 == "chr1" {print $6}' "$LIMSPORT_FILE"`;
-  chr1CoveragePct.qc = { kind: "list", conditions: [condition(">=", 95)] };
-  coverageTsv.fileParsing = [chr1MeanDepth, chr1CoveragePct];
-  columns.push(coverageTsv);
-
-  const qcReport = newColumn();
-  qcReport.name = "qc_report";
-  qcReport.isFileParsing = true;
-  const errorRateOut = newFileParsingOutput();
-  errorRateOut.name = "error_rate";
-  errorRateOut.command = `grep '^error_rate ::' "$LIMSPORT_FILE" | cut -d: -f3 | tr -d ' '`;
-  errorRateOut.qc = { kind: "list", conditions: [condition("<", 0.01)] };
-  qcReport.fileParsing = [errorRateOut];
-  columns.push(qcReport);
-
-  return columns;
-}
-
-export function theiaprokExampleColumns() {
+/** columns: for examples/configs/config.yaml -- the main consolidated scenario. */
+export function fullExampleColumns() {
   const columns = [];
 
   const id = newColumn();
@@ -119,6 +61,11 @@ export function theiaprokExampleColumns() {
   const assembler = newColumn();
   assembler.name = "assembler";
   columns.push(assembler);
+
+  const platform = newColumn();
+  platform.name = "sequencing_platform";
+  platform.rename = "platform";
+  columns.push(platform);
 
   const taxon = newColumn();
   taxon.name = "gambit_predicted_taxon";
@@ -149,7 +96,7 @@ export function theiaprokExampleColumns() {
   const contigCount = newColumn();
   contigCount.name = "number_contigs";
   contigCount.rename = "contig_count";
-  contigCount.qc = { kind: "list", conditions: [condition("<", 300)] };
+  contigCount.qc = { kind: "list", conditions: [condition(">=", 10), condition("<=", 300)] };
   columns.push(contigCount);
 
   const meanQuality = newColumn();
@@ -170,12 +117,29 @@ export function theiaprokExampleColumns() {
   readPairs.qc = { kind: "list", conditions: [condition(">=", 250000)] };
   columns.push(readPairs);
 
+  const qcStatus = newColumn();
+  qcStatus.name = "qc_status";
+  qcStatus.qc = { kind: "list", conditions: [caseInsensitiveCondition("=", "PASS")] };
+  columns.push(qcStatus);
+
+  const screeningNotes = newColumn();
+  screeningNotes.name = "screening_notes";
+  columns.push(screeningNotes);
+
+  const notes = newColumn();
+  notes.name = "notes";
+  columns.push(notes);
+
+  const rawReadCount = newColumn();
+  rawReadCount.name = "raw_read_count";
+  columns.push(rawReadCount);
+
   const quastReport = newColumn();
   quastReport.name = "quast_report";
   quastReport.isFileParsing = true;
   const quastN50 = newFileParsingOutput();
   quastN50.name = "quast_n50";
-  quastN50.command = `awk -F'\\t' '$1 == "N50" {print $2}' "$LIMSPORT_FILE"`;
+  quastN50.command = `awk -F'\\t' '$1 == "N50" {print $2}' "$FILE"`;
   quastN50.qc = {
     kind: "conditional",
     match: "gambit_predicted_taxon",
@@ -189,12 +153,88 @@ export function theiaprokExampleColumns() {
   };
   const quastGcPct = newFileParsingOutput();
   quastGcPct.name = "quast_gc_pct";
-  quastGcPct.command = `awk -F'\\t' '$1 == "GC (%)" {print $2}' "$LIMSPORT_FILE"`;
+  quastGcPct.command = `awk -F'\\t' '$1 == "GC (%)" {print $2}' "$FILE"`;
   const quastTotalLength = newFileParsingOutput();
   quastTotalLength.name = "quast_total_length";
-  quastTotalLength.command = `awk -F'\\t' '$1 == "Total length" {print $2}' "$LIMSPORT_FILE"`;
+  quastTotalLength.command = `awk -F'\\t' '$1 == "Total length" {print $2}' "$FILE"`;
   quastReport.fileParsing = [quastN50, quastGcPct, quastTotalLength];
   columns.push(quastReport);
+
+  return columns;
+}
+
+/** set_qc: for examples/configs/config.yaml -- pairs with fullExampleColumns(). */
+export function fullExampleSetQCRules() {
+  const ntcRule = newSetQCRule();
+  ntcRule.name = "NTC has no organism flagged and low raw read count";
+  ntcRule.match.kind = "pattern";
+  ntcRule.match.samplePattern = "NTC";
+  ntcRule.columns = [
+    setQCCheckFor("screening_notes", noValueCondition("is_empty")),
+    setQCCheckFor("raw_read_count", condition("<=", 1000)),
+  ];
+
+  const pcRule = newSetQCRule();
+  pcRule.name = "Positive control organism identity confirmed";
+  pcRule.match.kind = "regex";
+  pcRule.match.sampleRegex = "^PC-?\\d*$";
+  pcRule.columns = [
+    setQCCheckFor("screening_notes", caseInsensitiveCondition("contains", "Escherichia coli")),
+    setQCCheckFor("notes", noValueCondition("is_not_empty")),
+  ];
+
+  const contaminationRule = newSetQCRule();
+  contaminationRule.name = "No cross-contamination flagged in real samples";
+  contaminationRule.match.kind = "samples";
+  contaminationRule.match.samples = "19050801924, 461023, CL2021-00283104";
+  contaminationRule.columns = [
+    setQCCheckFor("screening_notes", caseInsensitiveCondition("does_not_contain", "contaminant")),
+  ];
+
+  return [ntcRule, pcRule, contaminationRule];
+}
+
+/** columns: for examples/configs/config_multi_format.yaml -- the file_parsing-format adjunct scenario. */
+export function multiFormatExampleColumns() {
+  const columns = [];
+
+  const sampleId = newColumn();
+  sampleId.name = "sample_id";
+  columns.push(sampleId);
+
+  const metadataJson = newColumn();
+  metadataJson.name = "metadata_json";
+  metadataJson.isFileParsing = true;
+  const meanDepth = newFileParsingOutput();
+  meanDepth.name = "mean_depth";
+  meanDepth.command = `python3 -c "import json; print(json.load(open('$FILE'))['run']['metrics']['mean_depth'])"`;
+  meanDepth.qc = { kind: "list", conditions: [condition(">=", 30)] };
+  metadataJson.fileParsing = [meanDepth];
+  columns.push(metadataJson);
+
+  const coverageTsv = newColumn();
+  coverageTsv.name = "coverage_tsv";
+  coverageTsv.isFileParsing = true;
+  const chr1MeanDepth = newFileParsingOutput();
+  chr1MeanDepth.name = "chr1_meandepth";
+  chr1MeanDepth.command = `awk -F'\\t' '$1 == "chr1" {print $7}' "$FILE"`;
+  chr1MeanDepth.qc = { kind: "list", conditions: [condition(">=", 30)] };
+  const chr1CoveragePct = newFileParsingOutput();
+  chr1CoveragePct.name = "chr1_coverage_pct";
+  chr1CoveragePct.command = `awk -F'\\t' '$1 == "chr1" {print $6}' "$FILE"`;
+  chr1CoveragePct.qc = { kind: "list", conditions: [condition(">=", 95)] };
+  coverageTsv.fileParsing = [chr1MeanDepth, chr1CoveragePct];
+  columns.push(coverageTsv);
+
+  const qcReport = newColumn();
+  qcReport.name = "qc_report";
+  qcReport.isFileParsing = true;
+  const errorRateOut = newFileParsingOutput();
+  errorRateOut.name = "error_rate";
+  errorRateOut.command = `grep '^error_rate ::' "$FILE" | cut -d: -f3 | tr -d ' '`;
+  errorRateOut.qc = { kind: "list", conditions: [condition("<", 0.01)] };
+  qcReport.fileParsing = [errorRateOut];
+  columns.push(qcReport);
 
   return columns;
 }

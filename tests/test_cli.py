@@ -189,7 +189,8 @@ def test_unwritable_output_path_returns_1_without_traceback(tmp_path, capsys):
     assert "Traceback" not in stderr
 
 
-def test_omitting_qc_report_writes_no_report_file(tmp_path):
+def test_omitting_qc_report_defaults_to_qc_report_tsv_in_the_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     out = tmp_path / "out.tsv"
     input_path = input_basic(tmp_path)
     config_path = config_qc_range(tmp_path)
@@ -204,12 +205,12 @@ def test_omitting_qc_report_writes_no_report_file(tmp_path):
         ]
     )
     assert rc == 0
-    assert set(tmp_path.iterdir()) == {out, input_path, config_path}
+    assert (tmp_path / "qc_report.tsv").exists()
 
 
 def test_file_parsing_without_flag_returns_1(tmp_path, capsys):
     input_tsv, config = file_parsing_scenario(
-        tmp_path, data_content="hello\n", command='cat "$LIMSPORT_FILE"'
+        tmp_path, data_content="hello\n", command='cat "$FILE"'
     )
     out = tmp_path / "out.tsv"
     rc = cli.main(["--input", str(input_tsv), "--config", str(config), "--output", str(out)])
@@ -220,7 +221,7 @@ def test_file_parsing_without_flag_returns_1(tmp_path, capsys):
 
 def test_file_parsing_with_flag_succeeds(tmp_path):
     input_tsv, config = file_parsing_scenario(
-        tmp_path, data_content="hello\n", command='cat "$LIMSPORT_FILE"'
+        tmp_path, data_content="hello\n", command='cat "$FILE"'
     )
     out = tmp_path / "out.tsv"
     rc = cli.main(

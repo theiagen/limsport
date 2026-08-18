@@ -38,34 +38,17 @@ class QCOperator(str, Enum):
     LE = "<="
     LT = "<"
     APPROX = "~="  # within tolerance_percent of value
-    CONTAINS = "contains"  # string value is a substring of the cell
-    DOES_NOT_CONTAIN = "does_not_contain"  # string value is NOT a substring of the cell
-    IS_EMPTY = "is_empty"  # cell is blank/whitespace-only
-    IS_NOT_EMPTY = "is_not_empty"  # cell has real content
+    CONTAINS = "contains"
+    DOES_NOT_CONTAIN = "does_not_contain"
+    IS_EMPTY = "is_empty"
+    IS_NOT_EMPTY = "is_not_empty"
 
 
 class QCCondition(BaseModel):
     """A single comparison: `operator value`, e.g. `>= 1000`.
 
-    A column can have several of these (see ColumnConfig.qc) to express ranges
+    A column can have several qc conditions (see ColumnConfig.qc) to express ranges
     like ">= 1000 and <= 1000000".
-
-    `~=` requires `tolerance_percent`
-    (e.g. `{operator: "~=", value: 1000000, tolerance_percent: 5}`
-    passes for any value within 5% of 1000000, in either direction).
-
-    `contains`/`does_not_contain` take a string `value` and check whether it's a
-    substring of the cell, e.g. `{operator: "contains", value: "Escherichia"}`
-    passes for a cell of "Escherichia coli".
-
-    `case_insensitive` (default False) controls string comparison for `=`,
-    `contains`, and `does_not_contain`; it's a config error to set it on a
-    condition whose value isn't a string.
-
-    `is_empty`/`is_not_empty` take no `value` at all -- they check whether
-    the cell itself is blank (or whitespace-only). This is the one place a
-    blank cell isn't an automatic failure (see qc.py): useful for a
-    negative control where an empty result is the expected, passing state.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -97,24 +80,24 @@ class QCCondition(BaseModel):
                 f"QC value cannot be a boolean ({self.value!r}); "
                 'quote it as a string (e.g. "true") if that\'s what you mean'
             )
+
         if self.operator in (QCOperator.CONTAINS, QCOperator.DOES_NOT_CONTAIN):
-            # substring checks only make sense against a string value
             if not isinstance(self.value, str):
+                # don't check for substrings in numbers that's silly
                 raise ValueError(
                     f"operator {self.operator.value!r} requires a string value, got {self.value!r}"
                 )
             if self.value == "":
-                # an empty substring is always found (or never absent), so
-                # this would silently check nothing
+                # an empty substring is always found (or never absent)
                 raise ValueError(f"operator {self.operator.value!r} requires a non-empty string value")
         elif self.operator is not QCOperator.EQ:
-            # strings can only use equivalence or substring operators; raise
-            # error if a str is w/ any other comparator
+            # string values can only use equivalence or substring operators; error if not
             if not isinstance(self.value, (int, float)):
                 raise ValueError(
                     f"operator {self.operator.value!r} requires a numeric value, "
                     f"got the string {self.value!r}"
                 )
+
         if self.operator is QCOperator.APPROX:
             if self.tolerance_percent is None:
                 raise ValueError("operator '~=' requires tolerance_percent to be set")
@@ -124,6 +107,7 @@ class QCCondition(BaseModel):
             raise ValueError(
                 f"tolerance_percent is only valid with operator '~=', got operator {self.operator.value!r}"
             )
+
         if self.case_insensitive and not isinstance(self.value, str):
             raise ValueError("case_insensitive=True is only valid when value is a string")
         return self
@@ -131,13 +115,10 @@ class QCCondition(BaseModel):
 
 class QCByRule(BaseModel):
     """The conditional form of `qc`: which condition list applies to a
-    given row depends on another column's (`match`) raw value for that
-    row, looked up in `rules`.
+    given row depending on that rows value in another column `match`
 
     A row whose `match` value isn't a key in `rules` uses `default` if
-    given. Without a `default`, it's reported as its own QC failure (see
-    qc.py) instead of silently passing -- an unrecognized value is a
-    data/config gap worth surfacing, not hiding.
+    given. Without a `default`, it's reported as a QC fail
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -155,21 +136,17 @@ class QCByRule(BaseModel):
 
 
 def _qc_is_set(qc: list[QCCondition] | QCByRule) -> bool:
-    """True if `qc` carries real conditions -- a non-empty list, or the
-    conditional form (which is never "empty" the way a list can be)."""
+    """True if `qc` has content"""
     return isinstance(qc, QCByRule) or bool(qc)
 
 
 class FileParsingOutput(BaseModel):
-    """One named value extracted from a column's file: `command` runs
-    against the raw cell value (a file path, potentially GCP uri) which
-    becomes its own column.
+    """One named value extracted from a column's file: `command` runs against that file
 
     `qc` accepts the same two forms as ColumnConfig.qc: a plain
     list[QCCondition], or the conditional QCByRule form.
 
-    Requires --allow-file-parsing on the CLI even when the config asks
-    for it, since it means running a command the config author wrote.
+    Requires --allow-file-parsing on the CLI to avoid lawsuits probably
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -182,8 +159,7 @@ class FileParsingOutput(BaseModel):
     @field_validator("command")
     @classmethod
     def _command_not_blank(cls, command: str) -> str:
-        # min_length=1 lets whitespace-only strings (like "   ") through
-        # which is not a command but a config mistake
+        # min_length=1 lets whitespace-only strings (like "   ") through booo
         if not command.strip():
             raise ValueError("file_parsing command cannot be blank")
         return command
@@ -191,8 +167,7 @@ class FileParsingOutput(BaseModel):
     @field_validator("timeout_seconds")
     @classmethod
     def _timeout_must_be_positive(cls, timeout_seconds: float | None) -> float | None:
-        # None means no timeout. 0 or negative are treated by subprocess
-        # as already expired, so every command fails instantly; give an error
+        # None means no timeout. 0 or negative are treated by subprocess as already expired, so every command fails instantly; give an error
         if timeout_seconds is not None and timeout_seconds <= 0:
             raise ValueError(
                 f"timeout_seconds must be greater than 0 (use no timeout_seconds at all for unlimited), got {timeout_seconds!r}"
@@ -231,9 +206,7 @@ class ColumnConfig(BaseModel):
 
     @model_validator(mode="after")
     def _file_parsing_excludes_rename_and_qc(self) -> "ColumnConfig":
-        # Once file_parsing is set, output identity and QC come from its
-        # outputs list -- letting rename/qc coexist would leave it
-        # ambiguous which one actually governs a given output.
+        # Once file_parsing is set, output identity and QC should only come from its outputs list
         if self.file_parsing is not None:
             if self.rename is not None:
                 raise ValueError(
@@ -251,30 +224,24 @@ class ColumnConfig(BaseModel):
     def output_name(self) -> str:
         """The column's name in the output table: the rename if given, else the original name.
 
-        Not meaningful for a file_parsing column -- use output_names instead.
+        Not meaningful for a file_parsing column which uses output_names instead.
         """
         return self.rename or self.name
 
     @property
     def output_names(self) -> list[str]:
-        """Every name this column contributes to the output header, in order.
-
-        A file_parsing column can contribute one name per configured output
-        """
+        """Every output name the file parsing generates, in order."""
         if self.file_parsing is not None:
             return [o.name for o in self.file_parsing]
         return [self.output_name]
 
 
 class SetQCMatch(BaseModel):
-    """Identifies which sample(s) a `set_qc` rule applies to. Exactly one of
-    these three must be given.
+    """Identifies which sample(s) a `set_qc` rule applies to. One of these is required:
 
-    `sample_pattern`: a case-sensitive substring match against the sample
-    name (the input table's first column).
-    `sample_regex`: `re.search` against the sample name, case-sensitive
-    (use an inline `(?i)` flag for case-insensitive matching).
-    `samples`: an explicit, exact list of sample names.
+    - `sample_pattern`: a case-sensitive substring match against sample name
+    - `sample_regex`: `re.search` against the sample name, case-sensitive (use an inline `(?i)` flag for case-insensitive matching).
+    - `samples`: an explicit, exact list of sample names.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -319,11 +286,8 @@ class SetQCMatch(BaseModel):
 
 
 class SetQCCheck(BaseModel):
-    """One column + QC condition list within a `SetQCRule`. A rule can list
-    several of these, checked against the same matched sample(s) -- e.g. one
-    rule keyed on "is this the NTC" checking both read count and
-    contamination percent, instead of writing two separate rules that repeat
-    the same `match`."""
+    """One column and QC condition list within a `SetQCRule`. A rule can list
+    several of these, checked against the same matched sample(s)"""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
@@ -333,16 +297,9 @@ class SetQCCheck(BaseModel):
 
 class SetQCRule(BaseModel):
     """A run-level (set) QC check: every sample identified by `match` must
-    pass every check in `columns` -- each is its own column and QC condition
-    list, all read from the same matched sample(s)' row.
+    pass every check in `columns` or else the entire run is considered a QC fail.
 
-    Unlike per-row `qc`, a failure here fails the *entire run* -- every
-    sample is dropped from output, not just the one(s) `match` identifies
-    (see transform.py's run_export). None of `columns[].column` need be
-    listed in the config's `columns` allow-list -- the same "readable but
-    not necessarily exported" treatment `QCByRule.match` already gets.
-
-    A rule that matches zero samples in a given run is a hard error (there's
+    A rule that matches zero samples in a given run is a LIMSport error (there's
     no sample to attach a QC failure to), not a QC failure.
     """
 
@@ -365,18 +322,7 @@ class ExportConfig(BaseModel):
     """The top-level shape of the YAML config file: a list of columns, plus
     optional run-level (`set_qc`) checks.
 
-    `columns` lists every column to keep in the output -- a list rather
-    than a `{name: {...}}` mapping on purpose (a mapping would let a
-    duplicate key silently overwrite itself before this code even runs).
-    It can be omitted entirely: every input column then passes through
-    unfiltered and unrenamed, same as running with no config at all, except
-    `set_qc` still applies -- but only if `set_qc` configures at least one
-    rule, since a config with neither does nothing.
-
-    An explicit `columns: []` is always rejected, regardless of `set_qc`:
-    unlike omitting the key, writing an empty list looks like a config that
-    meant to list columns and didn't, not a deliberate "pass everything
-    through."
+    `columns` lists every column to keep in the output. It can be omitted only if `set_qc` is pprovided.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -404,8 +350,7 @@ class ExportConfig(BaseModel):
 
         if not self.columns:
             raise ValueError(
-                "config 'columns' must not be empty; omit it entirely to pass every "
-                "input column through unfiltered instead"
+                "config 'columns' must not be empty; omit it entirely if you don't want to perform any column operations"
             )
 
         dupes = _find_duplicates(c.name for c in self.columns)
@@ -422,7 +367,7 @@ class QCFailure(BaseModel):
     """One sample's failing check on one output, reported both as a log
     line and a row in the --qc-report TSV.
 
-    `column` is always the input's original (source) column name.
+    `column` is the input's original name.
     `output_column` is that column's single output name -- its rename, or
     itself if there was no rename -- except for a file_parsing column,
     where several outputs can share one `column` and `output_column`

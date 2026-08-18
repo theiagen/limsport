@@ -1,0 +1,5 @@
+sample_id	metadata_json	coverage_tsv	qc_report
+SAMPLE_A	examples/files/SAMPLE_A_metadata.json	examples/files/SAMPLE_A_coverage.tsv	examples/files/SAMPLE_A_qc.report
+SAMPLE_B	examples/files/SAMPLE_B_metadata.json	examples/files/SAMPLE_B_coverage.tsv	examples/files/SAMPLE_B_qc.report
+SAMPLE_C	examples/files/SAMPLE_C_metadata.json	examples/files/SAMPLE_C_coverage.tsv	examples/files/SAMPLE_C_qc.report
+SAMPLE_D	examples/files/SAMPLE_D_metadata.json	examples/files/SAMPLE_D_coverage.tsv	examples/files/SAMPLE_D_qc.report

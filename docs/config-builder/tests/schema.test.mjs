@@ -26,9 +26,9 @@ import {
 } from "../schema.js";
 import {
   condition,
-  basicExampleColumns,
-  fileParsingExampleColumns,
-  theiaprokExampleColumns,
+  fullExampleColumns,
+  fullExampleSetQCRules,
+  multiFormatExampleColumns,
 } from "../examples.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -67,26 +67,16 @@ function assertValidAndMatches(plainConfig, examplePath, testName) {
   );
 }
 
-test("basic example: every operator, rename, plain pass-through, dropped column", () => {
-  const { plain, errors } = buildConfig(basicExampleColumns());
+test("full example: every operator, renames, conditional qc with no default, real file_parsing, and set_qc", () => {
+  const { plain, errors } = buildConfig(fullExampleColumns(), fullExampleSetQCRules());
   assert.deepEqual(errors, []);
-  assertValidAndMatches(plain, path.join(EXAMPLES, "basic", "config.yaml"), "basic");
+  assertValidAndMatches(plain, path.join(EXAMPLES, "configs", "config.yaml"), "full");
 });
 
-test("file_parsing example: single-output, multi-output, and a third command style", () => {
-  const { plain, errors } = buildConfig(fileParsingExampleColumns());
+test("full example multi-format adjunct: single-output, multi-output, and a third command style", () => {
+  const { plain, errors } = buildConfig(multiFormatExampleColumns());
   assert.deepEqual(errors, []);
-  assertValidAndMatches(plain, path.join(EXAMPLES, "file_parsing", "config.yaml"), "file_parsing");
-});
-
-test("theiaprok example: renames, conditional qc with no default, multi-output file_parsing with nested conditional qc", () => {
-  const { plain, errors } = buildConfig(theiaprokExampleColumns());
-  assert.deepEqual(errors, []);
-  assertValidAndMatches(
-    plain,
-    path.join(EXAMPLES, "theiaprok_illumina_pe", "config.yaml"),
-    "theiaprok_illumina_pe"
-  );
+  assertValidAndMatches(plain, path.join(EXAMPLES, "configs", "config_multi_format.yaml"), "configs/config_multi_format");
 });
 
 // ---------------------------------------------------------------------------
@@ -118,7 +108,7 @@ test("validation: duplicate file_parsing output names across two different colum
   a.isFileParsing = true;
   const outA = newFileParsingOutput();
   outA.name = "value";
-  outA.command = 'cat "$LIMSPORT_FILE"';
+  outA.command = 'cat "$FILE"';
   a.fileParsing = [outA];
 
   const b = newColumn();
@@ -126,7 +116,7 @@ test("validation: duplicate file_parsing output names across two different colum
   b.isFileParsing = true;
   const outB = newFileParsingOutput();
   outB.name = "value";
-  outB.command = 'cat "$LIMSPORT_FILE"';
+  outB.command = 'cat "$FILE"';
   b.fileParsing = [outB];
 
   const { errors } = buildConfig([a, b]);
@@ -174,7 +164,7 @@ test("validation: a column that is both renamed and file_parsing-enabled cannot 
   col.isFileParsing = true;
   const output = newFileParsingOutput();
   output.name = "value";
-  output.command = "cat \"$LIMSPORT_FILE\"";
+  output.command = "cat \"$FILE\"";
   col.fileParsing = [output];
   const { plain, errors } = buildConfig([col]);
   assert.deepEqual(errors, []);

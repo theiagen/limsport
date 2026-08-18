@@ -18,7 +18,7 @@ def _outputs(command, timeout_seconds=None, name="out"):
 def test_run_simple_command_reads_local_file(tmp_path):
     path = tmp_path / "data.txt"
     path.write_text("hello\n")
-    result = file_parsing.run(_outputs('cat "$LIMSPORT_FILE"'), str(path))
+    result = file_parsing.run(_outputs('cat "$FILE"'), str(path))
     assert result == ["hello"]
 
 
@@ -26,7 +26,7 @@ def test_run_supports_pipes(tmp_path):
     # Matches the motivating example: cut -f1 file | cut -f3 -d:
     path = tmp_path / "data.tsv"
     path.write_text("a:b:c\td:e:f\n")
-    command = 'cut -f1 "$LIMSPORT_FILE" | cut -d: -f3'
+    command = 'cut -f1 "$FILE" | cut -d: -f3'
     result = file_parsing.run(_outputs(command), str(path))
     assert result == ["c"]
 
@@ -67,7 +67,7 @@ def test_run_succeeds_with_empty_output(tmp_path):
     # function's job to treat it as a failure.
     path = tmp_path / "data.txt"
     path.write_text("no match here\n")
-    result = file_parsing.run(_outputs('grep nonexistent_pattern "$LIMSPORT_FILE" || true'), str(path))
+    result = file_parsing.run(_outputs('grep nonexistent_pattern "$FILE" || true'), str(path))
     assert result == [""]
 
 
@@ -78,15 +78,15 @@ def test_run_on_nonexistent_local_file_surfaces_the_commands_own_error(tmp_path)
     # nonzero-exit path as any other broken command.
     missing = tmp_path / "does_not_exist.txt"
     with pytest.raises(FileParsingError, match="No such file or directory"):
-        file_parsing.run(_outputs('cat "$LIMSPORT_FILE"'), str(missing))
+        file_parsing.run(_outputs('cat "$FILE"'), str(missing))
 
 
 def test_run_exposes_local_path_via_env_var_not_command_text(tmp_path):
     # The path itself is never spliced into the command string -- the
-    # command only ever sees it via $LIMSPORT_FILE.
+    # command only ever sees it via $FILE.
     path = tmp_path / "data.txt"
     path.write_text("content\n")
-    result = file_parsing.run(_outputs("wc -l < \"$LIMSPORT_FILE\""), str(path))
+    result = file_parsing.run(_outputs("wc -l < \"$FILE\""), str(path))
     assert result[0].strip() == "1"
 
 
@@ -101,7 +101,7 @@ def test_local_path_is_never_localized(tmp_path, monkeypatch):
         return real_run(argv, **kwargs)
 
     monkeypatch.setattr(file_parsing.subprocess, "run", recording_run)
-    result = file_parsing.run(_outputs('cat "$LIMSPORT_FILE"'), str(path))
+    result = file_parsing.run(_outputs('cat "$FILE"'), str(path))
     assert result == ["hello"]
     # Only the bash command itself ran -- no gcloud/localize call for a local path.
     assert len(calls) == 1
@@ -115,9 +115,9 @@ def test_run_multiple_outputs_each_run_their_own_command_against_the_same_file(t
     path = tmp_path / "data.tsv"
     path.write_text("a\tb\tc\n")
     outputs = [
-        FileParsingOutput(name="first", command='cut -f1 "$LIMSPORT_FILE"'),
-        FileParsingOutput(name="second", command='cut -f2 "$LIMSPORT_FILE"'),
-        FileParsingOutput(name="third", command='cut -f3 "$LIMSPORT_FILE"'),
+        FileParsingOutput(name="first", command='cut -f1 "$FILE"'),
+        FileParsingOutput(name="second", command='cut -f2 "$FILE"'),
+        FileParsingOutput(name="third", command='cut -f3 "$FILE"'),
     ]
     result = file_parsing.run(outputs, str(path))
     assert result == ["a", "b", "c"]

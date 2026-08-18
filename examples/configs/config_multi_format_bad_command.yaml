@@ -8,4 +8,4 @@ columns:
     file_parsing:
       - name: mean_depth
         command: |
-          python3 -c "import json; print(json.load(open('$LIMSPORT_FILE'))['run']['metrics']['depth'])"
+          python3 -c "import json; print(json.load(open('$FILE'))['run']['metrics']['depth'])"

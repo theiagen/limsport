@@ -1,0 +1,15 @@
+# A set_qc rule whose match identifies no sample at all in the input --
+# a hard error (there's no sample to attach a QC failure to), not a QC
+# failure. Aborts before any output is written.
+columns:
+  - name: "entity:theiaprok_illumina_pe_v4-2-0_id"
+    rename: sample_id
+
+set_qc:
+  - name: "NTC has no organism flagged"
+    match:
+      sample_pattern: "DOES_NOT_EXIST"
+    columns:
+      - column: screening_notes
+        qc:
+          - {operator: is_empty}

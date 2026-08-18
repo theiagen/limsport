@@ -126,7 +126,7 @@ def _file_parsing_conditional_qc_scenario(tmp_path):
         "  - name: data_path\n"
         "    file_parsing:\n"
         "      - name: extracted\n"
-        '        command: cat "$LIMSPORT_FILE"\n'
+        '        command: cat "$FILE"\n'
         "        qc:\n"
         "          match: taxon\n"
         "          rules:\n"

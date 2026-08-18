@@ -73,7 +73,7 @@ def _localize(raw_path: str) -> tuple[str, Path | None]:
 
 def _run_command(output: FileParsingOutput, env: dict[str, str], raw_value: str) -> str:
     """Run one output's command with the given environment (which
-    already has $LIMSPORT_FILE set), and return its single-line result.
+    already has $FILE set), and return its single-line result.
 
     Raises FileParsingError for a failing command, a timeout, or a
     result that contains a newline. raw_value is only used to identify
@@ -118,7 +118,7 @@ def run(outputs: list[FileParsingOutput], raw_value: str) -> list[str]:
     """
     local_path, tmp_dir = _localize(raw_value)
     try:
-        env = {**os.environ, "LIMSPORT_FILE": local_path}
+        env = {**os.environ, "FILE": local_path}
         return [_run_command(o, env, raw_value) for o in outputs]
     finally:
         if tmp_dir is not None:

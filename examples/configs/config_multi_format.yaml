@@ -1,6 +1,10 @@
-# Demonstrates file_parsing against three genuinely different, non-TSV(ish)
-# formats -- each column uses a different tool to extract value(s) from a
-# different kind of file, and QC then runs against the *extracted* value(s).
+# Adjunct scenario: file_parsing against three genuinely different, non-TSV
+# (ish) formats -- each column uses a different tool to extract value(s)
+# from a different kind of file, and QC then runs against the *extracted*
+# value(s). Kept separate from config.yaml/theiaprok_illumina_pe.tsv
+# because none of these formats correspond to anything in a real
+# TheiaProk_Illumina_PE table -- that config already demonstrates
+# file_parsing against a real gs:// report (quast_report).
 #
 # `file_parsing` is always a list of named outputs: one entry pulls out a
 # single value (metadata_json, qc_report below), several entries pull out
@@ -19,7 +23,7 @@ columns:
       # JSON, extracted with `python3 -c` (as opposed to a shell one-liner)
       - name: mean_depth
         command: |
-          python3 -c "import json; print(json.load(open('$LIMSPORT_FILE'))['run']['metrics']['mean_depth'])"
+          python3 -c "import json; print(json.load(open('$FILE'))['run']['metrics']['mean_depth'])"
         qc:
           - {operator: ">=", value: 30}
 
@@ -30,12 +34,12 @@ columns:
       # the same chr1 row, each with its own awk command and its own QC.
       - name: chr1_meandepth
         command: |
-          awk -F'\t' '$1 == "chr1" {print $7}' "$LIMSPORT_FILE"
+          awk -F'\t' '$1 == "chr1" {print $7}' "$FILE"
         qc:
           - {operator: ">=", value: 30}
       - name: chr1_coverage_pct
         command: |
-          awk -F'\t' '$1 == "chr1" {print $6}' "$LIMSPORT_FILE"
+          awk -F'\t' '$1 == "chr1" {print $6}' "$FILE"
         qc:
           - {operator: ">=", value: 95}
 
@@ -45,6 +49,6 @@ columns:
       # with section markers -- grep finds the line, cut/tr pull the value.
       - name: error_rate
         command: |
-          grep '^error_rate ::' "$LIMSPORT_FILE" | cut -d: -f3 | tr -d ' '
+          grep '^error_rate ::' "$FILE" | cut -d: -f3 | tr -d ' '
         qc:
           - {operator: "<", value: 0.01}

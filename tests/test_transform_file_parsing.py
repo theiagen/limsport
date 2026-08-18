@@ -14,7 +14,7 @@ def _cut_scenario(tmp_path):
     return file_parsing_scenario(
         tmp_path,
         data_content="abc:123:xyz\n",
-        command='\'cut -d: -f2 "$LIMSPORT_FILE"\'',
+        command='\'cut -d: -f2 "$FILE"\'',
         qc_yaml='        qc:\n          - {operator: "=", value: "123"}\n',
     )
 
@@ -136,15 +136,15 @@ def _multi_output_scenario(tmp_path, coverage_pct="99.98"):
         "  - name: coverage_tsv\n"
         "    file_parsing:\n"
         "      - name: mean_depth\n"
-        '        command: awk -F"\\t" \'{print $2}\' "$LIMSPORT_FILE"\n'
+        '        command: awk -F"\\t" \'{print $2}\' "$FILE"\n'
         "        qc:\n"
         '          - {operator: ">=", value: 30}\n'
         "      - name: coverage_pct\n"
-        '        command: awk -F"\\t" \'{print $3}\' "$LIMSPORT_FILE"\n'
+        '        command: awk -F"\\t" \'{print $3}\' "$FILE"\n'
         "        qc:\n"
         '          - {operator: ">=", value: 95}\n'
         "      - name: mean_mapq\n"
-        '        command: awk -F"\\t" \'{print $4}\' "$LIMSPORT_FILE"\n'
+        '        command: awk -F"\\t" \'{print $4}\' "$FILE"\n'
     )
     return input_tsv, config
 
