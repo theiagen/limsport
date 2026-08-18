@@ -39,7 +39,7 @@ const HELPER = path.join(HERE, "load_and_dump.py");
 function loadAndDump(yamlPath) {
   const result = spawnSync("python3", [HELPER, yamlPath], {
     encoding: "utf8",
-    env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, "src") },
+    env: { ...process.env, PYTHONPATH: REPO_ROOT },
   });
   return result;
 }

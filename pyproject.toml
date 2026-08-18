@@ -19,7 +19,7 @@ dev = ["pytest>=8.0", "pytest-cov"]
 limsport = "limsport.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/limsport"]
+packages = ["limsport"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

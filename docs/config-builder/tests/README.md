@@ -23,7 +23,7 @@ python3 -m http.server 8000
 
 - **`schema.js`** -- pure logic, no DOM. Turns the wizard's in-memory state
   into the same shape `limsport.config.ExportConfig` expects, runs the same
-  validation checks as the Pydantic models in `src/limsport/config.py`
+  validation checks as the Pydantic models in `limsport/config.py`
   (duplicate names, `tolerance_percent` only valid with `~=`, etc.), and
   serializes the result to YAML.
 - **`examples.js`** -- builds wizard state matching each scenario under

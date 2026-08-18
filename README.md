@@ -4,7 +4,7 @@
 
 ## Installation
 
-LIMSport is currently unpublished, so install with pip like so:
+Install with pip:
 
 ```
 pip install -e .
@@ -30,9 +30,9 @@ See `examples/` for a demo.
 
 | flag | required | meaning |
 |------|----------|---------|
-| `--input`, `-i` | yes | input TSV (or another delimited format, see below) |
-| `--output`, `-o` | no | output path (default: `limsport.tsv`); not written if `--config`, `--samples`, and `--delimiter` are all omitted |
-| `--config`, `-c` | no | YAML config: column allow-list, renaming, QC, `file_parsing` |
+| `--input`, `-i` | yes | input TSV (delimiters auto-detected) |
+| `--output`, `-o` | no | output path (default: `limsport.tsv`) |
+| `--config`, `-c` | no | YAML configuration |
 | `--samples`, `-s` | no | a file of sample names (one per line) to include; if omitted, every sample is included |
 | `--qc-report`, `-r` | no | QC failure report TSV path (default: `qc_report.tsv`) |
 | `--delimiter`, `-d` | no | output delimiter (default: tab) |
@@ -81,8 +81,6 @@ Configs are considered malformatted when either (a) config columns that are not 
 Empty or whitespace-only cells fail due to `"missing_value"` for every operator **except** `is_empty`/`is_not_empty`.
 
 Cells that are not able to be cast as a number fail QC (`"non-numeric value 'NA' cannot be compared with >= 1000"`).
-
-Boolean conditions are not accepted at this time.
 
 ```yaml
 # fixed threshold qc examples
@@ -203,7 +201,7 @@ columns:
         timeout_seconds: 10       # each output can set its own timeout
 ```
 
-The command indicated is run via `bash -c`, so pipes and any tool you like that is available can be used.
+The command is run via `bash -c`. Anything in your local environment can be used.
 
 You can access the file in the command with a bash variable: `"$FILE"`.
 
@@ -236,7 +234,7 @@ With no `--delimiter`, the output defaults to tab. Change the output delimiter w
 ### Repo Layout
 
 ```
-src/limsport/
+limsport/
 ├── cli.py           argparse entry point; flag parsing, exit codes
 ├── config.py        pydantic models for the YAML config + its loader
 ├── table_io.py      TSV/delimited I/O: read/write, delimiter detection

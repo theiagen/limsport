@@ -6,7 +6,7 @@
  * No DOM access here on purpose -- this file is imported both by the
  * browser page (app.js) and by the Node test suite (tests/schema.test.mjs),
  * which feeds its output straight through the real `load_config()` in
- * src/limsport/config.py to confirm it's accepted.
+ * limsport/config.py to confirm it's accepted.
  */
 
 export const OPERATORS = [
@@ -278,7 +278,7 @@ function buildSetQCRule(rule, idx, errors) {
 /**
  * Builds the plain, ExportConfig-shaped object from wizard state and
  * collects human-readable validation errors (mirroring the checks
- * `src/limsport/config.py` enforces). `plain` is still returned even when
+ * `limsport/config.py` enforces). `plain` is still returned even when
  * there are errors so the preview pane can show a best-effort draft; only
  * `errors` should gate the download/copy actions.
  */
