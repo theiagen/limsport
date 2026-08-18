@@ -1,5 +1,7 @@
 import {
   OPERATORS,
+  STRING_OPERATORS,
+  NUMERIC_RE,
   newColumn,
   newCondition,
   newRule,
@@ -76,10 +78,16 @@ function buildConditionsEditor(conditions) {
     }
     operatorSelect.value = cond.operator;
 
+    const valuePlaceholders = {
+      "=": "e.g. PASS or 1000",
+      contains: "e.g. Escherichia",
+      does_not_contain: "e.g. contaminant",
+    };
+
     const valueInput = el("input", {
       type: "text",
       class: "cond-value",
-      placeholder: cond.operator === "=" ? "e.g. PASS or 1000" : "e.g. 1000",
+      placeholder: valuePlaceholders[cond.operator] ?? "e.g. 1000",
       value: cond.value,
     });
 
@@ -90,23 +98,97 @@ function buildConditionsEditor(conditions) {
       value: cond.tolerancePercent,
     });
 
+    const forceStringInput = el("input", { type: "checkbox" });
+    const forceStringLabel = el("label", { class: "cond-force-string" }, [
+      forceStringInput,
+      document.createTextNode(" treat as string"),
+    ]);
+    forceStringInput.checked = cond.forceString;
+
+    const caseInsensitiveInput = el("input", { type: "checkbox" });
+    const caseInsensitiveLabel = el("label", { class: "cond-case-insensitive" }, [
+      caseInsensitiveInput,
+      document.createTextNode(" ignore case"),
+    ]);
+    caseInsensitiveInput.checked = cond.caseInsensitive;
+
+    // A "=" value with any non-numeric character is unambiguously a string
+    // already -- no need to ask. "Treat as string" only matters for a
+    // numeric-looking (or blank) value, where auto-detection is ambiguous.
+    function equalityValueIsExplicitString() {
+      const raw = (valueInput.value ?? "").toString().trim();
+      return raw !== "" && !NUMERIC_RE.test(raw);
+    }
+
+    // "=" only treats its value as a string worth ignoring case on once
+    // it's a string -- either because it's already non-numeric, or because
+    // "treat as string" is checked. contains/does_not_contain always compare
+    // strings, so they don't need either gate.
+    function forceStringApplies() {
+      return operatorSelect.value === "=" && !equalityValueIsExplicitString();
+    }
+    function caseInsensitiveApplies() {
+      if (operatorSelect.value === "=") {
+        return equalityValueIsExplicitString() || forceStringInput.checked;
+      }
+      return STRING_OPERATORS.has(operatorSelect.value);
+    }
+
     function syncOperatorDependentUI() {
       toleranceInput.classList.toggle("hidden", operatorSelect.value !== "~=");
-      valueInput.placeholder = operatorSelect.value === "=" ? "e.g. PASS or 1000" : "e.g. 1000";
+      forceStringLabel.classList.toggle("hidden", !forceStringApplies());
+      caseInsensitiveLabel.classList.toggle("hidden", !caseInsensitiveApplies());
+      valueInput.placeholder = valuePlaceholders[operatorSelect.value] ?? "e.g. 1000";
     }
     syncOperatorDependentUI();
 
     operatorSelect.addEventListener("change", () => {
       cond.operator = operatorSelect.value;
+      // Clear state tied to a now-hidden control -- otherwise a stale
+      // leftover value (typed before switching operators) can trip
+      // buildConfig's validation with no visible control left to fix it.
+      if (cond.operator !== "~=") {  // strict inequality
+        cond.tolerancePercent = "";
+        toleranceInput.value = "";
+      }
+      if (cond.operator !== "=") {
+        cond.forceString = false;
+        forceStringInput.checked = false;
+      }
+      if (!caseInsensitiveApplies()) {
+        cond.caseInsensitive = false;
+        caseInsensitiveInput.checked = false;
+      }
       syncOperatorDependentUI();
       refreshPreview();
     });
     valueInput.addEventListener("input", () => {
       cond.value = valueInput.value;
+      // The value itself (not just the operator) can flip whether "ignore
+      // case" is currently valid -- e.g. typing a letter into a numeric-
+      // looking "=" value makes it an explicit string.
+      if (!caseInsensitiveApplies()) {
+        cond.caseInsensitive = false;
+        caseInsensitiveInput.checked = false;
+      }
+      syncOperatorDependentUI();
       refreshPreview();
     });
     toleranceInput.addEventListener("input", () => {
       cond.tolerancePercent = toleranceInput.value;
+      refreshPreview();
+    });
+    forceStringInput.addEventListener("change", () => {
+      cond.forceString = forceStringInput.checked;
+      if (!caseInsensitiveApplies()) {
+        cond.caseInsensitive = false;
+        caseInsensitiveInput.checked = false;
+      }
+      syncOperatorDependentUI();
+      refreshPreview();
+    });
+    caseInsensitiveInput.addEventListener("change", () => {
+      cond.caseInsensitive = caseInsensitiveInput.checked;
       refreshPreview();
     });
 
@@ -123,7 +205,14 @@ function buildConditionsEditor(conditions) {
       },
     });
 
-    const row = el("div", { class: "condition-row" }, [operatorSelect, valueInput, toleranceInput, removeBtn]);
+    const row = el("div", { class: "condition-row" }, [
+      operatorSelect,
+      valueInput,
+      toleranceInput,
+      forceStringLabel,
+      caseInsensitiveLabel,
+      removeBtn,
+    ]);
     return row;
   }
 

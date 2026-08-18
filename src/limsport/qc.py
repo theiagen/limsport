@@ -21,6 +21,22 @@ def _format_number(x: float) -> str:
     return f"{x:,.6f}".rstrip("0").rstrip(".")
 
 
+def _fold(value: str, case_insensitive: bool) -> str:
+    return value.casefold() if case_insensitive else value
+
+
+def _evaluate_contains(raw: str, condition: QCCondition, *, negate: bool) -> tuple[bool, str | None]:
+    assert isinstance(condition.value, str)
+    haystack = _fold(raw, condition.case_insensitive)
+    needle = _fold(condition.value, condition.case_insensitive)
+    contains = needle in haystack
+    passed = (not contains) if negate else contains
+    if passed:
+        return True, None
+    verb = "contains" if negate else "does not contain"
+    return False, f"value {raw!r} {verb} {condition.value!r}"
+
+
 def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, str | None]:
     """Check one cell against one condition.
 
@@ -31,9 +47,13 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
     if not raw:
         return False, "missing value"
 
-    if isinstance(condition.value, str): # only equivalence for strings
-        # case-sensitive
-        passed = (raw == condition.value)
+    if condition.operator is QCOperator.CONTAINS:
+        return _evaluate_contains(raw, condition, negate=False)
+    if condition.operator is QCOperator.DOES_NOT_CONTAIN:
+        return _evaluate_contains(raw, condition, negate=True)
+
+    if isinstance(condition.value, str):  # only equivalence for strings
+        passed = _fold(raw, condition.case_insensitive) == _fold(condition.value, condition.case_insensitive)
         return passed, None if passed else f"value {raw!r} != {condition.value!r}"
 
     try:

@@ -197,7 +197,123 @@ test("validation: a genuinely invalid config (duplicate names) is also rejected 
   assert.match(result.stderr, /Duplicate column name/);
 });
 
-test("serialization: '=' string values are quoted only when they contain a non-alphanumeric character, and load_config() preserves them exactly", () => {
+test("validation: 'contains'/'does_not_contain' with a non-numeric value round - trip through the real load_config()", () => {
+  const col = newColumn();
+  col.name = "organism";
+  col.qc = {
+    kind: "list",
+    conditions: [condition("contains", "Escherichia"), condition("does_not_contain", "contaminant")],
+  };
+  const { plain, errors } = buildConfig([col]);
+  assert.deepEqual(errors, []);
+  const yaml = serializeYAML(plain);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "contains.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
+  const dumped = JSON.parse(result.stdout);
+  assert.deepEqual(
+    dumped.columns[0].qc.map((c) => [c.operator, c.value]),
+    [
+      ["contains", "Escherichia"],
+      ["does_not_contain", "contaminant"],
+    ]
+  );
+});
+
+test("validation: 'contains' does not require a numeric value (unlike other non-EQ operators)", () => {
+  const col = newColumn();
+  col.name = "organism";
+  col.qc = { kind: "list", conditions: [condition("contains", "Escherichia")] };
+  const { errors } = buildConfig([col]);
+  assert.deepEqual(errors, []);
+});
+
+test("validation: case_insensitive: true round-trips through the real load_config(), and is omitted by default", () => {
+  const col = newColumn();
+  col.name = "organism";
+  const caseInsensitive = newCondition();
+  caseInsensitive.operator = "contains";
+  caseInsensitive.value = "Escherichia";
+  caseInsensitive.caseInsensitive = true;
+  col.qc = { kind: "list", conditions: [caseInsensitive] };
+
+  const { plain, errors } = buildConfig([col]);
+  assert.deepEqual(errors, []);
+  const yaml = serializeYAML(plain);
+  assert.match(yaml, /case_insensitive: true/);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "case-insensitive.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
+  const dumped = JSON.parse(result.stdout);
+  assert.equal(dumped.columns[0].qc[0].case_insensitive, true);
+
+  // default (case_insensitive left false) shouldn't appear in the emitted YAML at all
+  const defaultCol = newColumn();
+  defaultCol.name = "status";
+  defaultCol.qc = { kind: "list", conditions: [condition("=", "PASS")] };
+  const { plain: defaultPlain, errors: defaultErrors } = buildConfig([defaultCol]);
+  assert.deepEqual(defaultErrors, []);
+  assert.doesNotMatch(serializeYAML(defaultPlain), /case_insensitive/);
+});
+
+test("validation: case_insensitive: true on a numeric-valued condition is rejected", () => {
+  const col = newColumn();
+  col.name = "read_count";
+  const cond = newCondition();
+  cond.operator = ">=";
+  cond.value = "1000";
+  cond.caseInsensitive = true;
+  col.qc = { kind: "list", conditions: [cond] };
+  const { errors } = buildConfig([col]);
+  assert.ok(errors.some((e) => e.includes("case_insensitive: true is only valid when value is a string")));
+});
+
+test("validation: '=' with a numeric-looking value defaults to a number, even with case_insensitive requested", () => {
+  const col = newColumn();
+  col.name = "status";
+  const cond = newCondition();
+  cond.operator = "=";
+  cond.value = "1000";
+  cond.caseInsensitive = true;
+  col.qc = { kind: "list", conditions: [cond] };
+  const { errors } = buildConfig([col]);
+  assert.ok(errors.some((e) => e.includes("case_insensitive: true is only valid when value is a string")));
+});
+
+test("validation: '=' with forceString treats a numeric-looking value as a string, and allows case_insensitive", () => {
+  const col = newColumn();
+  col.name = "status";
+  const cond = newCondition();
+  cond.operator = "=";
+  cond.value = "1000";
+  cond.forceString = true;
+  cond.caseInsensitive = true;
+  col.qc = { kind: "list", conditions: [cond] };
+
+  const { plain, errors } = buildConfig([col]);
+  assert.deepEqual(errors, []);
+  const yaml = serializeYAML(plain);
+  assert.match(yaml, /value: "1000"/);
+  assert.match(yaml, /case_insensitive: true/);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "force-string.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
+  const dumped = JSON.parse(result.stdout);
+  assert.equal(dumped.columns[0].qc[0].value, "1000");
+  assert.equal(typeof dumped.columns[0].qc[0].value, "string");
+  assert.equal(dumped.columns[0].qc[0].case_insensitive, true);
+});
+
+test("serialization: string-operator values are always quoted, even when plain alphanumeric, and load_config() preserves them exactly", () => {
   const col = newColumn();
   col.name = "status";
   col.qc = {
@@ -209,9 +325,11 @@ test("serialization: '=' string values are quoted only when they contain a non-a
   assert.deepEqual(errors, []);
   const yaml = serializeYAML(plain);
 
-  // Plain alphanumeric words stay bare; anything else gets quoted.
-  assert.match(yaml, /value: PASS[,}]/);
-  assert.match(yaml, /value: value1[,}]/);
+  // Every string-operator value is quoted, plain alphanumeric or not --
+  // makes it visually unambiguous that this is a string comparison, not a
+  // bare keyword.
+  assert.match(yaml, /value: "PASS"/);
+  assert.match(yaml, /value: "value1"/);
   assert.match(yaml, /value: "high-risk"/);
   assert.match(yaml, /value: "N\/A"/);
 

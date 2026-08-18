@@ -27,7 +27,7 @@ def _find_duplicates(names: Iterable[str]) -> set[str]:
 
 
 class QCOperator(str, Enum):
-    """The six comparison operators a QC condition can use."""
+    """The comparison operators a QC condition can use."""
 
     GT = ">"
     GE = ">="
@@ -35,6 +35,8 @@ class QCOperator(str, Enum):
     LE = "<="
     LT = "<"
     APPROX = "~="  # within tolerance_percent of value
+    CONTAINS = "contains"  # string value is a substring of the cell
+    DOES_NOT_CONTAIN = "does_not_contain"  # string value is NOT a substring of the cell
 
 
 class QCCondition(BaseModel):
@@ -46,6 +48,14 @@ class QCCondition(BaseModel):
     `~=` requires `tolerance_percent`
     (e.g. `{operator: "~=", value: 1000000, tolerance_percent: 5}`
     passes for any value within 5% of 1000000, in either direction).
+
+    `contains`/`does_not_contain` take a string `value` and check whether it's a
+    substring of the cell, e.g. `{operator: "contains", value: "Escherichia"}`
+    passes for a cell of "Escherichia coli".
+
+    `case_insensitive` (default False) controls string comparison for `=`,
+    `contains`, and `does_not_contain`; it's a config error to set it on a
+    condition whose value isn't a string.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -53,6 +63,7 @@ class QCCondition(BaseModel):
     operator: QCOperator
     value: int | float | str | bool
     tolerance_percent: float | None = None
+    case_insensitive: bool = False
 
     @model_validator(mode="after")
     def _validate_operator_constraints(self) -> "QCCondition":
@@ -64,8 +75,19 @@ class QCCondition(BaseModel):
                 f"QC value cannot be a boolean ({self.value!r}); "
                 'quote it as a string (e.g. "true") if that\'s what you mean'
             )
-        # strings can only use equivalence; raise error if a str is w/ any other comparator
-        if self.operator is not QCOperator.EQ:
+        if self.operator in (QCOperator.CONTAINS, QCOperator.DOES_NOT_CONTAIN):
+            # substring checks only make sense against a string value
+            if not isinstance(self.value, str):
+                raise ValueError(
+                    f"operator {self.operator.value!r} requires a string value, got {self.value!r}"
+                )
+            if self.value == "":
+                # an empty substring is always found (or never absent), so
+                # this would silently check nothing
+                raise ValueError(f"operator {self.operator.value!r} requires a non-empty string value")
+        elif self.operator is not QCOperator.EQ:
+            # strings can only use equivalence or substring operators; raise
+            # error if a str is w/ any other comparator
             if not isinstance(self.value, (int, float)):
                 raise ValueError(
                     f"operator {self.operator.value!r} requires a numeric value, "
@@ -80,6 +102,8 @@ class QCCondition(BaseModel):
             raise ValueError(
                 f"tolerance_percent is only valid with operator '~=', got operator {self.operator.value!r}"
             )
+        if self.case_insensitive and not isinstance(self.value, str):
+            raise ValueError("case_insensitive=True is only valid when value is a string")
         return self
 
 

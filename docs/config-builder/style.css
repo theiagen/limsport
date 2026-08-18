@@ -589,6 +589,17 @@ body.limsport-config-builder {
   display: none;
 }
 
+.limsport-config-builder .cond-force-string,
+.limsport-config-builder .cond-case-insensitive {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: calc(0.2 * var(--unit));
+  white-space: nowrap;
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
 .limsport-config-builder .conditional-qc {
   display: flex;
   flex-direction: column;

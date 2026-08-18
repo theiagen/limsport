@@ -60,6 +60,10 @@ columns:
     qc:
       - {operator: "~=", value: 1000000, tolerance_percent: 5} # within 5% of value
 
+  - name: organism
+    qc:
+      - {operator: "contains", value: "Escherichia"} # substring match, case-sensitive by default
+
   - name: lot_number # kept and renamed, but never QC'd
     rename: lot
 ```
@@ -73,8 +77,12 @@ Malformatted configs either (a) have config columns that are not present in the 
 | operator | meaning | value type | notes |
 |----------|---------|-------------|-------|
 | `>`, `>=`, `<=`, `<` | ordinary numeric comparison | number | |
-| `=` | equality | number or string | string comparison is exact and case-sensitive |
+| `=` | equality | number or string | string comparison is case-sensitive unless `case_insensitive: true` is set |
 | `~=` | within `tolerance_percent`% of `value`, either direction | number | requires a companion `tolerance_percent` field |
+| `contains` | `value` is a substring of the cell | string | case-sensitive unless `case_insensitive: true` is set |
+| `does_not_contain` | `value` is not a substring of the cell | string | case-sensitive unless `case_insensitive: true` is set |
+
+`case_insensitive` (default `false`) is only valid on `=`, `contains`, and `does_not_contain` — it's a config error to set it alongside a numeric `value` or a numeric-only operator.
 
 Empty or whitespace-only cells fail due to `"missing_value"`. Cells that are not able to be cast as a number fail QC (`"non-numeric value 'NA' cannot be compared with >= 1000"`).
 
@@ -224,5 +232,6 @@ Tests mirror this layout (`tests/test_<module>.py`). There's no shared fixtures 
 ## To-Do:
 
 - [ ] enable cell-parsing (eg BUSCO, etc.)
+- [x] substring QC
 - [ ] set level QC - if "NTC" fails fail the entire run
-- [ ] config builder from a html thingy
+- [x] config builder from a html thingy

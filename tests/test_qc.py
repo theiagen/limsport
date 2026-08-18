@@ -10,6 +10,12 @@ def _condition(operator, value):
     ).qc[0]
 
 
+def _string_condition(operator, value, case_insensitive=False):
+    return ColumnConfig.model_validate(
+        {"name": "x", "qc": [{"operator": operator, "value": value, "case_insensitive": case_insensitive}]}
+    ).qc[0]
+
+
 def _approx_condition(value, tolerance_percent):
     return ColumnConfig.model_validate(
         {
@@ -122,6 +128,68 @@ def test_string_equality_is_case_sensitive():
     passed, _ = evaluate_condition("pass", condition)
     assert passed is False
     passed, _ = evaluate_condition("PASS", condition)
+    assert passed is True
+
+
+def test_contains_operator_passes_on_substring():
+    condition = _condition("contains", "Escherichia")
+    passed, reason = evaluate_condition("Escherichia coli", condition)
+    assert passed is True
+    assert reason is None
+
+
+def test_contains_operator_fails_when_substring_missing():
+    condition = _condition("contains", "Escherichia")
+    passed, reason = evaluate_condition("Salmonella enterica", condition)
+    assert passed is False
+    assert reason is not None and "does not contain" in reason
+
+
+def test_contains_operator_is_case_sensitive_by_default():
+    condition = _condition("contains", "Escherichia")
+    passed, _ = evaluate_condition("escherichia coli", condition)
+    assert passed is False
+
+
+def test_contains_operator_case_insensitive_option():
+    condition = _string_condition("contains", "Escherichia", case_insensitive=True)
+    passed, _ = evaluate_condition("escherichia coli", condition)
+    assert passed is True
+
+
+def test_does_not_contain_operator_passes_when_substring_missing():
+    condition = _condition("does_not_contain", "Escherichia")
+    passed, reason = evaluate_condition("Salmonella enterica", condition)
+    assert passed is True
+    assert reason is None
+
+
+def test_does_not_contain_operator_fails_when_substring_present():
+    condition = _condition("does_not_contain", "Escherichia")
+    passed, reason = evaluate_condition("Escherichia coli", condition)
+    assert passed is False
+    assert reason is not None and "contains" in reason
+
+
+def test_does_not_contain_operator_case_insensitive_option():
+    condition = _string_condition("does_not_contain", "Escherichia", case_insensitive=True)
+    passed, _ = evaluate_condition("escherichia coli", condition)
+    assert passed is False
+
+
+def test_does_not_contain_operator_fails_on_blank_cell_same_as_other_operators():
+    # A blank cell hits the "missing value" guard before any operator-specific
+    # logic runs, same as every other operator -- including does_not_contain,
+    # even though a blank cell technically "does not contain" the substring.
+    condition = _condition("does_not_contain", "Escherichia")
+    passed, reason = evaluate_condition("", condition)
+    assert passed is False
+    assert reason == "missing value"
+
+
+def test_equality_operator_case_insensitive_option():
+    condition = _string_condition("=", "PASS", case_insensitive=True)
+    passed, _ = evaluate_condition("pass", condition)
     assert passed is True
 
 

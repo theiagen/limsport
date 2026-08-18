@@ -152,6 +152,73 @@ def test_malformed_yaml_raises_config_error(tmp_path):
         load_config(bad)
 
 
+def test_contains_operator_accepts_string_value():
+    config = ExportConfig.model_validate(
+        {"columns": [{"name": "organism", "qc": [{"operator": "contains", "value": "Escherichia"}]}]}
+    )
+    condition = config.columns[0].qc[0]
+    assert condition.operator.value == "contains"
+    assert condition.value == "Escherichia"
+    assert condition.case_insensitive is False
+
+
+def test_does_not_contain_operator_accepts_string_value():
+    config = ExportConfig.model_validate(
+        {"columns": [{"name": "organism", "qc": [{"operator": "does_not_contain", "value": "contaminant"}]}]}
+    )
+    condition = config.columns[0].qc[0]
+    assert condition.operator.value == "does_not_contain"
+
+
+def test_contains_operator_rejects_numeric_value():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "organism", "qc": [{"operator": "contains", "value": 5}]}]}
+        )
+
+
+def test_does_not_contain_operator_rejects_numeric_value():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "organism", "qc": [{"operator": "does_not_contain", "value": 5}]}]}
+        )
+
+
+def test_case_insensitive_true_accepted_on_string_operators():
+    config = ExportConfig.model_validate(
+        {
+            "columns": [
+                {
+                    "name": "organism",
+                    "qc": [{"operator": "contains", "value": "Escherichia", "case_insensitive": True}],
+                }
+            ]
+        }
+    )
+    assert config.columns[0].qc[0].case_insensitive is True
+
+
+def test_contains_operator_rejects_empty_string_value():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "organism", "qc": [{"operator": "contains", "value": ""}]}]}
+        )
+
+
+def test_does_not_contain_operator_rejects_empty_string_value():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "organism", "qc": [{"operator": "does_not_contain", "value": ""}]}]}
+        )
+
+
+def test_case_insensitive_true_rejected_on_numeric_value():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "a", "qc": [{"operator": ">=", "value": 1000, "case_insensitive": True}]}]}
+        )
+
+
 def test_unknown_column_config_raises_on_load(tmp_path):
     # Loading only validates the config's own shape; missing-in-input-header
     # checking happens in transform.py, not here.

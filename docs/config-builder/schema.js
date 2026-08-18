@@ -9,7 +9,11 @@
  * src/limsport/config.py to confirm it's accepted.
  */
 
-export const OPERATORS = [">", ">=", "=", "<=", "<", "~="];
+export const OPERATORS = [">", ">=", "=", "<=", "<", "~=", "contains", "does_not_contain"];
+
+// Operators whose value is a string comparison, not a numeric one -- these
+// are the only operators `case_insensitive` applies to.
+export const STRING_OPERATORS = new Set(["=", "contains", "does_not_contain"]);
 
 let idCounter = 0;
 function nextId() {
@@ -18,7 +22,17 @@ function nextId() {
 }
 
 export function newCondition() {
-  return { id: nextId(), operator: ">=", value: "", tolerancePercent: "" };
+  // forceString only applies to "=": it overrides the numeric-looking-value
+  // auto-detection below, so e.g. value "1000" can be forced to the string
+  // "1000" instead of the number 1000.
+  return {
+    id: nextId(),
+    operator: ">=",
+    value: "",
+    tolerancePercent: "",
+    caseInsensitive: false,
+    forceString: false,
+  };
 }
 
 export function newRule() {
@@ -61,7 +75,7 @@ function findDuplicates(arr) {
   return [...dupes];
 }
 
-const NUMERIC_RE = /^-?\d+(\.\d+)?$/;
+export const NUMERIC_RE = /^-?\d+(\.\d+)?$/;
 
 function buildCondition(cond, label, errors) {
   if (!cond.operator) {
@@ -75,8 +89,10 @@ function buildCondition(cond, label, errors) {
   }
   const isNumeric = NUMERIC_RE.test(raw);
   let value;
-  if (cond.operator === "=") {
-    value = isNumeric ? Number(raw) : raw;
+  if (cond.operator === "contains" || cond.operator === "does_not_contain") {
+    value = raw; // substring checks always compare against a string
+  } else if (cond.operator === "=") {
+    value = cond.forceString || !isNumeric ? raw : Number(raw);
   } else {
     if (!isNumeric) {
       errors.push(`${label}: operator "${cond.operator}" requires a numeric value, got "${raw}"`);
@@ -100,6 +116,14 @@ function buildCondition(cond, label, errors) {
     }
   } else if (rawTolerance) {
     errors.push(`${label}: tolerance_percent is only valid with operator "~="`);
+  }
+
+  if (cond.caseInsensitive === true) {
+    if (typeof value !== "string") {
+      errors.push(`${label}: case_insensitive: true is only valid when value is a string`);
+    } else {
+      out.case_insensitive = true;
+    }
   }
   return out;
 }
@@ -237,7 +261,6 @@ export function buildConfig(columns) {
 
 const QUOTE_NEEDED_RE = /^\s|\s$|^$|[:#{}\[\],&*!|>'"%@`\n\t<=]/;
 const AMBIGUOUS_SCALAR_RE = /^(true|false|null|yes|no|on|off|~|-?\d+(\.\d+)?)$/i;
-const ALPHANUMERIC_ONLY_RE = /^[A-Za-z0-9]+$/;
 
 function yamlScalar(value) {
   if (typeof value === "number") return String(value);
@@ -254,25 +277,25 @@ function yamlKey(value) {
   return JSON.stringify(String(value));
 }
 
-// A '=' condition's value that isn't numeric (e.g. "PASS") is a string
-// match target. Quote it as soon as it has any non-alphanumeric character
-// (spaces, punctuation, symbols) -- a plain word like PASS stays bare, but
-// anything like "high-risk" or "N/A" gets quoted, matching yamlScalar's
-// ambiguous-keyword guard either way.
+// A string-operator ('=', 'contains', 'does_not_contain') condition's value
+// that isn't numeric (e.g. "PASS") is a string match target -- always quote
+// it, regardless of whether it happens to be plain alphanumeric, so it's
+// visually unambiguous that this is a string comparison, not a bare keyword.
 function yamlEqualityValue(value) {
   if (typeof value === "number") return String(value);
-  const s = String(value);
-  if (s !== "" && ALPHANUMERIC_ONLY_RE.test(s) && !AMBIGUOUS_SCALAR_RE.test(s)) {
-    return s;
-  }
-  return JSON.stringify(s);
+  return JSON.stringify(String(value));
 }
 
 function renderConditionInline(cond) {
-  const valueScalar = cond.operator === "=" ? yamlEqualityValue(cond.value) : yamlScalar(cond.value);
+  const valueScalar = STRING_OPERATORS.has(cond.operator)
+    ? yamlEqualityValue(cond.value)
+    : yamlScalar(cond.value);
   const parts = [`operator: ${yamlScalar(cond.operator)}`, `value: ${valueScalar}`];
   if (cond.tolerance_percent !== undefined) {
     parts.push(`tolerance_percent: ${yamlScalar(cond.tolerance_percent)}`);
+  }
+  if (cond.case_insensitive === true) {
+    parts.push(`case_insensitive: true`);
   }
   return `{${parts.join(", ")}}`;
 }
