@@ -39,7 +39,7 @@ def iter_rows(path: Path, delimiter: str | None = None) -> Iterator[list[str]]:
 
     Rows with less fields are padded while rows with more fields fail
     """
-    delimiter = delimiter or detect_delimiter(path) # detect_delimiter only runs in the tests
+    delimiter = delimiter or detect_delimiter(path) # detect_delimiter here only runs in the pytests
 
     with path.open(newline="", encoding="utf-8") as f:
         reader = csv.reader(f, delimiter=delimiter)

@@ -56,8 +56,7 @@ def _validate_set_qc_columns(
     set_qc: list[SetQCRule], name_to_indices: dict[str, list[int]], input_path: Path
 ) -> None:
     """Check before any output is written if a set_qc rule references a
-    column that doesn't exist or exists more than once. None of a rule's
-    columns have to also be in the config's `columns` allow-list."""
+    column that doesn't exist or exists more than once."""
     for rule in set_qc:
         for check in rule.columns:
             _validate_header_reference(check.column, name_to_indices, input_path,
@@ -66,7 +65,7 @@ def _validate_set_qc_columns(
 
 
 def _validate_file_parsing_allowed(columns: list[ColumnConfig], allow_file_parsing: bool) -> None:
-    """Quit if the config uses file_parsing but the CLI didn't opt in."""
+    """Quit if the config uses file_parsing but the user didn't opt in."""
     if allow_file_parsing:
         return
     names = [c.name for c in columns if c.file_parsing is not None]
@@ -121,9 +120,8 @@ def _resolve_column(
 ) -> list[qc.ResolvedField]:
     """Resolve one column's raw cell into its output field(s).
 
-    A file_parsing column's raw cell is a path, not the real value(s) so
-    the file parsing command is run first, so QC and the output both see
-    the parsed result(s) instead of the path
+    A file_parsing column's raw cell is a path. QC and the output both see
+    the parsed result(s) instead of the path.
     """
     if column.file_parsing is not None:
         values = file_parsing.run(column.file_parsing, raw_cell)
@@ -161,8 +159,7 @@ def run_export(
     output_delimiter: str = "\t",
     allow_file_parsing: bool = False,
 ) -> None:
-    # Detect once and thread it through every read below, so nothing
-    # re-sniffs and risks disagreeing with itself.
+    # auto-detect delimiter
     input_delimiter = table_io.detect_delimiter(input_path)
 
     if config_path is None and samples_path is None and output_delimiter == input_delimiter:
@@ -256,8 +253,7 @@ def run_export(
                     fields.extend(_resolve_column(column, row[idx], match_values))
                 buffered.append((sample, fields))
             else:
-                # columns omitted: nothing to resolve/check per-row, the raw
-                # row passes through unchanged (same as no config at all)
+                # columns omitted: nothing to resolve/check per-row
                 buffered.append((sample, row))
         else:
             buffered.append((sample, row))
@@ -271,8 +267,7 @@ def run_export(
     if config is not None:
         for rule in config.set_qc:
             if not set_qc_matched[rule.name]:
-                # no sample to attach a QC failure to -- a hard error, not a
-                # per-sample QC failure
+                # no sample to attach a QC failure to, fail
                 raise InputTableError(
                     f"{input_path}: set_qc rule {rule.name!r} matched no samples in this run"
                 )
@@ -285,11 +280,7 @@ def run_export(
 
     if run_failed_rules:
         # A set_qc rule failed: the entire run fails QC, not just the
-        # sample(s) that violated it. No row makes it to output; every
-        # candidate sample gets a report entry -- full detail (operator,
-        # expected, actual) for the sample(s) that actually violated a rule,
-        # a blank collateral entry naming every failing rule for everyone
-        # else.
+        # sample(s) that violated it
         offending_samples: set[str] = set()
         failing_rule_names = [rule.name for rule in run_failed_rules]
         for rule in run_failed_rules:
@@ -302,7 +293,7 @@ def run_export(
                 sample=sample, column="", output_column="", operator=None, expected=None,
                 actual=None, reason=f"run failed QC due to set_qc rule(s): {failing_rule_names}",
             ))
-        # output_rows stays empty -- the whole run failed
+        # output_rows stays empty since the whole run failed
     else:
         for sample, fields_or_row in buffered:
             if config is not None and config.columns is not None:
@@ -313,9 +304,6 @@ def run_export(
                     continue
                 output_rows.append([field.value for field in fields_or_row])
             else:
-                # either no config at all, or a config present only for
-                # set_qc (columns omitted) -- no per-row qc to run either
-                # way, so the row passes through unchanged
                 output_rows.append(fields_or_row)
             passed_rows += 1
 

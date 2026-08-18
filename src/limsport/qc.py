@@ -45,10 +45,6 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
     """
     raw = (cell or "").strip()
 
-    # is_empty/is_not_empty are the one place a blank cell isn't an
-    # automatic failure -- they're the only operators that exist to test
-    # for blankness, so they run before (instead of) the generic
-    # missing-value guard every other operator hits below.
     if condition.operator is QCOperator.IS_EMPTY:
         passed = not raw
         return passed, None if passed else f"value {raw!r} is not empty"
@@ -106,18 +102,8 @@ class ResolvedField(NamedTuple):
     came from, its output name in the output header, its resolved
     value, and the QC conditions (if any) to check it against.
 
-    A plain column resolves to exactly one of these; a file_parsing
-    column resolves to one per configured output, all sharing the same
-    source `column` but each with its own `output_column` and `qc`.
-
     `unmatched_reason` is set only for a conditional `qc` whose row
-    matched no rule and has no default: `qc` is empty same as "no QC
-    configured," but this field distinguishes that real case from "this
-    row simply couldn't be checked," which evaluate_row reports as a
-    failure rather than treating as an automatic pass. Whether it ever
-    gets set at all is decided in transform.py's _resolve_qc, not here --
-    see the DECISION POINT comment there to switch that to a silent pass
-    instead.
+    matched no rule and has no default
     """
 
     column: str
