@@ -747,6 +747,55 @@ body.limsport-config-builder {
   margin-top: calc(0.4 * var(--unit));
 }
 
+/* .form-pane is gap:0 (see above), so this whole section needs its own
+   margin-top to separate it from the column list/+Add column button above. */
+.limsport-config-builder .set-qc-section {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.6 * var(--unit));
+  margin-top: calc(1.5 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .set-qc-section h3 {
+  margin: 0;
+  font-size: calc(1 * var(--unit));
+}
+
+.limsport-config-builder .set-qc-match {
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.4 * var(--unit));
+}
+
+/* Same grouped-list overlap treatment as .column-card -- see the comment
+   there for why this is -1px + squared corners instead of a gap. */
+.limsport-config-builder .set-qc-rule-card {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: calc(1 * var(--unit)) calc(1.25 * var(--unit)) calc(1.25 * var(--unit));
+  display: flex;
+  flex-direction: column;
+  gap: calc(0.75 * var(--unit));
+  min-width: 0;
+}
+
+.limsport-config-builder .set-qc-rule-card + .set-qc-rule-card {
+  margin-top: -1px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.limsport-config-builder .set-qc-rule-card:not(:last-child) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.limsport-config-builder .set-qc-rule-card.collapsed {
+  gap: 0;
+}
+
 .limsport-config-builder .btn-remove {
   color: var(--danger);
   border-color: transparent;

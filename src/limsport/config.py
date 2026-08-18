@@ -3,9 +3,12 @@ config file on disk into a validated ExportConfig.
 
 The config works as a column allow-list: if one is given, only the columns
 listed in it make it into the output (see transform.py). Each column can
-also be renamed and given QC rules.
+also be renamed and given QC rules. `columns` can be omitted entirely if
+the config only exists for its `set_qc` (run-level) rules -- see
+ExportConfig.
 """
 
+import re
 from collections.abc import Iterable
 from enum import Enum
 from pathlib import Path
@@ -37,6 +40,8 @@ class QCOperator(str, Enum):
     APPROX = "~="  # within tolerance_percent of value
     CONTAINS = "contains"  # string value is a substring of the cell
     DOES_NOT_CONTAIN = "does_not_contain"  # string value is NOT a substring of the cell
+    IS_EMPTY = "is_empty"  # cell is blank/whitespace-only
+    IS_NOT_EMPTY = "is_not_empty"  # cell has real content
 
 
 class QCCondition(BaseModel):
@@ -56,17 +61,34 @@ class QCCondition(BaseModel):
     `case_insensitive` (default False) controls string comparison for `=`,
     `contains`, and `does_not_contain`; it's a config error to set it on a
     condition whose value isn't a string.
+
+    `is_empty`/`is_not_empty` take no `value` at all -- they check whether
+    the cell itself is blank (or whitespace-only). This is the one place a
+    blank cell isn't an automatic failure (see qc.py): useful for a
+    negative control where an empty result is the expected, passing state.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     operator: QCOperator
-    value: int | float | str | bool
+    value: int | float | str | bool | None = None
     tolerance_percent: float | None = None
     case_insensitive: bool = False
 
     @model_validator(mode="after")
     def _validate_operator_constraints(self) -> "QCCondition":
+        if self.operator in (QCOperator.IS_EMPTY, QCOperator.IS_NOT_EMPTY):
+            if self.value is not None:
+                raise ValueError(f"operator {self.operator.value!r} does not take a value")
+            if self.case_insensitive:
+                raise ValueError(f"case_insensitive is not valid with operator {self.operator.value!r}")
+            if self.tolerance_percent is not None:
+                raise ValueError(f"tolerance_percent is not valid with operator {self.operator.value!r}")
+            return self
+
+        if self.value is None:
+            raise ValueError(f"operator {self.operator.value!r} requires a value")
+
         # reject booleans because `value: true` becomes 1.0, not "true"
         if isinstance(self.value, bool):
             # keep this functionality for now but we may want to confirm presence/absence of content
@@ -244,32 +266,156 @@ class ColumnConfig(BaseModel):
         return [self.output_name]
 
 
-class ExportConfig(BaseModel):
-    """The top-level shape of the YAML config file: just a list of columns.
+class SetQCMatch(BaseModel):
+    """Identifies which sample(s) a `set_qc` rule applies to. Exactly one of
+    these three must be given.
 
-    It's a list rather than a `{name: {...}}` mapping on purpose. A mapping
-    would let a duplicate key silently overwrite itself before this code
-    even runs; a list lets `_validate_columns` catch that instead.
+    `sample_pattern`: a case-sensitive substring match against the sample
+    name (the input table's first column).
+    `sample_regex`: `re.search` against the sample name, case-sensitive
+    (use an inline `(?i)` flag for case-insensitive matching).
+    `samples`: an explicit, exact list of sample names.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    columns: list[ColumnConfig]
+    sample_pattern: str | None = None
+    sample_regex: str | None = None
+    samples: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_matcher(self) -> "SetQCMatch":
+        given = [
+            name
+            for name, value in (
+                ("sample_pattern", self.sample_pattern),
+                ("sample_regex", self.sample_regex),
+                ("samples", self.samples),
+            )
+            if value is not None
+        ]
+        if len(given) != 1:
+            raise ValueError(
+                "set_qc match must specify exactly one of sample_pattern, sample_regex, or samples; "
+                f"got {given or 'none'}"
+            )
+        if self.samples is not None and not self.samples:
+            raise ValueError("set_qc match.samples must not be empty")
+        if self.sample_regex is not None:
+            try:
+                re.compile(self.sample_regex)
+            except re.error as e:
+                raise ValueError(f"invalid sample_regex {self.sample_regex!r}: {e}") from e
+        return self
+
+    def matches(self, sample: str) -> bool:
+        """True if `sample` is identified by this matcher."""
+        if self.sample_pattern is not None:
+            return self.sample_pattern in sample
+        if self.sample_regex is not None:
+            return re.search(self.sample_regex, sample) is not None
+        assert self.samples is not None
+        return sample in self.samples
+
+
+class SetQCCheck(BaseModel):
+    """One column + QC condition list within a `SetQCRule`. A rule can list
+    several of these, checked against the same matched sample(s) -- e.g. one
+    rule keyed on "is this the NTC" checking both read count and
+    contamination percent, instead of writing two separate rules that repeat
+    the same `match`."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    column: str = Field(min_length=1)
+    qc: list[QCCondition] = Field(min_length=1)
+
+
+class SetQCRule(BaseModel):
+    """A run-level (set) QC check: every sample identified by `match` must
+    pass every check in `columns` -- each is its own column and QC condition
+    list, all read from the same matched sample(s)' row.
+
+    Unlike per-row `qc`, a failure here fails the *entire run* -- every
+    sample is dropped from output, not just the one(s) `match` identifies
+    (see transform.py's run_export). None of `columns[].column` need be
+    listed in the config's `columns` allow-list -- the same "readable but
+    not necessarily exported" treatment `QCByRule.match` already gets.
+
+    A rule that matches zero samples in a given run is a hard error (there's
+    no sample to attach a QC failure to), not a QC failure.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    match: SetQCMatch
+    columns: list[SetQCCheck] = Field(min_length=1)
 
     @field_validator("columns")
     @classmethod
-    def _validate_columns(cls, columns: list[ColumnConfig]) -> list[ColumnConfig]:
-        if not columns:
-            raise ValueError("config 'columns' must not be empty")
+    def _no_duplicate_columns(cls, columns: list[SetQCCheck]) -> list[SetQCCheck]:
+        dupes = _find_duplicates(c.column for c in columns)
+        if dupes:
+            raise ValueError(f"Duplicate column(s) within one set_qc rule: {sorted(dupes)}")
+        return columns
 
-        dupes = _find_duplicates(c.name for c in columns)
+
+class ExportConfig(BaseModel):
+    """The top-level shape of the YAML config file: a list of columns, plus
+    optional run-level (`set_qc`) checks.
+
+    `columns` lists every column to keep in the output -- a list rather
+    than a `{name: {...}}` mapping on purpose (a mapping would let a
+    duplicate key silently overwrite itself before this code even runs).
+    It can be omitted entirely: every input column then passes through
+    unfiltered and unrenamed, same as running with no config at all, except
+    `set_qc` still applies -- but only if `set_qc` configures at least one
+    rule, since a config with neither does nothing.
+
+    An explicit `columns: []` is always rejected, regardless of `set_qc`:
+    unlike omitting the key, writing an empty list looks like a config that
+    meant to list columns and didn't, not a deliberate "pass everything
+    through."
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    columns: list[ColumnConfig] | None = None
+    set_qc: list[SetQCRule] = Field(default_factory=list)
+
+    @field_validator("set_qc")
+    @classmethod
+    def _validate_set_qc(cls, set_qc: list[SetQCRule]) -> list[SetQCRule]:
+        dupes = _find_duplicates(rule.name for rule in set_qc)
+        if dupes:
+            raise ValueError(f"Duplicate set_qc rule name(s): {sorted(dupes)}")
+        return set_qc
+
+    @model_validator(mode="after")
+    def _validate_columns(self) -> "ExportConfig":
+        if self.columns is None:
+            if not self.set_qc:
+                raise ValueError(
+                    "config must configure at least one of 'columns' or 'set_qc' "
+                    "(an empty config does nothing)"
+                )
+            return self
+
+        if not self.columns:
+            raise ValueError(
+                "config 'columns' must not be empty; omit it entirely to pass every "
+                "input column through unfiltered instead"
+            )
+
+        dupes = _find_duplicates(c.name for c in self.columns)
         if dupes:
             raise ValueError(f"Duplicate column name(s) in config: {sorted(dupes)}")
 
-        output_dupes = _find_duplicates(name for c in columns for name in c.output_names)
+        output_dupes = _find_duplicates(name for c in self.columns for name in c.output_names)
         if output_dupes:
             raise ValueError(f"Duplicate output column name(s) in config: {sorted(output_dupes)}")
-        return columns
+        return self
 
 
 class QCFailure(BaseModel):

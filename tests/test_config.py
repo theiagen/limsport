@@ -28,6 +28,50 @@ def test_rejects_empty_columns(tmp_path):
         load_config(config_path)
 
 
+def test_rejects_explicit_empty_columns_even_with_set_qc_present(tmp_path):
+    # unlike omitting `columns` entirely, an explicit `columns: []` always
+    # looks like a mistake -- it's rejected regardless of set_qc.
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "columns: []\n"
+        "set_qc:\n"
+        '  - name: "x"\n'
+        "    match:\n"
+        '      sample_pattern: "NTC"\n'
+        "    columns:\n"
+        "      - column: reads\n"
+        "        qc:\n"
+        '          - {operator: "<=", value: 1000}\n'
+    )
+    with pytest.raises(ConfigError, match="omit it entirely"):
+        load_config(config_path)
+
+
+def test_rejects_a_completely_blank_config(tmp_path):
+    # neither columns nor set_qc configured -- the config does nothing.
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("set_qc: []\n")
+    with pytest.raises(ConfigError, match="at least one of"):
+        load_config(config_path)
+
+
+def test_omitted_columns_is_allowed_when_set_qc_is_configured(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "set_qc:\n"
+        '  - name: "x"\n'
+        "    match:\n"
+        '      sample_pattern: "NTC"\n'
+        "    columns:\n"
+        "      - column: reads\n"
+        "        qc:\n"
+        '          - {operator: "<=", value: 1000}\n'
+    )
+    config = load_config(config_path)
+    assert config.columns is None
+    assert len(config.set_qc) == 1
+
+
 def test_rejects_duplicate_column_names():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
@@ -168,6 +212,55 @@ def test_does_not_contain_operator_accepts_string_value():
     )
     condition = config.columns[0].qc[0]
     assert condition.operator.value == "does_not_contain"
+
+
+def test_is_empty_operator_accepts_no_value():
+    config = ExportConfig.model_validate(
+        {"columns": [{"name": "organism", "qc": [{"operator": "is_empty"}]}]}
+    )
+    condition = config.columns[0].qc[0]
+    assert condition.operator.value == "is_empty"
+    assert condition.value is None
+
+
+def test_is_not_empty_operator_accepts_no_value():
+    config = ExportConfig.model_validate(
+        {"columns": [{"name": "organism", "qc": [{"operator": "is_not_empty"}]}]}
+    )
+    assert config.columns[0].qc[0].operator.value == "is_not_empty"
+
+
+def test_is_empty_operator_rejects_a_value():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "organism", "qc": [{"operator": "is_empty", "value": "x"}]}]}
+        )
+
+
+def test_is_not_empty_operator_rejects_a_value():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "organism", "qc": [{"operator": "is_not_empty", "value": "x"}]}]}
+        )
+
+
+def test_is_empty_operator_rejects_case_insensitive():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "organism", "qc": [{"operator": "is_empty", "case_insensitive": True}]}]}
+        )
+
+
+def test_is_empty_operator_rejects_tolerance_percent():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate(
+            {"columns": [{"name": "organism", "qc": [{"operator": "is_empty", "tolerance_percent": 5}]}]}
+        )
+
+
+def test_ordinary_operator_requires_a_value():
+    with pytest.raises(Exception):
+        ExportConfig.model_validate({"columns": [{"name": "a", "qc": [{"operator": ">="}]}]})
 
 
 def test_contains_operator_rejects_numeric_value():

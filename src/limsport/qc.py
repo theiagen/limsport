@@ -44,6 +44,18 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
     passed is False, and always None when passed is True.
     """
     raw = (cell or "").strip()
+
+    # is_empty/is_not_empty are the one place a blank cell isn't an
+    # automatic failure -- they're the only operators that exist to test
+    # for blankness, so they run before (instead of) the generic
+    # missing-value guard every other operator hits below.
+    if condition.operator is QCOperator.IS_EMPTY:
+        passed = not raw
+        return passed, None if passed else f"value {raw!r} is not empty"
+    if condition.operator is QCOperator.IS_NOT_EMPTY:
+        passed = bool(raw)
+        return passed, None if passed else "missing value"
+
     if not raw:
         return False, "missing value"
 

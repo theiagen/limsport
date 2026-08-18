@@ -15,7 +15,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { newColumn, newCondition, newFileParsingOutput, buildConfig, serializeYAML } from "../schema.js";
+import {
+  newColumn,
+  newCondition,
+  newFileParsingOutput,
+  newSetQCRule,
+  newSetQCCheck,
+  buildConfig,
+  serializeYAML,
+} from "../schema.js";
 import {
   condition,
   basicExampleColumns,
@@ -231,6 +239,59 @@ test("validation: 'contains' does not require a numeric value (unlike other non-
   assert.deepEqual(errors, []);
 });
 
+test("validation: 'is_empty'/'is_not_empty' take no value, and round-trip through the real load_config()", () => {
+  const col = newColumn();
+  col.name = "detected_organism";
+  const isEmpty = newCondition();
+  isEmpty.operator = "is_empty";
+  const col2 = newColumn();
+  col2.name = "notes";
+  const isNotEmpty = newCondition();
+  isNotEmpty.operator = "is_not_empty";
+  col.qc = { kind: "list", conditions: [isEmpty] };
+  col2.qc = { kind: "list", conditions: [isNotEmpty] };
+
+  const { plain, errors } = buildConfig([col, col2]);
+  assert.deepEqual(errors, []);
+  const yaml = serializeYAML(plain);
+  assert.match(yaml, /\{operator: is_empty\}/);
+  assert.match(yaml, /\{operator: is_not_empty\}/);
+  assert.doesNotMatch(yaml, /is_empty.*value/);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "is-empty.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
+  const dumped = JSON.parse(result.stdout);
+  assert.equal(dumped.columns[0].qc[0].operator, "is_empty");
+  assert.equal(dumped.columns[0].qc[0].value, null);
+  assert.equal(dumped.columns[1].qc[0].operator, "is_not_empty");
+});
+
+test("validation: a leftover value on 'is_empty' is dropped entirely, not rejected or passed through", () => {
+  const col = newColumn();
+  col.name = "detected_organism";
+  const cond = newCondition();
+  cond.operator = "is_empty";
+  cond.value = "Escherichia"; // leftover state from a previous operator
+  col.qc = { kind: "list", conditions: [cond] };
+
+  const { plain, errors } = buildConfig([col]);
+  assert.deepEqual(errors, []);
+  // buildCondition() drops any value for a NO_VALUE_OPERATORS operator
+  // entirely -- confirm the generated YAML has no value at all, so there's
+  // nothing left for load_config() to reject in the first place.
+  const yaml = serializeYAML(plain);
+  assert.doesNotMatch(yaml, /Escherichia/);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "is-empty-with-value.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("validation: case_insensitive: true round-trips through the real load_config(), and is omitted by default", () => {
   const col = newColumn();
   col.name = "organism";
@@ -341,4 +402,285 @@ test("serialization: string-operator values are always quoted, even when plain a
   const dumped = JSON.parse(result.stdout);
   const values = dumped.columns[0].qc.map((c) => c.value);
   assert.deepEqual(values, ["PASS", "value1", "high-risk", "N/A"]);
+});
+
+// ---------------------------------------------------------------------------
+// set_qc
+// ---------------------------------------------------------------------------
+
+function assertValidSetQC(columns, setQCRules, testName) {
+  const { plain, errors } = buildConfig(columns, setQCRules);
+  assert.deepEqual(errors, [], `${testName}: ${JSON.stringify(errors)}`);
+  const yaml = serializeYAML(plain);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "set-qc.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.equal(result.status, 0, `${testName}: ${result.stderr}\n--- generated YAML ---\n${yaml}`);
+  return { plain, yaml, dumped: JSON.parse(result.stdout) };
+}
+
+test("set_qc: omitted entirely from the YAML when no rules are configured", () => {
+  const col = newColumn();
+  col.name = "sample_id";
+  const { plain, errors } = buildConfig([col], []);
+  assert.deepEqual(errors, []);
+  assert.equal(plain.set_qc, undefined);
+  assert.doesNotMatch(serializeYAML(plain), /set_qc/);
+});
+
+test("validation: neither columns nor set_qc rules configured is rejected, with no columns: line in the preview", () => {
+  const { plain, errors } = buildConfig([], []);
+  assert.ok(errors.some((e) => e.includes("Add at least one column or set-level QC rule")));
+  assert.equal(serializeYAML(plain).trim(), "");
+});
+
+test("columns: [] is never rendered -- omitted when there are no columns, even with set_qc configured", () => {
+  const rule = newSetQCRule();
+  rule.name = "NTC read count";
+  rule.match.kind = "pattern";
+  rule.match.samplePattern = "NTC";
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+
+  const { plain, errors } = buildConfig([], [rule]);
+  assert.deepEqual(errors, []);
+  const yaml = serializeYAML(plain);
+  // /^columns:/m, not /columns:/ -- a set_qc rule's own (per-rule) `columns:`
+  // key is expected and fine; only the top-level config `columns:` key
+  // should be absent.
+  assert.doesNotMatch(yaml, /^columns:/m);
+  assert.match(yaml, /^set_qc:/m);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "columns-omitted.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
+  const dumped = JSON.parse(result.stdout);
+  assert.equal(dumped.columns, null);
+});
+
+test("validation: adding a set_qc rule with zero columns clears the \"add at least one\" warning", () => {
+  const rule = newSetQCRule();
+  rule.name = "NTC read count";
+  rule.match.kind = "pattern";
+  rule.match.samplePattern = "NTC";
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+  const { errors } = buildConfig([], [rule]);
+  assert.ok(!errors.some((e) => e.includes("Add at least one column or set-level QC rule")));
+});
+
+// Builds a set_qc rule's single {column, qc} check, matching the shape
+// newSetQCRule() produces by default (one entry in `columns`).
+function setCheck(rule, { column, operator, value }) {
+  rule.columns[0].column = column;
+  const cond = newCondition();
+  cond.operator = operator;
+  cond.value = value;
+  rule.columns[0].conditions = [cond];
+}
+
+test("set_qc: sample_pattern matcher round-trips through the real load_config()", () => {
+  const col = newColumn();
+  col.name = "sample_id";
+  const col2 = newColumn();
+  col2.name = "reads";
+
+  const rule = newSetQCRule();
+  rule.name = "NTC read count";
+  rule.match.kind = "pattern";
+  rule.match.samplePattern = "NTC";
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+
+  const { dumped } = assertValidSetQC([col, col2], [rule], "sample_pattern");
+  assert.equal(dumped.set_qc[0].name, "NTC read count");
+  assert.equal(dumped.set_qc[0].columns[0].column, "reads");
+  assert.deepEqual(dumped.set_qc[0].match, { sample_pattern: "NTC", sample_regex: null, samples: null });
+  assert.equal(dumped.set_qc[0].columns[0].qc[0].value, 1000);
+});
+
+test("set_qc: sample_regex matcher round-trips through the real load_config()", () => {
+  const col = newColumn();
+  col.name = "sample_id";
+  const col2 = newColumn();
+  col2.name = "reads";
+
+  const rule = newSetQCRule();
+  rule.name = "NTC read count";
+  rule.match.kind = "regex";
+  rule.match.sampleRegex = "^NTC-?\\d*$";
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+
+  const { dumped } = assertValidSetQC([col, col2], [rule], "sample_regex");
+  assert.equal(dumped.set_qc[0].match.sample_regex, "^NTC-?\\d*$");
+});
+
+test("set_qc: samples matcher accepts a comma-separated list and round-trips through the real load_config()", () => {
+  const col = newColumn();
+  col.name = "sample_id";
+  const col2 = newColumn();
+  col2.name = "reads";
+
+  const rule = newSetQCRule();
+  rule.name = "NTC read count";
+  rule.match.kind = "samples";
+  rule.match.samples = "NTC1, NTC2,  NTC3 ";
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+
+  const { dumped } = assertValidSetQC([col, col2], [rule], "samples");
+  assert.deepEqual(dumped.set_qc[0].match.samples, ["NTC1", "NTC2", "NTC3"]);
+});
+
+test("set_qc: a check's qc can use contains/does_not_contain, same as column qc", () => {
+  const col = newColumn();
+  col.name = "sample_id";
+  const col2 = newColumn();
+  col2.name = "organism";
+
+  const rule = newSetQCRule();
+  rule.name = "positive control organism";
+  rule.match.kind = "samples";
+  rule.match.samples = "PC1";
+  setCheck(rule, { column: "organism", operator: "contains", value: "Escherichia" });
+
+  const { dumped } = assertValidSetQC([col, col2], [rule], "contains in set_qc");
+  assert.equal(dumped.set_qc[0].columns[0].qc[0].operator, "contains");
+  assert.equal(dumped.set_qc[0].columns[0].qc[0].value, "Escherichia");
+});
+
+test("set_qc: a rule can check multiple columns under one match, all read from the same matched sample(s)", () => {
+  const col = newColumn();
+  col.name = "sample_id";
+  const col2 = newColumn();
+  col2.name = "reads";
+  const col3 = newColumn();
+  col3.name = "contam_pct";
+
+  const rule = newSetQCRule();
+  rule.name = "NTC checks";
+  rule.match.kind = "pattern";
+  rule.match.samplePattern = "NTC";
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+  const check2 = newSetQCCheck();
+  check2.column = "contam_pct";
+  const cond2 = newCondition();
+  cond2.operator = "<=";
+  cond2.value = "5";
+  check2.conditions = [cond2];
+  rule.columns.push(check2);
+
+  const { dumped } = assertValidSetQC([col, col2, col3], [rule], "multi-column rule");
+  assert.deepEqual(
+    dumped.set_qc[0].columns.map((c) => c.column),
+    ["reads", "contam_pct"]
+  );
+  assert.equal(dumped.set_qc[0].columns[1].qc[0].value, 5);
+});
+
+test("set_qc: rule name and match strings are always quoted in the generated YAML", () => {
+  const col = newColumn();
+  col.name = "sample_id";
+  const col2 = newColumn();
+  col2.name = "reads";
+
+  const rule = newSetQCRule();
+  rule.name = "NTC read count"; // contains a space
+  rule.match.kind = "pattern";
+  rule.match.samplePattern = "NTC"; // plain alphanumeric, still quoted
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+
+  const { yaml } = assertValidSetQC([col, col2], [rule], "quoting");
+  assert.match(yaml, /- name: "NTC read count"/);
+  assert.match(yaml, /sample_pattern: "NTC"/);
+});
+
+test("validation: set_qc rule missing a matcher is rejected", () => {
+  const rule = newSetQCRule();
+  rule.name = "x";
+  rule.match.kind = "pattern";
+  rule.match.samplePattern = ""; // blank
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+  const { errors } = buildConfig([newColumn()], [rule]);
+  assert.ok(errors.some((e) => e.includes("sample_pattern is required")));
+});
+
+test("validation: set_qc rule with a blank samples list is rejected", () => {
+  const rule = newSetQCRule();
+  rule.name = "x";
+  rule.match.kind = "samples";
+  rule.match.samples = "  ,  ,";
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+  const { errors } = buildConfig([newColumn()], [rule]);
+  assert.ok(errors.some((e) => e.includes("at least one sample name is required")));
+});
+
+test("validation: set_qc rule requires a name, at least one column check, and at least one condition per check", () => {
+  const rule = newSetQCRule();
+  rule.match.samplePattern = "NTC";
+  rule.columns[0].conditions = [];
+  const { errors } = buildConfig([newColumn()], [rule]);
+  assert.ok(errors.some((e) => e.includes("name is required")));
+  assert.ok(errors.some((e) => e.includes("column is required")));
+  assert.ok(errors.some((e) => e.includes("needs at least one condition")));
+});
+
+test("validation: an empty columns list on a set_qc rule is rejected", () => {
+  const rule = newSetQCRule();
+  rule.name = "x";
+  rule.match.samplePattern = "NTC";
+  rule.columns = [];
+  const { errors } = buildConfig([newColumn()], [rule]);
+  assert.ok(errors.some((e) => e.includes("needs at least one column to check")));
+});
+
+test("validation: duplicate columns within one set_qc rule are rejected", () => {
+  const rule = newSetQCRule();
+  rule.name = "x";
+  rule.match.samplePattern = "NTC";
+  setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
+  const check2 = newSetQCCheck();
+  check2.column = "reads";
+  const cond2 = newCondition();
+  cond2.operator = ">=";
+  cond2.value = "0";
+  check2.conditions = [cond2];
+  rule.columns.push(check2);
+
+  const { errors } = buildConfig([newColumn()], [rule]);
+  assert.ok(errors.some((e) => e.includes("duplicate column(s) within this rule: reads")));
+});
+
+test("validation: duplicate set_qc rule names are rejected", () => {
+  const rule1 = newSetQCRule();
+  rule1.name = "dup";
+  rule1.match.samplePattern = "NTC";
+  setCheck(rule1, { column: "reads", operator: "<=", value: "1000" });
+  const rule2 = newSetQCRule();
+  rule2.name = "dup";
+  rule2.match.samplePattern = "NTC";
+  setCheck(rule2, { column: "contam_pct", operator: "<=", value: "0" });
+  const { errors } = buildConfig([newColumn()], [rule1, rule2]);
+  assert.ok(errors.some((e) => e.includes('Duplicate set_qc rule name(s): dup')));
+});
+
+test("validation: an invalid sample_regex is still caught by the real load_config(), even though the client doesn't check regex syntax", () => {
+  const col = newColumn();
+  col.name = "sample_id";
+  const rule = newSetQCRule();
+  rule.name = "x";
+  rule.match.kind = "regex";
+  rule.match.sampleRegex = "(unclosed";
+  setCheck(rule, { column: "sample_id", operator: ">=", value: "1" });
+
+  const { plain, errors } = buildConfig([col], [rule]);
+  assert.deepEqual(errors, []); // client-side accepts it -- no JS regex validation
+  const yaml = serializeYAML(plain);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "bad-regex.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /invalid sample_regex/);
 });

@@ -4,6 +4,8 @@ Build a `config.yaml` for LIMSport without writing YAML by hand: add the columns
 optionally rename them, add QC thresholds, or extract values from a file, then download the finished
 config.
 
+<!-- embed the html inline to look real nice -->
+
 <link rel="stylesheet" href="config-builder/style.css" />
 
 <div class="limsport-config-builder">
@@ -15,6 +17,15 @@ config.
     <section class="form-pane">
       <div id="columns"></div>
       <button type="button" id="add-column-btn" class="btn-add btn-add-column">+ Add column</button>
+
+      <div class="set-qc-section">
+        <h3>Set-level QC (optional)</h3>
+        <p class="hint">
+          Fail the entire run if specific sample(s) fail a QC check
+        </p>
+        <div id="set-qc-rules"></div>
+        <button type="button" id="add-set-qc-btn" class="btn-add btn-add-set-qc">+ Add set-level QC rule</button>
+      </div>
     </section>
 
     <aside class="preview-pane">
@@ -37,4 +48,3 @@ config.
 <script type="module" src="config-builder/app.js"></script>
 
 Prefer a full page instead? <a href="config-builder/index.html" target="_blank">Open the builder on its own page</a>.
-

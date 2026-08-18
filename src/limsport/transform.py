@@ -6,7 +6,7 @@ the output TSV, and writes the summary/report logging in report.py.
 from pathlib import Path
 
 from . import file_parsing, table_io, qc, report
-from .config import ColumnConfig, ExportConfig, QCByRule, QCCondition, QCFailure, load_config
+from .config import ColumnConfig, ExportConfig, QCByRule, QCCondition, QCFailure, SetQCRule, load_config
 from .exceptions import ConfigError, InputTableError
 
 
@@ -50,6 +50,19 @@ def _validate_columns_exist(
                     _validate_header_reference(output.qc.match, name_to_indices, input_path,
                         f"file_parsing output {output.name!r} on column {column.name!r} has qc matching on column",
                     )
+
+
+def _validate_set_qc_columns(
+    set_qc: list[SetQCRule], name_to_indices: dict[str, list[int]], input_path: Path
+) -> None:
+    """Check before any output is written if a set_qc rule references a
+    column that doesn't exist or exists more than once. None of a rule's
+    columns have to also be in the config's `columns` allow-list."""
+    for rule in set_qc:
+        for check in rule.columns:
+            _validate_header_reference(check.column, name_to_indices, input_path,
+                f"set_qc rule {rule.name!r} reads column"
+            )
 
 
 def _validate_file_parsing_allowed(columns: list[ColumnConfig], allow_file_parsing: bool) -> None:
@@ -162,22 +175,33 @@ def run_export(
 
     config: ExportConfig | None = load_config(config_path) if config_path is not None else None
     if config is not None:
-        _validate_columns_exist(config.columns, name_to_indices, input_path)
-        _validate_file_parsing_allowed(config.columns, allow_file_parsing)
+        _validate_columns_exist(config.columns or [], name_to_indices, input_path)
+        _validate_file_parsing_allowed(config.columns or [], allow_file_parsing)
+        _validate_set_qc_columns(config.set_qc, name_to_indices, input_path)
 
-        # ------------------------------------------------------------------
-        # OUTPUT COLUMNS ARE ORDERED LIKE THE CONFIG
-        ordered_columns = config.columns
-        # ------------------------------------------------------------------
-        # ---                             OR                             ---
-        # ------------------------------------------------------------------
-        # OUTPUT COLUMNS ARE KEPT IN THE SAME ORDER AS THE INPUT
-        # ordered_columns = sorted(config.columns, key=lambda c: name_to_indices[c.name][0])
-        # ------------------------------------------------------------------
+        if config.columns is not None:
+            # ------------------------------------------------------------------
+            # OUTPUT COLUMNS ARE ORDERED LIKE THE CONFIG
+            ordered_columns = config.columns
+            # ------------------------------------------------------------------
+            # ---                             OR                             ---
+            # ------------------------------------------------------------------
+            # OUTPUT COLUMNS ARE KEPT IN THE SAME ORDER AS THE INPUT
+            # ordered_columns = sorted(config.columns, key=lambda c: name_to_indices[c.name][0])
+            # ------------------------------------------------------------------
 
-        output_header = [name for c in ordered_columns for name in c.output_names]
-        resolved_columns = [(c, name_to_indices[c.name][0]) for c in ordered_columns]
-        match_index = {name: name_to_indices[name][0] for name in _collect_match_columns(config.columns)}
+            output_header = [name for c in ordered_columns for name in c.output_names]
+            resolved_columns = [(c, name_to_indices[c.name][0]) for c in ordered_columns]
+        else:
+            # columns omitted: this config exists only for set_qc, so every
+            # input column passes through unchanged, same as no config at all
+            output_header = header
+            resolved_columns = []
+
+        match_columns = _collect_match_columns(config.columns or []) | {
+            check.column for rule in config.set_qc for check in rule.columns
+        }
+        match_index = {name: name_to_indices[name][0] for name in match_columns}
     else:
         # no config: pass every column through unchanged
         output_header = header
@@ -187,11 +211,17 @@ def run_export(
     requested_samples = _load_sample_list(samples_path) if samples_path is not None else None
     seen_samples: set[str] = set()
 
-    output_rows: list[list[str]] = []
-    all_failures: list[QCFailure] = []
+    # Buffered per-row state, not yet decided as pass/fail -- deciding that
+    # happens only after the whole input is read (see below), because a
+    # set_qc rule's failure can fail every row in the run, not just the
+    # sample(s) it matched. When there's no config, a row is just its raw
+    # cells; with one, it's the row's resolved (column, value, qc) fields.
+    buffered: list[tuple[str, list]] = []
+    set_qc_matched: dict[str, list[str]] = {rule.name: [] for rule in (config.set_qc if config else [])}
+    set_qc_failures: dict[str, list[QCFailure]] = {rule.name: [] for rule in (config.set_qc if config else [])}
+
     total_rows = 0
     candidate_rows = 0 # rows after sample-list filtering, before QC
-    passed_rows = 0 # rows after QC
 
     for row in table_io.iter_rows(input_path, input_delimiter):
         # sample name should always be in the first column
@@ -206,30 +236,88 @@ def run_export(
         candidate_rows += 1
 
         if config is not None:
-
             # extract the match value(s)
             match_values = {name: row[idx] for name, idx in match_index.items()}
-            fields: list[qc.ResolvedField] = []
-            for column, idx in resolved_columns:
-                fields.extend(_resolve_column(column, row[idx], match_values))
 
-            # perform the qc check
-            outcome = qc.evaluate_row(fields, sample)
-            all_failures.extend(outcome.failures)
-            if not outcome.passed:
-                # row failed qc, do not add to output, skip to next item in loop
-                continue
-            output_rows.append([field.value for field in fields])
+            for rule in config.set_qc:
+                if rule.match.matches(sample):
+                    set_qc_matched[rule.name].append(sample)
+                    rule_fields = [
+                        qc.ResolvedField(check.column, check.column, match_values[check.column], check.qc)
+                        for check in rule.columns
+                    ]
+                    rule_outcome = qc.evaluate_row(rule_fields, sample)
+                    if not rule_outcome.passed:
+                        set_qc_failures[rule.name].extend(rule_outcome.failures)
+
+            if config.columns is not None:
+                fields: list[qc.ResolvedField] = []
+                for column, idx in resolved_columns:
+                    fields.extend(_resolve_column(column, row[idx], match_values))
+                buffered.append((sample, fields))
+            else:
+                # columns omitted: nothing to resolve/check per-row, the raw
+                # row passes through unchanged (same as no config at all)
+                buffered.append((sample, row))
         else:
-            output_rows.append(row)
-
-        passed_rows += 1
+            buffered.append((sample, row))
 
     if requested_samples is not None:
         # names in the sample list that never showed up in the input are warnings
         unknown = requested_samples - seen_samples
         if unknown:
             report.log_unknown_samples(unknown)
+
+    if config is not None:
+        for rule in config.set_qc:
+            if not set_qc_matched[rule.name]:
+                # no sample to attach a QC failure to -- a hard error, not a
+                # per-sample QC failure
+                raise InputTableError(
+                    f"{input_path}: set_qc rule {rule.name!r} matched no samples in this run"
+                )
+
+    run_failed_rules = [rule for rule in config.set_qc if set_qc_failures[rule.name]] if config is not None else []
+
+    output_rows: list[list[str]] = []
+    all_failures: list[QCFailure] = []
+    passed_rows = 0 # rows after QC
+
+    if run_failed_rules:
+        # A set_qc rule failed: the entire run fails QC, not just the
+        # sample(s) that violated it. No row makes it to output; every
+        # candidate sample gets a report entry -- full detail (operator,
+        # expected, actual) for the sample(s) that actually violated a rule,
+        # a blank collateral entry naming every failing rule for everyone
+        # else.
+        offending_samples: set[str] = set()
+        failing_rule_names = [rule.name for rule in run_failed_rules]
+        for rule in run_failed_rules:
+            all_failures.extend(set_qc_failures[rule.name])
+            offending_samples.update(f.sample for f in set_qc_failures[rule.name])
+        for sample, _ in buffered:
+            if sample in offending_samples:
+                continue
+            all_failures.append(QCFailure(
+                sample=sample, column="", output_column="", operator=None, expected=None,
+                actual=None, reason=f"run failed QC due to set_qc rule(s): {failing_rule_names}",
+            ))
+        # output_rows stays empty -- the whole run failed
+    else:
+        for sample, fields_or_row in buffered:
+            if config is not None and config.columns is not None:
+                outcome = qc.evaluate_row(fields_or_row, sample)
+                all_failures.extend(outcome.failures)
+                if not outcome.passed:
+                    # row failed qc, do not add to output
+                    continue
+                output_rows.append([field.value for field in fields_or_row])
+            else:
+                # either no config at all, or a config present only for
+                # set_qc (columns omitted) -- no per-row qc to run either
+                # way, so the row passes through unchanged
+                output_rows.append(fields_or_row)
+            passed_rows += 1
 
     table_io.write_tsv(output_path, output_header, output_rows, delimiter=output_delimiter)
 

@@ -10,6 +10,10 @@ def _condition(operator, value):
     ).qc[0]
 
 
+def _no_value_condition(operator):
+    return ColumnConfig.model_validate({"name": "x", "qc": [{"operator": operator}]}).qc[0]
+
+
 def _string_condition(operator, value, case_insensitive=False):
     return ColumnConfig.model_validate(
         {"name": "x", "qc": [{"operator": operator, "value": value, "case_insensitive": case_insensitive}]}
@@ -191,6 +195,52 @@ def test_equality_operator_case_insensitive_option():
     condition = _string_condition("=", "PASS", case_insensitive=True)
     passed, _ = evaluate_condition("pass", condition)
     assert passed is True
+
+
+def test_is_empty_operator_passes_on_blank_cell():
+    condition = _no_value_condition("is_empty")
+    passed, reason = evaluate_condition("", condition)
+    assert passed is True
+    assert reason is None
+
+
+def test_is_empty_operator_passes_on_whitespace_only_cell():
+    condition = _no_value_condition("is_empty")
+    passed, _ = evaluate_condition("   ", condition)
+    assert passed is True
+
+
+def test_is_empty_operator_passes_on_none_cell():
+    condition = _no_value_condition("is_empty")
+    passed, _ = evaluate_condition(None, condition)
+    assert passed is True
+
+
+def test_is_empty_operator_fails_when_cell_has_content():
+    condition = _no_value_condition("is_empty")
+    passed, reason = evaluate_condition("Escherichia coli", condition)
+    assert passed is False
+    assert reason == "value 'Escherichia coli' is not empty"
+
+
+def test_is_not_empty_operator_passes_when_cell_has_content():
+    condition = _no_value_condition("is_not_empty")
+    passed, reason = evaluate_condition("Escherichia coli", condition)
+    assert passed is True
+    assert reason is None
+
+
+def test_is_not_empty_operator_fails_on_blank_cell():
+    condition = _no_value_condition("is_not_empty")
+    passed, reason = evaluate_condition("", condition)
+    assert passed is False
+    assert reason == "missing value"
+
+
+def test_is_not_empty_operator_fails_on_whitespace_only_cell():
+    condition = _no_value_condition("is_not_empty")
+    passed, _ = evaluate_condition("   ", condition)
+    assert passed is False
 
 
 def test_non_numeric_cell_against_numeric_condition_fails_without_raising():

@@ -9,11 +9,26 @@
  * src/limsport/config.py to confirm it's accepted.
  */
 
-export const OPERATORS = [">", ">=", "=", "<=", "<", "~=", "contains", "does_not_contain"];
+export const OPERATORS = [
+  ">",
+  ">=",
+  "=",
+  "<=",
+  "<",
+  "~=",
+  "contains",
+  "does_not_contain",
+  "is_empty",
+  "is_not_empty",
+];
 
 // Operators whose value is a string comparison, not a numeric one -- these
 // are the only operators `case_insensitive` applies to.
 export const STRING_OPERATORS = new Set(["=", "contains", "does_not_contain"]);
+
+// Operators that take no `value` at all -- they test the cell itself
+// (blank or not), not a comparison target.
+export const NO_VALUE_OPERATORS = new Set(["is_empty", "is_not_empty"]);
 
 let idCounter = 0;
 function nextId() {
@@ -65,6 +80,28 @@ export function newColumn() {
   };
 }
 
+export function newSetQCMatch() {
+  // kind: "pattern" | "regex" | "samples" -- exactly one of these is ever
+  // built into the config; the others are just unused wizard state.
+  return { kind: "pattern", samplePattern: "", sampleRegex: "", samples: "" };
+}
+
+export function newSetQCCheck() {
+  return { id: nextId(), column: "", conditions: [newCondition()] };
+}
+
+export function newSetQCRule() {
+  // columns: one or more {column, qc} checks, all read from the same
+  // matched sample(s) -- lets one rule check e.g. both read count and
+  // contamination percent without repeating `match` across separate rules.
+  return {
+    id: nextId(),
+    name: "",
+    match: newSetQCMatch(),
+    columns: [newSetQCCheck()],
+  };
+}
+
 function findDuplicates(arr) {
   const seen = new Set();
   const dupes = new Set();
@@ -81,6 +118,12 @@ function buildCondition(cond, label, errors) {
   if (!cond.operator) {
     errors.push(`${label}: operator is required`);
     return null;
+  }
+  if (NO_VALUE_OPERATORS.has(cond.operator)) {
+    // is_empty/is_not_empty take no value -- any leftover value/tolerance/
+    // case-insensitive state from a previous operator is simply ignored,
+    // same as app.js hides those controls for these two operators.
+    return { operator: cond.operator };
   }
   const raw = (cond.value ?? "").toString().trim();
   if (!raw) {
@@ -170,6 +213,68 @@ function buildQC(qc, label, errors) {
   return result;
 }
 
+/** Returns a plain `match` value ({sample_pattern}/{sample_regex}/{samples}), or null if invalid. */
+function buildSetQCMatch(match, label, errors) {
+  if (match.kind === "pattern") {
+    const pattern = (match.samplePattern ?? "").trim();
+    if (!pattern) {
+      errors.push(`${label}: sample_pattern is required`);
+      return null;
+    }
+    return { sample_pattern: pattern };
+  }
+  if (match.kind === "regex") {
+    const regex = (match.sampleRegex ?? "").trim();
+    if (!regex) {
+      errors.push(`${label}: sample_regex is required`);
+      return null;
+    }
+    // Not validated client-side: JS and Python regex dialects diverge, so a
+    // browser-side syntax check could reject a pattern load_config() would
+    // accept (or vice versa). The real load_config() is the only gate.
+    return { sample_regex: regex };
+  }
+  // samples: comma-or-newline-separated free text -> a list of exact names
+  const samples = (match.samples ?? "")
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!samples.length) {
+    errors.push(`${label}: at least one sample name is required`);
+    return null;
+  }
+  return { samples };
+}
+
+/** Returns a plain `column`/`qc` check within a set_qc rule, or null if it has unrecoverable errors. */
+function buildSetQCCheck(check, label, errors) {
+  const checkLabel = `${label} > column "${check.column.trim() || "( )"}"`;
+  if (!check.column.trim()) errors.push(`${checkLabel}: column is required`);
+  const conditions = buildConditionList(check.conditions, checkLabel, errors);
+  if (!conditions.length) errors.push(`${checkLabel}: needs at least one condition`);
+
+  if (!check.column.trim() || !conditions.length) return null;
+  return { column: check.column.trim(), qc: conditions };
+}
+
+/** Returns a plain `set_qc` rule, or null if it has unrecoverable errors. */
+function buildSetQCRule(rule, idx, errors) {
+  const label = rule.name.trim() || `set_qc rule #${idx + 1}`;
+  if (!rule.name.trim()) errors.push(`${label}: name is required`);
+
+  const match = buildSetQCMatch(rule.match, label, errors);
+  const checks = rule.columns.map((c) => buildSetQCCheck(c, label, errors)).filter(Boolean);
+  if (!rule.columns.length) errors.push(`${label}: needs at least one column to check`);
+
+  const columnDupes = findDuplicates(rule.columns.map((c) => c.column.trim()).filter(Boolean));
+  if (columnDupes.length) errors.push(`${label}: duplicate column(s) within this rule: ${columnDupes.join(", ")}`);
+
+  if (!rule.name.trim() || match === null || checks.length !== rule.columns.length || !checks.length) {
+    return null;
+  }
+  return { name: rule.name.trim(), match, columns: checks };
+}
+
 /**
  * Builds the plain, ExportConfig-shaped object from wizard state and
  * collects human-readable validation errors (mirroring the checks
@@ -177,15 +282,15 @@ function buildQC(qc, label, errors) {
  * there are errors so the preview pane can show a best-effort draft; only
  * `errors` should gate the download/copy actions.
  */
-export function buildConfig(columns) {
+export function buildConfig(columns, setQCRules = []) {
   const errors = [];
   // Every name this config will actually produce in the output header, plus
   // where it came from -- lets the cross-column duplicate check below name
   // names, not just flag that *some* collision exists somewhere.
   const outputProvenance = [];
 
-  if (!columns.length) {
-    errors.push("Add at least one column.");
+  if (!columns.length && !setQCRules.length) {
+    errors.push("Add at least one column or set-level QC rule.");
   }
 
   const plainColumns = columns.map((col, idx) => {
@@ -252,7 +357,13 @@ export function buildConfig(columns) {
     }
   }
 
-  return { plain: { columns: plainColumns }, errors };
+  const plainSetQC = setQCRules.map((rule, idx) => buildSetQCRule(rule, idx, errors)).filter(Boolean);
+  const setQCNameDupes = findDuplicates(setQCRules.map((r) => r.name.trim()).filter(Boolean));
+  if (setQCNameDupes.length) errors.push(`Duplicate set_qc rule name(s): ${setQCNameDupes.join(", ")}`);
+
+  const plain = { columns: plainColumns };
+  if (setQCRules.length) plain.set_qc = plainSetQC;
+  return { plain, errors };
 }
 
 // ---------------------------------------------------------------------------
@@ -287,10 +398,13 @@ function yamlEqualityValue(value) {
 }
 
 function renderConditionInline(cond) {
-  const valueScalar = STRING_OPERATORS.has(cond.operator)
-    ? yamlEqualityValue(cond.value)
-    : yamlScalar(cond.value);
-  const parts = [`operator: ${yamlScalar(cond.operator)}`, `value: ${valueScalar}`];
+  const parts = [`operator: ${yamlScalar(cond.operator)}`];
+  if (!NO_VALUE_OPERATORS.has(cond.operator)) {
+    const valueScalar = STRING_OPERATORS.has(cond.operator)
+      ? yamlEqualityValue(cond.value)
+      : yamlScalar(cond.value);
+    parts.push(`value: ${valueScalar}`);
+  }
   if (cond.tolerance_percent !== undefined) {
     parts.push(`tolerance_percent: ${yamlScalar(cond.tolerance_percent)}`);
   }
@@ -352,14 +466,58 @@ function renderColumn(col, dashInd) {
   return lines.join("\n");
 }
 
+// sample_pattern/sample_regex/samples are all free-form strings intended as
+// exact/substring/regex match targets against real sample names -- always
+// quoted, same "unambiguously a string" reasoning as yamlKey/rule keys.
+function renderSetQCMatch(match, kInd) {
+  const contentInd = `${kInd}  `;
+  if (match.sample_pattern !== undefined) {
+    return `${kInd}match:\n${contentInd}sample_pattern: ${yamlKey(match.sample_pattern)}`;
+  }
+  if (match.sample_regex !== undefined) {
+    return `${kInd}match:\n${contentInd}sample_regex: ${yamlKey(match.sample_regex)}`;
+  }
+  const samples = match.samples.map((s) => yamlKey(s)).join(", ");
+  return `${kInd}match:\n${contentInd}samples: [${samples}]`;
+}
+
+function renderSetQCCheck(check, dashInd) {
+  const kInd = `${dashInd}  `;
+  const lines = [`${dashInd}- column: ${yamlScalar(check.column)}`, `${kInd}qc:`];
+  lines.push(renderConditionList(check.qc, `${kInd}  `));
+  return lines.join("\n");
+}
+
+function renderSetQCRule(rule, dashInd) {
+  const kInd = `${dashInd}  `;
+  const lines = [`${dashInd}- name: ${yamlKey(rule.name)}`];
+  lines.push(renderSetQCMatch(rule.match, kInd));
+  lines.push(`${kInd}columns:`);
+  rule.columns.forEach((check) => lines.push(renderSetQCCheck(check, `${kInd}  `)));
+  return lines.join("\n");
+}
+
 /** Serializes a plain ExportConfig-shaped object (as returned by buildConfig().plain) to a YAML string. */
 export function serializeYAML(plainConfig) {
-  if (!plainConfig.columns.length) return "columns: []\n";
-  const lines = ["columns:"];
-  plainConfig.columns.forEach((col, i) => {
-    if (i > 0) lines.push("");
-    lines.push(renderColumn(col, "  "));
-  });
+  const lines = [];
+  // Omit `columns:` entirely when there are none -- an explicit
+  // `columns: []` is always rejected by the real load_config(), even when
+  // set_qc is configured; only omitting the key means "pass every input
+  // column through unfiltered."
+  if (plainConfig.columns.length) {
+    lines.push("columns:");
+    plainConfig.columns.forEach((col, i) => {
+      if (i > 0) lines.push("");
+      lines.push(renderColumn(col, "  "));
+    });
+  }
+  if (plainConfig.set_qc && plainConfig.set_qc.length) {
+    lines.push("set_qc:");
+    plainConfig.set_qc.forEach((rule, i) => {
+      if (i > 0) lines.push("");
+      lines.push(renderSetQCRule(rule, "  "));
+    });
+  }
   lines.push("");
   return lines.join("\n");
 }

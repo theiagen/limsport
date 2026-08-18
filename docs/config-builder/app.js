@@ -1,18 +1,22 @@
 import {
   OPERATORS,
   STRING_OPERATORS,
+  NO_VALUE_OPERATORS,
   NUMERIC_RE,
   newColumn,
   newCondition,
   newRule,
   newFileParsingOutput,
+  newSetQCRule,
+  newSetQCCheck,
   buildConfig,
   serializeYAML,
 } from "./schema.js";
 
-const state = { columns: [] };
+const state = { columns: [], setQCRules: [] };
 
 const columnsEl = document.getElementById("columns");
+const setQCRulesEl = document.getElementById("set-qc-rules");
 const previewEl = document.getElementById("preview");
 const errorsEl = document.getElementById("errors");
 const fileParsingNoticeEl = document.getElementById("file-parsing-notice");
@@ -41,7 +45,7 @@ function labeledField(labelText, inputEl) {
 }
 
 function refreshPreview() {
-  const { plain, errors } = buildConfig(state.columns);
+  const { plain, errors } = buildConfig(state.columns, state.setQCRules);
   previewEl.textContent = serializeYAML(plain);
 
   errorsEl.innerHTML = "";
@@ -58,7 +62,7 @@ function refreshPreview() {
   const hasFileParsing = state.columns.some((c) => c.isFileParsing);
   fileParsingNoticeEl.classList.toggle("hidden", !hasFileParsing);
 
-  const ok = errors.length === 0 && state.columns.length > 0;
+  const ok = errors.length === 0 && (state.columns.length > 0 || state.setQCRules.length > 0);
   downloadBtn.disabled = !ok;
   copyBtn.disabled = !ok;
 }
@@ -135,6 +139,7 @@ function buildConditionsEditor(conditions) {
     }
 
     function syncOperatorDependentUI() {
+      valueInput.classList.toggle("hidden", NO_VALUE_OPERATORS.has(operatorSelect.value));
       toleranceInput.classList.toggle("hidden", operatorSelect.value !== "~=");
       forceStringLabel.classList.toggle("hidden", !forceStringApplies());
       caseInsensitiveLabel.classList.toggle("hidden", !caseInsensitiveApplies());
@@ -147,6 +152,10 @@ function buildConditionsEditor(conditions) {
       // Clear state tied to a now-hidden control -- otherwise a stale
       // leftover value (typed before switching operators) can trip
       // buildConfig's validation with no visible control left to fix it.
+      if (NO_VALUE_OPERATORS.has(cond.operator)) {
+        cond.value = "";
+        valueInput.value = "";
+      }
       if (cond.operator !== "~=") {  // strict inequality
         cond.tolerancePercent = "";
         toleranceInput.value = "";
@@ -335,7 +344,7 @@ function buildConditionalQCEditor(qc) {
   const defaultToggle = el("label", { class: "checkbox-field" });
   const defaultCheckbox = el("input", { type: "checkbox" });
   defaultCheckbox.checked = qc.useDefault;
-  defaultToggle.append(defaultCheckbox, document.createTextNode("Add a default rule for values that match none of the above"));
+  defaultToggle.append(defaultCheckbox, document.createTextNode("Add a default rule"));
 
   const defaultBody = el("div", { class: "default-body" });
   function renderDefaultBody() {
@@ -355,7 +364,7 @@ function buildConditionalQCEditor(qc) {
 
   const hint = el("p", {
     class: "hint",
-    text: "Without a default rule, a value with no matches is considered a QC fail",
+    text: "A value with no matches is considered a QC fail without a default rule",
   });
 
   container.append(
@@ -467,6 +476,180 @@ function buildFileParsingEditor(column) {
   container.appendChild(addBtn);
 
   return container;
+}
+
+// ---------------------------------------------------------------------------
+// Set-level QC rule card: which sample(s) it applies to (one of three
+// matcher kinds), which column to check, and its own QC condition list.
+// ---------------------------------------------------------------------------
+
+function buildSetQCMatchEditor(match) {
+  const kindSelect = el("select", {}, [
+    el("option", { value: "pattern", text: "Sample name contains" }),
+    el("option", { value: "regex", text: "Sample name matches a regex" }),
+    el("option", { value: "samples", text: "Specific sample name(s)" }),
+  ]);
+  kindSelect.value = match.kind;
+
+  const patternInput = el("input", { type: "text", placeholder: "e.g. NTC", value: match.samplePattern });
+  patternInput.addEventListener("input", () => {
+    match.samplePattern = patternInput.value;
+    refreshPreview();
+  });
+
+  const regexInput = el("input", { type: "text", placeholder: "e.g. ^NTC-?\\d*$", value: match.sampleRegex });
+  regexInput.addEventListener("input", () => {
+    match.sampleRegex = regexInput.value;
+    refreshPreview();
+  });
+
+  const samplesInput = el("input", {
+    type: "text",
+    placeholder: "comma-separated exact names, e.g. NTC1, NTC2",
+    value: match.samples,
+  });
+  samplesInput.addEventListener("input", () => {
+    match.samples = samplesInput.value;
+    refreshPreview();
+  });
+
+  function syncKind() {
+    patternInput.classList.toggle("hidden", match.kind !== "pattern");
+    regexInput.classList.toggle("hidden", match.kind !== "regex");
+    samplesInput.classList.toggle("hidden", match.kind !== "samples");
+  }
+  syncKind();
+
+  kindSelect.addEventListener("change", () => {
+    match.kind = kindSelect.value;
+    syncKind();
+    refreshPreview();
+  });
+
+  return el("div", { class: "set-qc-match" }, [kindSelect, patternInput, regexInput, samplesInput]);
+}
+
+// A rule's `columns`: one or more {column, qc} checks, all read from the
+// same matched sample(s) -- same nested-list shape/CSS as the conditional-qc
+// editor's rule list (.rules/.rule-block/.rule-header/.rule-key), reused
+// as-is since the pattern ("a labeled key input + remove button, then a
+// condition list, in a grouped-overlap list") is identical.
+function buildSetQCChecksEditor(rule) {
+  const container = el("div", { class: "rules" });
+
+  function renderCheck(check) {
+    const columnInput = el("input", {
+      type: "text",
+      class: "rule-key",
+      placeholder: "column to check, e.g. reads",
+      value: check.column,
+    });
+    columnInput.addEventListener("input", () => {
+      check.column = columnInput.value;
+      refreshPreview();
+    });
+
+    const removeBtn = el("button", {
+      type: "button",
+      class: "btn-icon",
+      title: "Remove this column check",
+      text: "✕",
+      onclick: () => {
+        const idx = rule.columns.indexOf(check);
+        if (idx >= 0) rule.columns.splice(idx, 1);
+        block.remove();
+        refreshPreview();
+      },
+    });
+
+    const header = el("div", { class: "rule-header" }, [columnInput, removeBtn]);
+    const conditionsEditor = buildConditionsEditor(check.conditions);
+    const block = el("div", { class: "rule-block" }, [header, conditionsEditor]);
+    return block;
+  }
+
+  for (const check of rule.columns) container.appendChild(renderCheck(check));
+
+  const addBtn = el("button", {
+    type: "button",
+    class: "btn-add",
+    text: "+ Add another column to check",
+    onclick: () => {
+      const check = newSetQCCheck();
+      rule.columns.push(check);
+      container.insertBefore(renderCheck(check), addBtn);
+      refreshPreview();
+    },
+  });
+  container.appendChild(addBtn);
+
+  return container;
+}
+
+function buildSetQCRuleCard(rule) {
+  const summarySpan = el("span", { class: "column-summary" });
+  function updateSummary() {
+    summarySpan.textContent = rule.name.trim() || "( )";
+  }
+
+  const nameInput = el("input", { type: "text", placeholder: "e.g. NTC read count", value: rule.name });
+  nameInput.addEventListener("input", () => {
+    rule.name = nameInput.value;
+    updateSummary();
+    refreshPreview();
+  });
+
+  const matchEditor = buildSetQCMatchEditor(rule.match);
+  const checksEditor = buildSetQCChecksEditor(rule);
+  const checksSection = el("div", { class: "section" }, [el("h4", { text: "Columns to check" }), checksEditor]);
+
+  const removeBtn = el("button", {
+    type: "button",
+    class: "btn-remove",
+    text: "Remove rule",
+    onclick: () => {
+      const idx = state.setQCRules.indexOf(rule);
+      if (idx >= 0) state.setQCRules.splice(idx, 1);
+      card.remove();
+      refreshPreview();
+    },
+  });
+
+  const body = el("div", { class: "column-body" }, [
+    labeledField("Rule name", nameInput),
+    labeledField("Which sample(s) does this apply to?", matchEditor),
+    checksSection,
+  ]);
+
+  let collapsed = false;
+  const chevron = el("span", { class: "chevron" });
+  const collapseBtn = el("button", {
+    type: "button",
+    class: "btn-collapse",
+    title: "Collapse this rule",
+    onclick: () => {
+      collapsed = !collapsed;
+      body.classList.toggle("hidden", collapsed);
+      card.classList.toggle("collapsed", collapsed);
+      collapseBtn.title = collapsed ? "Expand this rule" : "Collapse this rule";
+    },
+  }, [chevron]);
+
+  const card = el("div", { class: "set-qc-rule-card" }, [
+    el("div", { class: "column-header" }, [
+      el("div", { class: "column-header-title" }, [el("strong", { text: "Set-level QC rule" }), summarySpan]),
+      el("div", { class: "column-header-actions" }, [collapseBtn, removeBtn]),
+    ]),
+    body,
+  ]);
+  updateSummary();
+  return card;
+}
+
+function addSetQCRule(rule) {
+  state.setQCRules.push(rule);
+  setQCRulesEl.appendChild(buildSetQCRuleCard(rule));
+  refreshPreview();
 }
 
 // ---------------------------------------------------------------------------
@@ -588,13 +771,14 @@ function clearAll() {
 // ---------------------------------------------------------------------------
 
 document.getElementById("add-column-btn").addEventListener("click", () => addColumn(newColumn()));
+document.getElementById("add-set-qc-btn").addEventListener("click", () => addSetQCRule(newSetQCRule()));
 document.getElementById("start-blank-btn").addEventListener("click", () => {
   if (state.columns.length && !confirm("Clear all columns and start over?")) return;
   clearAll();
 });
 
 downloadBtn.addEventListener("click", () => {
-  const { plain, errors } = buildConfig(state.columns);
+  const { plain, errors } = buildConfig(state.columns, state.setQCRules);
   if (errors.length) return;
   const blob = new Blob([serializeYAML(plain)], { type: "text/yaml" });
   const url = URL.createObjectURL(blob);
@@ -628,7 +812,7 @@ async function copyToClipboard(text) {
 }
 
 copyBtn.addEventListener("click", async () => {
-  const { plain, errors } = buildConfig(state.columns);
+  const { plain, errors } = buildConfig(state.columns, state.setQCRules);
   if (errors.length) return;
   try {
     await copyToClipboard(serializeYAML(plain));
