@@ -107,7 +107,9 @@ def test_unknown_config_column_raises_before_output_created(tmp_path):
 
 def test_qc_range_drops_expected_samples(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(input_basic(tmp_path), config_qc_range(tmp_path), None, out, None)
+    transform.run_export(
+        input_basic(tmp_path), config_qc_range(tmp_path), None, out, None
+    )
     rows = list(table_io.iter_rows(out))
     passing_samples = {row[0] for row in rows}
     # SAMPLE_001 passes; SAMPLE_002 (below range), SAMPLE_003 (above range),
@@ -117,7 +119,9 @@ def test_qc_range_drops_expected_samples(tmp_path):
 
 def test_qc_approx_tolerance_drops_expected_samples(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(input_basic(tmp_path), config_qc_approx(tmp_path), None, out, None)
+    transform.run_export(
+        input_basic(tmp_path), config_qc_approx(tmp_path), None, out, None
+    )
     rows = list(table_io.iter_rows(out))
     passing_samples = {row[0] for row in rows}
     # read_count ~= 5000, tolerance_percent=10 -> passing range is [4500, 5500].
@@ -199,7 +203,12 @@ def test_delimiter_override_converts_output(tmp_path):
     out = tmp_path / "out.csv"
     transform.run_export(src, None, None, out, None, output_delimiter=",")
     assert hash_file(out) != hash_file(src)  # no longer byte-identical, by design
-    assert table_io.read_header(out, delimiter=",") == ["sample_id", "read_count", "status", "notes"]
+    assert table_io.read_header(out, delimiter=",") == [
+        "sample_id",
+        "read_count",
+        "status",
+        "notes",
+    ]
     rows = list(table_io.iter_rows(out, delimiter=","))
     assert len(rows) == 5
     assert rows[0] == ["SAMPLE_001", "5000", "PASS", "ok"]
@@ -290,7 +299,9 @@ def test_samples_only_no_config_logs_no_qc_not_passed_qc(tmp_path, caplog):
 def test_config_given_still_logs_passed_qc(tmp_path, caplog):
     out = tmp_path / "out.tsv"
     with caplog.at_level("INFO"):
-        transform.run_export(input_basic(tmp_path), config_qc_range(tmp_path), None, out, None)
+        transform.run_export(
+            input_basic(tmp_path), config_qc_range(tmp_path), None, out, None
+        )
     messages = [r.message for r in caplog.records]
     assert any("passed QC" in m for m in messages)
     assert not any("no QC configured" in m for m in messages)
@@ -317,7 +328,9 @@ def test_samples_only_no_config_writes_no_qc_report_even_if_path_given(tmp_path)
 def test_config_given_still_writes_qc_report(tmp_path):
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_basic(tmp_path), config_qc_range(tmp_path), None, out, qc_report)
+    transform.run_export(
+        input_basic(tmp_path), config_qc_range(tmp_path), None, out, qc_report
+    )
     assert qc_report.exists()
 
 
@@ -327,6 +340,8 @@ def test_config_with_no_qc_rules_still_writes_header_only_report(tmp_path):
     # file should exist (header-only), not be skipped.
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, qc_report)
+    transform.run_export(
+        input_basic(tmp_path), config_basic(tmp_path), None, out, qc_report
+    )
     assert qc_report.exists()
     assert list(table_io.iter_rows(qc_report)) == []

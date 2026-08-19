@@ -6,7 +6,10 @@ import pytest
 
 from limsport.config import ExportConfig
 
-_CONDITIONAL_QC_MINIMAL = {"match": "taxon", "rules": {"x": [{"operator": ">=", "value": 1}]}}
+_CONDITIONAL_QC_MINIMAL = {
+    "match": "taxon",
+    "rules": {"x": [{"operator": ">=", "value": 1}]},
+}
 
 
 def _conditional_qc_config(**qc_kwargs):
@@ -40,12 +43,16 @@ def test_conditional_qc_default_is_optional():
 
 def test_conditional_qc_requires_match():
     with pytest.raises(Exception):
-        ExportConfig.model_validate({"columns": [{"name": "a", "qc": {"rules": {"x": []}}}]})
+        ExportConfig.model_validate(
+            {"columns": [{"name": "a", "qc": {"rules": {"x": []}}}]}
+        )
 
 
 def test_conditional_qc_requires_rules():
     with pytest.raises(Exception):
-        ExportConfig.model_validate({"columns": [{"name": "a", "qc": {"match": "taxon"}}]})
+        ExportConfig.model_validate(
+            {"columns": [{"name": "a", "qc": {"match": "taxon"}}]}
+        )
 
 
 def test_conditional_qc_rejects_empty_rules():

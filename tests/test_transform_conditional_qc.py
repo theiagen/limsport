@@ -16,9 +16,9 @@ def _conditional_qc_scenario(tmp_path, default_block=""):
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text(
         "sample_id\ttaxon\tassembly_length\n"
-        "S1\tEscherichia coli\t5000000\n"       # passes E. coli's range
+        "S1\tEscherichia coli\t5000000\n"  # passes E. coli's range
         "S2\tKlebsiella pneumoniae\t5000000\n"  # below Klebsiella's floor
-        "S3\tMystery Bug\t5000000\n"            # taxon has no rule
+        "S3\tMystery Bug\t5000000\n"  # taxon has no rule
     )
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -53,7 +53,8 @@ def test_conditional_qc_applies_different_thresholds_per_organism_row(tmp_path):
 
 def test_conditional_qc_default_used_when_no_rule_matches(tmp_path):
     input_tsv, config = _conditional_qc_scenario(
-        tmp_path, default_block='      default:\n        - {operator: ">=", value: 100}\n'
+        tmp_path,
+        default_block='      default:\n        - {operator: ">=", value: 100}\n',
     )
     out = tmp_path / "out.tsv"
     transform.run_export(input_tsv, config, None, out, None)
@@ -63,7 +64,9 @@ def test_conditional_qc_default_used_when_no_rule_matches(tmp_path):
     assert "S3" in [row[0] for row in rows]
 
 
-def test_conditional_qc_unmatched_with_no_default_fails_and_reports_blank_operator(tmp_path):
+def test_conditional_qc_unmatched_with_no_default_fails_and_reports_blank_operator(
+    tmp_path,
+):
     # NOTE: asserts the ACTIVE behavior from transform.py's _resolve_qc
     # DECISION POINT (unmatched + no default -> QC failure). If that's
     # switched to the silent-pass ALTERNATIVE, this test's expectations
@@ -78,7 +81,9 @@ def test_conditional_qc_unmatched_with_no_default_fails_and_reports_blank_operat
     assert "S3" not in [row[0] for row in rows]  # dropped: no rule, no default
 
     report_rows = {row[0]: row for row in table_io.iter_rows(qc_report)}
-    sample, column, output_column, operator, expected, actual, reason = report_rows["S3"]
+    sample, column, output_column, operator, expected, actual, reason = report_rows[
+        "S3"
+    ]
     assert column == "assembly_length"
     assert operator == ""
     assert expected == ""
@@ -86,7 +91,9 @@ def test_conditional_qc_unmatched_with_no_default_fails_and_reports_blank_operat
     assert "no qc rule matches taxon='Mystery Bug'" in reason
 
 
-def test_conditional_qc_match_column_not_in_header_raises_before_output_created(tmp_path):
+def test_conditional_qc_match_column_not_in_header_raises_before_output_created(
+    tmp_path,
+):
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text("sample_id\tassembly_length\nS1\t5000000\n")
     config = tmp_path / "config.yaml"
@@ -138,7 +145,9 @@ def _file_parsing_conditional_qc_scenario(tmp_path):
     return input_tsv, config
 
 
-def test_file_parsing_output_conditional_qc_applies_different_thresholds_per_organism_row(tmp_path):
+def test_file_parsing_output_conditional_qc_applies_different_thresholds_per_organism_row(
+    tmp_path,
+):
     input_tsv, config = _file_parsing_conditional_qc_scenario(tmp_path)
     out = tmp_path / "out.tsv"
     transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)

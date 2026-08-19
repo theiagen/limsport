@@ -11,12 +11,23 @@ def _condition(operator, value):
 
 
 def _no_value_condition(operator):
-    return ColumnConfig.model_validate({"name": "x", "qc": [{"operator": operator}]}).qc[0]
+    return ColumnConfig.model_validate(
+        {"name": "x", "qc": [{"operator": operator}]}
+    ).qc[0]
 
 
 def _string_condition(operator, value, case_insensitive=False):
     return ColumnConfig.model_validate(
-        {"name": "x", "qc": [{"operator": operator, "value": value, "case_insensitive": case_insensitive}]}
+        {
+            "name": "x",
+            "qc": [
+                {
+                    "operator": operator,
+                    "value": value,
+                    "case_insensitive": case_insensitive,
+                }
+            ],
+        }
     ).qc[0]
 
 
@@ -24,7 +35,13 @@ def _approx_condition(value, tolerance_percent):
     return ColumnConfig.model_validate(
         {
             "name": "x",
-            "qc": [{"operator": "~=", "value": value, "tolerance_percent": tolerance_percent}],
+            "qc": [
+                {
+                    "operator": "~=",
+                    "value": value,
+                    "tolerance_percent": tolerance_percent,
+                }
+            ],
         }
     ).qc[0]
 
@@ -63,9 +80,13 @@ def test_range_semantics_below_within_above():
     column = ColumnConfig.model_validate(
         {
             "name": "read_count",
-            "qc": [{"operator": ">=", "value": 1000}, {"operator": "<=", "value": 1000000}],
+            "qc": [
+                {"operator": ">=", "value": 1000},
+                {"operator": "<=", "value": 1000000},
+            ],
         }
     )
+
     def _field(value):
         return ResolvedField(column.name, column.output_name, value, column.qc)
 
@@ -176,7 +197,9 @@ def test_does_not_contain_operator_fails_when_substring_present():
 
 
 def test_does_not_contain_operator_case_insensitive_option():
-    condition = _string_condition("does_not_contain", "Escherichia", case_insensitive=True)
+    condition = _string_condition(
+        "does_not_contain", "Escherichia", case_insensitive=True
+    )
     passed, _ = evaluate_condition("escherichia coli", condition)
     assert passed is False
 

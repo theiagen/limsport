@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov"]
+dev = ["pytest>=8.0", "pytest-cov", "black", "pre-commit"]
 
 [project.scripts]
 limsport = "limsport.cli:main"
@@ -26,3 +26,6 @@ testpaths = ["tests"]
 
 [tool.basedpyright]
 typeCheckingMode = "standard"
+
+[tool.black]
+target-version = ["py310"]

@@ -22,12 +22,22 @@ def _failure(
     )
 
 
-_HEADER = ["sample", "column", "output_column", "operator", "expected", "actual", "reason"]
+_HEADER = [
+    "sample",
+    "column",
+    "output_column",
+    "operator",
+    "expected",
+    "actual",
+    "reason",
+]
 
 
 def test_write_qc_report_rows(tmp_path):
     path = tmp_path / "report.tsv"
-    report.write_qc_report(path, [_failure("S1", "read_count"), _failure("S2", "status")])
+    report.write_qc_report(
+        path, [_failure("S1", "read_count"), _failure("S2", "status")]
+    )
     header = table_io.read_header(path)
     rows = list(table_io.iter_rows(path))
     assert header == _HEADER
@@ -37,7 +47,9 @@ def test_write_qc_report_rows(tmp_path):
 
 def test_write_qc_report_includes_output_column(tmp_path):
     path = tmp_path / "report.tsv"
-    report.write_qc_report(path, [_failure("S1", "read_count", output_column="total_reads")])
+    report.write_qc_report(
+        path, [_failure("S1", "read_count", output_column="total_reads")]
+    )
     rows = list(table_io.iter_rows(path))
     assert rows[0][1] == "read_count"  # original name
     assert rows[0][2] == "total_reads"  # renamed/output name

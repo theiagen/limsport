@@ -74,9 +74,7 @@ def test_omitted_columns_is_allowed_when_set_qc_is_configured(tmp_path):
 
 def test_rejects_duplicate_column_names():
     with pytest.raises(Exception):
-        ExportConfig.model_validate(
-            {"columns": [{"name": "a"}, {"name": "a"}]}
-        )
+        ExportConfig.model_validate({"columns": [{"name": "a"}, {"name": "a"}]})
 
 
 def test_rejects_ordering_operator_on_string_value():
@@ -92,7 +90,9 @@ def test_approx_operator_accepts_tolerance_percent():
             "columns": [
                 {
                     "name": "length",
-                    "qc": [{"operator": "~=", "value": 1000000, "tolerance_percent": 5}],
+                    "qc": [
+                        {"operator": "~=", "value": 1000000, "tolerance_percent": 5}
+                    ],
                 }
             ]
         }
@@ -116,7 +116,9 @@ def test_approx_operator_rejects_non_positive_tolerance_percent():
                 "columns": [
                     {
                         "name": "a",
-                        "qc": [{"operator": "~=", "value": 1000000, "tolerance_percent": 0}],
+                        "qc": [
+                            {"operator": "~=", "value": 1000000, "tolerance_percent": 0}
+                        ],
                     }
                 ]
             }
@@ -130,7 +132,9 @@ def test_tolerance_percent_rejected_on_non_approx_operator():
                 "columns": [
                     {
                         "name": "a",
-                        "qc": [{"operator": ">=", "value": 1000, "tolerance_percent": 5}],
+                        "qc": [
+                            {"operator": ">=", "value": 1000, "tolerance_percent": 5}
+                        ],
                     }
                 ]
             }
@@ -144,7 +148,9 @@ def test_approx_operator_requires_numeric_value():
                 "columns": [
                     {
                         "name": "a",
-                        "qc": [{"operator": "~=", "value": "PASS", "tolerance_percent": 5}],
+                        "qc": [
+                            {"operator": "~=", "value": "PASS", "tolerance_percent": 5}
+                        ],
                     }
                 ]
             }
@@ -186,7 +192,9 @@ def test_load_config_rejects_wrong_top_level_shape(tmp_path):
 
 def test_rejects_unknown_top_level_key():
     with pytest.raises(Exception):
-        ExportConfig.model_validate({"columns": [{"name": "a"}], "not_a_real_key": True})
+        ExportConfig.model_validate(
+            {"columns": [{"name": "a"}], "not_a_real_key": True}
+        )
 
 
 def test_malformed_yaml_raises_config_error(tmp_path):
@@ -198,7 +206,14 @@ def test_malformed_yaml_raises_config_error(tmp_path):
 
 def test_contains_operator_accepts_string_value():
     config = ExportConfig.model_validate(
-        {"columns": [{"name": "organism", "qc": [{"operator": "contains", "value": "Escherichia"}]}]}
+        {
+            "columns": [
+                {
+                    "name": "organism",
+                    "qc": [{"operator": "contains", "value": "Escherichia"}],
+                }
+            ]
+        }
     )
     condition = config.columns[0].qc[0]
     assert condition.operator.value == "contains"
@@ -208,7 +223,14 @@ def test_contains_operator_accepts_string_value():
 
 def test_does_not_contain_operator_accepts_string_value():
     config = ExportConfig.model_validate(
-        {"columns": [{"name": "organism", "qc": [{"operator": "does_not_contain", "value": "contaminant"}]}]}
+        {
+            "columns": [
+                {
+                    "name": "organism",
+                    "qc": [{"operator": "does_not_contain", "value": "contaminant"}],
+                }
+            ]
+        }
     )
     condition = config.columns[0].qc[0]
     assert condition.operator.value == "does_not_contain"
@@ -233,47 +255,85 @@ def test_is_not_empty_operator_accepts_no_value():
 def test_is_empty_operator_rejects_a_value():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "organism", "qc": [{"operator": "is_empty", "value": "x"}]}]}
+            {
+                "columns": [
+                    {"name": "organism", "qc": [{"operator": "is_empty", "value": "x"}]}
+                ]
+            }
         )
 
 
 def test_is_not_empty_operator_rejects_a_value():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "organism", "qc": [{"operator": "is_not_empty", "value": "x"}]}]}
+            {
+                "columns": [
+                    {
+                        "name": "organism",
+                        "qc": [{"operator": "is_not_empty", "value": "x"}],
+                    }
+                ]
+            }
         )
 
 
 def test_is_empty_operator_rejects_case_insensitive():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "organism", "qc": [{"operator": "is_empty", "case_insensitive": True}]}]}
+            {
+                "columns": [
+                    {
+                        "name": "organism",
+                        "qc": [{"operator": "is_empty", "case_insensitive": True}],
+                    }
+                ]
+            }
         )
 
 
 def test_is_empty_operator_rejects_tolerance_percent():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "organism", "qc": [{"operator": "is_empty", "tolerance_percent": 5}]}]}
+            {
+                "columns": [
+                    {
+                        "name": "organism",
+                        "qc": [{"operator": "is_empty", "tolerance_percent": 5}],
+                    }
+                ]
+            }
         )
 
 
 def test_ordinary_operator_requires_a_value():
     with pytest.raises(Exception):
-        ExportConfig.model_validate({"columns": [{"name": "a", "qc": [{"operator": ">="}]}]})
+        ExportConfig.model_validate(
+            {"columns": [{"name": "a", "qc": [{"operator": ">="}]}]}
+        )
 
 
 def test_contains_operator_rejects_numeric_value():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "organism", "qc": [{"operator": "contains", "value": 5}]}]}
+            {
+                "columns": [
+                    {"name": "organism", "qc": [{"operator": "contains", "value": 5}]}
+                ]
+            }
         )
 
 
 def test_does_not_contain_operator_rejects_numeric_value():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "organism", "qc": [{"operator": "does_not_contain", "value": 5}]}]}
+            {
+                "columns": [
+                    {
+                        "name": "organism",
+                        "qc": [{"operator": "does_not_contain", "value": 5}],
+                    }
+                ]
+            }
         )
 
 
@@ -283,7 +343,13 @@ def test_case_insensitive_true_accepted_on_string_operators():
             "columns": [
                 {
                     "name": "organism",
-                    "qc": [{"operator": "contains", "value": "Escherichia", "case_insensitive": True}],
+                    "qc": [
+                        {
+                            "operator": "contains",
+                            "value": "Escherichia",
+                            "case_insensitive": True,
+                        }
+                    ],
                 }
             ]
         }
@@ -294,21 +360,41 @@ def test_case_insensitive_true_accepted_on_string_operators():
 def test_contains_operator_rejects_empty_string_value():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "organism", "qc": [{"operator": "contains", "value": ""}]}]}
+            {
+                "columns": [
+                    {"name": "organism", "qc": [{"operator": "contains", "value": ""}]}
+                ]
+            }
         )
 
 
 def test_does_not_contain_operator_rejects_empty_string_value():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "organism", "qc": [{"operator": "does_not_contain", "value": ""}]}]}
+            {
+                "columns": [
+                    {
+                        "name": "organism",
+                        "qc": [{"operator": "does_not_contain", "value": ""}],
+                    }
+                ]
+            }
         )
 
 
 def test_case_insensitive_true_rejected_on_numeric_value():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            {"columns": [{"name": "a", "qc": [{"operator": ">=", "value": 1000, "case_insensitive": True}]}]}
+            {
+                "columns": [
+                    {
+                        "name": "a",
+                        "qc": [
+                            {"operator": ">=", "value": 1000, "case_insensitive": True}
+                        ],
+                    }
+                ]
+            }
         )
 
 

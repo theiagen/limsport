@@ -9,7 +9,9 @@ from limsport.exceptions import FileParsingError
 
 
 def _outputs(command, timeout_seconds=None, name="out"):
-    return [FileParsingOutput(name=name, command=command, timeout_seconds=timeout_seconds)]
+    return [
+        FileParsingOutput(name=name, command=command, timeout_seconds=timeout_seconds)
+    ]
 
 
 # --- real bash execution against local files -- no mocking needed ---
@@ -67,7 +69,9 @@ def test_run_succeeds_with_empty_output(tmp_path):
     # function's job to treat it as a failure.
     path = tmp_path / "data.txt"
     path.write_text("no match here\n")
-    result = file_parsing.run(_outputs('grep nonexistent_pattern "$FILE" || true'), str(path))
+    result = file_parsing.run(
+        _outputs('grep nonexistent_pattern "$FILE" || true'), str(path)
+    )
     assert result == [""]
 
 
@@ -86,7 +90,7 @@ def test_run_exposes_local_path_via_env_var_not_command_text(tmp_path):
     # command only ever sees it via $FILE.
     path = tmp_path / "data.txt"
     path.write_text("content\n")
-    result = file_parsing.run(_outputs("wc -l < \"$FILE\""), str(path))
+    result = file_parsing.run(_outputs('wc -l < "$FILE"'), str(path))
     assert result[0].strip() == "1"
 
 
@@ -111,7 +115,9 @@ def test_local_path_is_never_localized(tmp_path, monkeypatch):
 # --- multiple outputs sharing one localized file ---
 
 
-def test_run_multiple_outputs_each_run_their_own_command_against_the_same_file(tmp_path):
+def test_run_multiple_outputs_each_run_their_own_command_against_the_same_file(
+    tmp_path,
+):
     path = tmp_path / "data.tsv"
     path.write_text("a\tb\tc\n")
     outputs = [
@@ -152,7 +158,9 @@ def test_run_multiple_outputs_localizes_gs_path_only_once(monkeypatch):
     _mock_gcs_bash(
         monkeypatch,
         "a\tb\n",
-        lambda command: subprocess.CompletedProcess(["bash", "-c", command], 0, stdout="value\n", stderr=""),
+        lambda command: subprocess.CompletedProcess(
+            ["bash", "-c", command], 0, stdout="value\n", stderr=""
+        ),
     )
 
     outputs = [
@@ -187,7 +195,9 @@ def test_run_multiple_outputs_each_use_their_own_timeout(tmp_path):
         file_parsing.run(outputs, str(path))
 
 
-def test_run_multiple_outputs_cleans_up_temp_dir_once_even_on_partial_failure(monkeypatch):
+def test_run_multiple_outputs_cleans_up_temp_dir_once_even_on_partial_failure(
+    monkeypatch,
+):
     created_dirs = []
     real_mkdtemp = file_parsing.tempfile.mkdtemp
 
@@ -198,8 +208,12 @@ def test_run_multiple_outputs_cleans_up_temp_dir_once_even_on_partial_failure(mo
 
     def bash_run(command):
         if "boom" in command:
-            return subprocess.CompletedProcess(["bash", "-c", command], 1, stdout="", stderr="boom")
-        return subprocess.CompletedProcess(["bash", "-c", command], 0, stdout="ok\n", stderr="")
+            return subprocess.CompletedProcess(
+                ["bash", "-c", command], 1, stdout="", stderr="boom"
+            )
+        return subprocess.CompletedProcess(
+            ["bash", "-c", command], 0, stdout="ok\n", stderr=""
+        )
 
     monkeypatch.setattr(file_parsing.tempfile, "mkdtemp", recording_mkdtemp)
     _mock_gcs_bash(monkeypatch, "data\n", bash_run)
@@ -232,7 +246,9 @@ def test_localize_dispatches_gs_path_to_gcloud_storage_cp(tmp_path, monkeypatch)
 
     local_path, tmp_dir = file_parsing._localize("gs://bucket/path/myfile.bam")
     try:
-        assert calls == [["gcloud", "storage", "cp", "gs://bucket/path/myfile.bam", local_path]]
+        assert calls == [
+            ["gcloud", "storage", "cp", "gs://bucket/path/myfile.bam", local_path]
+        ]
         assert Path(local_path).name == "myfile.bam"
         assert Path(local_path).read_text() == "downloaded\n"
         assert tmp_dir is not None
@@ -281,7 +297,9 @@ def test_localize_never_escapes_temp_dir_for_traversal_path(tmp_path, monkeypatc
             file_parsing.shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def test_cleanup_failure_is_logged_not_silently_swallowed(monkeypatch, caplog, tmp_path):
+def test_cleanup_failure_is_logged_not_silently_swallowed(
+    monkeypatch, caplog, tmp_path
+):
     tmp_dir = tmp_path / "some_dir"
     tmp_dir.mkdir()
 
@@ -319,7 +337,9 @@ def test_localize_download_failure_raises_and_cleans_up_tmp_dir(monkeypatch):
     monkeypatch.setattr(
         file_parsing.subprocess,
         "run",
-        lambda argv, **kw: subprocess.CompletedProcess(argv, 1, stdout="", stderr="permission denied"),
+        lambda argv, **kw: subprocess.CompletedProcess(
+            argv, 1, stdout="", stderr="permission denied"
+        ),
     )
 
     with pytest.raises(FileParsingError, match="permission denied"):

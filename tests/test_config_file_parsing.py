@@ -13,7 +13,11 @@ def test_file_parsing_accepts_single_output_with_command_and_optional_timeout():
                 {
                     "name": "reference_file",
                     "file_parsing": [
-                        {"name": "reference_file", "command": "bcftools view", "timeout_seconds": 30}
+                        {
+                            "name": "reference_file",
+                            "command": "bcftools view",
+                            "timeout_seconds": 30,
+                        }
                     ],
                 }
             ]
@@ -34,7 +38,11 @@ def test_file_parsing_accepts_multiple_outputs_each_with_their_own_command():
                     "name": "coverage_tsv",
                     "file_parsing": [
                         {"name": "mean_depth", "command": "awk '{print $7}'"},
-                        {"name": "coverage_pct", "command": "awk '{print $6}'", "timeout_seconds": 10},
+                        {
+                            "name": "coverage_pct",
+                            "command": "awk '{print $6}'",
+                            "timeout_seconds": 10,
+                        },
                     ],
                 }
             ]
@@ -74,8 +82,14 @@ def test_file_parsing_rejects_output_name_collision_across_columns():
         ExportConfig.model_validate(
             {
                 "columns": [
-                    {"name": "a", "file_parsing": [{"name": "shared", "command": "cat"}]},
-                    {"name": "b", "file_parsing": [{"name": "shared", "command": "echo hi"}]},
+                    {
+                        "name": "a",
+                        "file_parsing": [{"name": "shared", "command": "cat"}],
+                    },
+                    {
+                        "name": "b",
+                        "file_parsing": [{"name": "shared", "command": "echo hi"}],
+                    },
                 ]
             }
         )
@@ -116,7 +130,9 @@ def _single_output_config(**output_kwargs):
     own fields (command, timeout_seconds, ...) are overridden by
     output_kwargs -- shared by the single-output validation tests below,
     which otherwise differ only in that one output's fields."""
-    return {"columns": [{"name": "a", "file_parsing": [{"name": "out", **output_kwargs}]}]}
+    return {
+        "columns": [{"name": "a", "file_parsing": [{"name": "out", **output_kwargs}]}]
+    }
 
 
 def test_file_parsing_requires_command():
@@ -142,7 +158,9 @@ def test_file_parsing_rejects_non_positive_timeout(bad_timeout):
     # "unlimited" -- should be a clear config error, not a confusing
     # runtime failure.
     with pytest.raises(Exception):
-        ExportConfig.model_validate(_single_output_config(command="cat", timeout_seconds=bad_timeout))
+        ExportConfig.model_validate(
+            _single_output_config(command="cat", timeout_seconds=bad_timeout)
+        )
 
 
 def test_file_parsing_accepts_no_timeout():

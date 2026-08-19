@@ -43,12 +43,16 @@ def test_set_qc_accepts_sample_pattern_matcher():
 
 
 def test_set_qc_accepts_sample_regex_matcher():
-    config = ExportConfig.model_validate(_set_qc_config(_rule(match={"sample_regex": "^NTC-?\\d*$"})))
+    config = ExportConfig.model_validate(
+        _set_qc_config(_rule(match={"sample_regex": "^NTC-?\\d*$"}))
+    )
     assert config.set_qc[0].match.sample_regex == "^NTC-?\\d*$"
 
 
 def test_set_qc_accepts_samples_matcher():
-    config = ExportConfig.model_validate(_set_qc_config(_rule(match={"samples": ["NTC1", "NTC2"]})))
+    config = ExportConfig.model_validate(
+        _set_qc_config(_rule(match={"samples": ["NTC1", "NTC2"]}))
+    )
     assert config.set_qc[0].match.samples == ["NTC1", "NTC2"]
 
 
@@ -88,12 +92,16 @@ def test_set_qc_match_rejects_empty_samples_list():
 
 def test_set_qc_match_rejects_invalid_regex():
     with pytest.raises(Exception):
-        ExportConfig.model_validate(_set_qc_config(_rule(match={"sample_regex": "(unclosed"})))
+        ExportConfig.model_validate(
+            _set_qc_config(_rule(match={"sample_regex": "(unclosed"}))
+        )
 
 
 def test_set_qc_match_rejects_unknown_subkeys():
     with pytest.raises(Exception):
-        ExportConfig.model_validate(_set_qc_config(_rule(match={"sample_pattern": "NTC", "typo_key": 1})))
+        ExportConfig.model_validate(
+            _set_qc_config(_rule(match={"sample_pattern": "NTC", "typo_key": 1}))
+        )
 
 
 def test_set_qc_rule_requires_name():
@@ -143,7 +151,9 @@ def test_set_qc_rule_rejects_unknown_subkeys():
 def test_set_qc_rejects_duplicate_rule_names():
     with pytest.raises(Exception):
         ExportConfig.model_validate(
-            _set_qc_config(_rule(name="dup"), _rule(name="dup", match={"samples": ["X"]}))
+            _set_qc_config(
+                _rule(name="dup"), _rule(name="dup", match={"samples": ["X"]})
+            )
         )
 
 
@@ -156,7 +166,12 @@ def test_set_qc_check_qc_does_not_accept_conditional_form():
             _set_qc_config(
                 _rule(
                     columns=[
-                        _check(qc={"match": "taxon", "rules": {"x": [{"operator": ">=", "value": 1}]}})
+                        _check(
+                            qc={
+                                "match": "taxon",
+                                "rules": {"x": [{"operator": ">=", "value": 1}]},
+                            }
+                        )
                     ]
                 )
             )
@@ -176,7 +191,9 @@ class TestSetQCMatchMatches:
         match = SetQCMatch(sample_regex="^NTC-?\\d*$")
         assert match.matches("NTC1") is True
         assert match.matches("NTC") is True
-        assert match.matches("SAMPLE_NTC_2") is False  # anchored, so embedded doesn't match
+        assert (
+            match.matches("SAMPLE_NTC_2") is False
+        )  # anchored, so embedded doesn't match
 
     def test_samples_is_an_exact_list_match(self):
         match = SetQCMatch(samples=["NTC1", "NTC2"])

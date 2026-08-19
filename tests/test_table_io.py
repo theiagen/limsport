@@ -58,7 +58,11 @@ def test_read_header_auto_detects_comma_delimiter(tmp_path):
 
 def test_read_header_and_iter_rows_accept_explicit_delimiter(tmp_path):
     path = input_comma(tmp_path)
-    assert table_io.read_header(path, delimiter=",") == ["sample_id", "read_count", "status"]
+    assert table_io.read_header(path, delimiter=",") == [
+        "sample_id",
+        "read_count",
+        "status",
+    ]
     rows = list(table_io.iter_rows(path, delimiter=","))
     assert rows[0] == ["SAMPLE_001", "5000", "PASS"]
 
@@ -85,5 +89,3 @@ def test_write_read_round_trip_with_quotes(tmp_path):
     table_io.write_tsv(path, header, rows)
     assert table_io.read_header(path) == header
     assert list(table_io.iter_rows(path)) == rows
-
-

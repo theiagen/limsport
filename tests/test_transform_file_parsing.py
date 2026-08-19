@@ -14,7 +14,7 @@ def _cut_scenario(tmp_path):
     return file_parsing_scenario(
         tmp_path,
         data_content="abc:123:xyz\n",
-        command='\'cut -d: -f2 "$FILE"\'',
+        command="'cut -d: -f2 \"$FILE\"'",
         qc_yaml='        qc:\n          - {operator: "=", value: "123"}\n',
     )
 
@@ -23,7 +23,9 @@ def test_file_parsing_requires_allow_flag(tmp_path):
     input_tsv, config = _cut_scenario(tmp_path)
     out = tmp_path / "out.tsv"
     with pytest.raises(ConfigError, match="allow-file-parsing"):
-        transform.run_export(input_tsv, config, None, out, None)  # allow_file_parsing defaults to False
+        transform.run_export(
+            input_tsv, config, None, out, None
+        )  # allow_file_parsing defaults to False
     assert not out.exists()
 
 
@@ -57,7 +59,9 @@ def test_file_parsing_command_failure_aborts_whole_export(tmp_path):
     )
     out = tmp_path / "out.tsv"
     with pytest.raises(Exception, match="exit 1"):
-        transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+        transform.run_export(
+            input_tsv, config, None, out, None, allow_file_parsing=True
+        )
     assert not out.exists()
 
 
@@ -78,7 +82,9 @@ def test_file_parsing_not_invoked_for_samples_filtered_out(tmp_path, monkeypatch
 
     calls = []
     monkeypatch.setattr(
-        transform.file_parsing, "run", lambda outputs, raw_value: calls.append(raw_value) or ["ok"]
+        transform.file_parsing,
+        "run",
+        lambda outputs, raw_value: calls.append(raw_value) or ["ok"],
     )
 
     out = tmp_path / "out.tsv"
@@ -96,7 +102,9 @@ def test_file_parsing_runs_independently_per_column_no_caching(tmp_path, monkeyp
     data_file = tmp_path / "data.txt"
     data_file.write_text("irrelevant\n")
     input_tsv = tmp_path / "input.tsv"
-    input_tsv.write_text(f"sample_id\tpath_a\tpath_b\nSAMPLE_001\t{data_file}\t{data_file}\n")
+    input_tsv.write_text(
+        f"sample_id\tpath_a\tpath_b\nSAMPLE_001\t{data_file}\t{data_file}\n"
+    )
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
@@ -109,7 +117,9 @@ def test_file_parsing_runs_independently_per_column_no_caching(tmp_path, monkeyp
 
     calls = []
     monkeypatch.setattr(
-        transform.file_parsing, "run", lambda outputs, raw_value: calls.append(raw_value) or ["ok"]
+        transform.file_parsing,
+        "run",
+        lambda outputs, raw_value: calls.append(raw_value) or ["ok"],
     )
 
     out = tmp_path / "out.tsv"
@@ -163,10 +173,14 @@ def test_file_parsing_multi_output_produces_multiple_columns_from_one_source(tmp
 def test_file_parsing_multi_output_qc_applies_independently_per_output(tmp_path):
     # Only one of the three outputs (coverage_pct) fails its own
     # threshold; the other two outputs from the same source column pass.
-    input_tsv, config = _multi_output_scenario(tmp_path, coverage_pct="50.0")  # fails >= 95
+    input_tsv, config = _multi_output_scenario(
+        tmp_path, coverage_pct="50.0"
+    )  # fails >= 95
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report, allow_file_parsing=True)
+    transform.run_export(
+        input_tsv, config, None, out, qc_report, allow_file_parsing=True
+    )
 
     rows = list(table_io.iter_rows(out))
     assert rows == []  # the sample is dropped: one failing output fails the whole row
@@ -192,6 +206,8 @@ def test_allow_file_parsing_flag_is_harmless_when_config_has_no_file_parsing(tmp
 
     out_with_flag = tmp_path / "with_flag.tsv"
     out_without_flag = tmp_path / "without_flag.tsv"
-    transform.run_export(input_tsv, config, None, out_with_flag, None, allow_file_parsing=True)
+    transform.run_export(
+        input_tsv, config, None, out_with_flag, None, allow_file_parsing=True
+    )
     transform.run_export(input_tsv, config, None, out_without_flag, None)
     assert out_with_flag.read_text() == out_without_flag.read_text()

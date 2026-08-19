@@ -19,8 +19,7 @@ from .exceptions import ConfigError, InputTableError
 
 
 def _build_column_name_index(header: list[str]) -> dict[str, list[int]]:
-    """Map each header name to every index it appears at. A name that's
-    duplicated in the input TSV shows up as a list with len() > 1"""
+    """Map each header name to every index it appears at. A name that's duplicated in the input TSV shows up as a list with len() > 1"""
     index: dict[str, list[int]] = {}
     for i, name in enumerate(header):  # returns (0, list[0]), (1, list[1])
         # if the column isn't in the dictionary, set it w/ a list value and add index to list

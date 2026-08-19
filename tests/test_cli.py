@@ -22,7 +22,9 @@ def test_end_to_end_no_config_no_samples_writes_nothing(tmp_path):
     assert not out.exists()
 
 
-def test_output_defaults_to_limsport_tsv_in_the_current_directory(tmp_path, monkeypatch):
+def test_output_defaults_to_limsport_tsv_in_the_current_directory(
+    tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     input_path = input_basic(tmp_path)
     config_path = config_qc_range(tmp_path)
@@ -51,7 +53,9 @@ def test_end_to_end_with_config_and_qc_report(tmp_path, capsys):
     assert [row[0] for row in rows] == ["SAMPLE_001"]
 
     report_rows = list(table_io.iter_rows(report_path))
-    assert len(report_rows) == 4  # SAMPLE_002, 003, 004, 005 each fail exactly one configured column
+    assert (
+        len(report_rows) == 4
+    )  # SAMPLE_002, 003, 004, 005 each fail exactly one configured column
 
     stderr = capsys.readouterr().err
     assert "1/5 samples passed QC" in stderr
@@ -67,7 +71,9 @@ def test_missing_required_input_exits_2(tmp_path):
 def test_nonexistent_input_path_exits_2(tmp_path, capsys):
     out = tmp_path / "out.tsv"
     with pytest.raises(SystemExit) as exc_info:
-        cli.main(["--input", str(tmp_path / "does_not_exist.tsv"), "--output", str(out)])
+        cli.main(
+            ["--input", str(tmp_path / "does_not_exist.tsv"), "--output", str(out)]
+        )
     assert exc_info.value.code == 2
     assert "file not found" in capsys.readouterr().err
 
@@ -153,14 +159,17 @@ def test_delimiter_flag_converts_output(tmp_path):
         ]
     )
     assert rc == 0
-    assert table_io.read_header(out, delimiter=",") == ["sample_id", "read_count", "status", "notes"]
+    assert table_io.read_header(out, delimiter=",") == [
+        "sample_id",
+        "read_count",
+        "status",
+        "notes",
+    ]
 
 
 def test_undetectable_delimiter_returns_1(tmp_path, capsys):
     out = tmp_path / "out.tsv"
-    rc = cli.main(
-        ["--input", str(input_single_column(tmp_path)), "--output", str(out)]
-    )
+    rc = cli.main(["--input", str(input_single_column(tmp_path)), "--output", str(out)])
     assert rc == 1
     assert not out.exists()
     assert "could not auto-detect a delimiter" in capsys.readouterr().err
@@ -189,7 +198,9 @@ def test_unwritable_output_path_returns_1_without_traceback(tmp_path, capsys):
     assert "Traceback" not in stderr
 
 
-def test_omitting_qc_report_defaults_to_qc_report_tsv_in_the_current_directory(tmp_path, monkeypatch):
+def test_omitting_qc_report_defaults_to_qc_report_tsv_in_the_current_directory(
+    tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     out = tmp_path / "out.tsv"
     input_path = input_basic(tmp_path)
@@ -213,7 +224,9 @@ def test_file_parsing_without_flag_returns_1(tmp_path, capsys):
         tmp_path, data_content="hello\n", command='cat "$FILE"'
     )
     out = tmp_path / "out.tsv"
-    rc = cli.main(["--input", str(input_tsv), "--config", str(config), "--output", str(out)])
+    rc = cli.main(
+        ["--input", str(input_tsv), "--config", str(config), "--output", str(out)]
+    )
     assert rc == 1
     assert not out.exists()
     assert "allow-file-parsing" in capsys.readouterr().err
