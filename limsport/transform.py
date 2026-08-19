@@ -6,7 +6,15 @@ the output TSV, and writes the summary/report logging in report.py.
 from pathlib import Path
 
 from . import file_parsing, table_io, qc, report
-from .config import ColumnConfig, ExportConfig, QCByRule, QCCondition, QCFailure, SetQCRule, load_config
+from .config import (
+    ColumnConfig,
+    ExportConfig,
+    QCByRule,
+    QCCondition,
+    QCFailure,
+    SetQCRule,
+    load_config,
+)
 from .exceptions import ConfigError, InputTableError
 
 
@@ -14,7 +22,7 @@ def _build_column_name_index(header: list[str]) -> dict[str, list[int]]:
     """Map each header name to every index it appears at. A name that's
     duplicated in the input TSV shows up as a list with len() > 1"""
     index: dict[str, list[int]] = {}
-    for i, name in enumerate(header): # returns (0, list[0]), (1, list[1])
+    for i, name in enumerate(header):  # returns (0, list[0]), (1, list[1])
         # if the column isn't in the dictionary, set it w/ a list value and add index to list
         index.setdefault(name, []).append(i)
     return index
@@ -26,7 +34,9 @@ def _validate_header_reference(
     """Check each column name from the config against the input file header to confirm it exists or isn't duplicated"""
     indices = name_to_indices.get(name)
     if not indices:
-        raise InputTableError(f"{input_path}: {description} {name!r}, which is not in the input header")
+        raise InputTableError(
+            f"{input_path}: {description} {name!r}, which is not in the input header"
+        )
     if len(indices) > 1:
         raise InputTableError(
             f"{input_path}: {description} {name!r}, "
@@ -40,15 +50,23 @@ def _validate_columns_exist(
     """Check before any output is written if the config references a
     column that doesn't exist or exists more than once."""
     for column in columns:
-        _validate_header_reference(column.name, name_to_indices, input_path, "config references column")
+        _validate_header_reference(
+            column.name, name_to_indices, input_path, "config references column"
+        )
         if isinstance(column.qc, QCByRule):
-            _validate_header_reference(column.qc.match, name_to_indices, input_path,
-                f"column {column.name!r} has qc matching on column"
+            _validate_header_reference(
+                column.qc.match,
+                name_to_indices,
+                input_path,
+                f"column {column.name!r} has qc matching on column",
             )
         if column.file_parsing is not None:
             for output in column.file_parsing:
                 if isinstance(output.qc, QCByRule):
-                    _validate_header_reference(output.qc.match, name_to_indices, input_path,
+                    _validate_header_reference(
+                        output.qc.match,
+                        name_to_indices,
+                        input_path,
                         f"file_parsing output {output.name!r} on column {column.name!r} has qc matching on column",
                     )
 
@@ -60,12 +78,17 @@ def _validate_set_qc_columns(
     column that doesn't exist or exists more than once."""
     for rule in set_qc:
         for check in rule.columns:
-            _validate_header_reference(check.column, name_to_indices, input_path,
-                f"set_qc rule {rule.name!r} reads column"
+            _validate_header_reference(
+                check.column,
+                name_to_indices,
+                input_path,
+                f"set_qc rule {rule.name!r} reads column",
             )
 
 
-def _validate_file_parsing_allowed(columns: list[ColumnConfig], allow_file_parsing: bool) -> None:
+def _validate_file_parsing_allowed(
+    columns: list[ColumnConfig], allow_file_parsing: bool
+) -> None:
     """Quit if the config uses file_parsing but the user didn't opt in."""
     if allow_file_parsing:
         return
@@ -129,13 +152,25 @@ def _resolve_column(
         fields = []
         for output, value in zip(column.file_parsing, values):
             conditions, unmatched_reason = _resolve_qc(
-                output.qc, match_values, f"file_parsing output {output.name!r} (column {column.name!r})"
+                output.qc,
+                match_values,
+                f"file_parsing output {output.name!r} (column {column.name!r})",
             )
-            fields.append(qc.ResolvedField(column.name, output.name, value, conditions, unmatched_reason))
+            fields.append(
+                qc.ResolvedField(
+                    column.name, output.name, value, conditions, unmatched_reason
+                )
+            )
         return fields
 
-    conditions, unmatched_reason = _resolve_qc(column.qc, match_values, f"column {column.name!r}")
-    return [qc.ResolvedField(column.name, column.output_name, raw_cell, conditions, unmatched_reason)]
+    conditions, unmatched_reason = _resolve_qc(
+        column.qc, match_values, f"column {column.name!r}"
+    )
+    return [
+        qc.ResolvedField(
+            column.name, column.output_name, raw_cell, conditions, unmatched_reason
+        )
+    ]
 
 
 def _collect_match_columns(columns: list[ColumnConfig]) -> set[str]:
@@ -163,7 +198,11 @@ def run_export(
     # auto-detect delimiter
     input_delimiter = table_io.detect_delimiter(input_path)
 
-    if config_path is None and samples_path is None and output_delimiter == input_delimiter:
+    if (
+        config_path is None
+        and samples_path is None
+        and output_delimiter == input_delimiter
+    ):
         # Nothing to filter, transform, or re-delimit
         report.log_nothing_to_do()
         return
@@ -171,7 +210,9 @@ def run_export(
     header = table_io.read_header(input_path, input_delimiter)
     name_to_indices = _build_column_name_index(header)
 
-    config: ExportConfig | None = load_config(config_path) if config_path is not None else None
+    config: ExportConfig | None = (
+        load_config(config_path) if config_path is not None else None
+    )
     if config is not None:
         _validate_columns_exist(config.columns or [], name_to_indices, input_path)
         _validate_file_parsing_allowed(config.columns or [], allow_file_parsing)
@@ -189,7 +230,9 @@ def run_export(
             # ------------------------------------------------------------------
 
             output_header = [name for c in ordered_columns for name in c.output_names]
-            resolved_columns = [(c, name_to_indices[c.name][0]) for c in ordered_columns]
+            resolved_columns = [
+                (c, name_to_indices[c.name][0]) for c in ordered_columns
+            ]
         else:
             # columns omitted: this config exists only for set_qc, so every
             # input column passes through unchanged, same as no config at all
@@ -206,7 +249,9 @@ def run_export(
         resolved_columns = []
         match_index = {}
 
-    requested_samples = _load_sample_list(samples_path) if samples_path is not None else None
+    requested_samples = (
+        _load_sample_list(samples_path) if samples_path is not None else None
+    )
     seen_samples: set[str] = set()
 
     # Buffered per-row state, not yet decided as pass/fail -- deciding that
@@ -215,11 +260,15 @@ def run_export(
     # sample(s) it matched. When there's no config, a row is just its raw
     # cells; with one, it's the row's resolved (column, value, qc) fields.
     buffered: list[tuple[str, list]] = []
-    set_qc_matched: dict[str, list[str]] = {rule.name: [] for rule in (config.set_qc if config else [])}
-    set_qc_failures: dict[str, list[QCFailure]] = {rule.name: [] for rule in (config.set_qc if config else [])}
+    set_qc_matched: dict[str, list[str]] = {
+        rule.name: [] for rule in (config.set_qc if config else [])
+    }
+    set_qc_failures: dict[str, list[QCFailure]] = {
+        rule.name: [] for rule in (config.set_qc if config else [])
+    }
 
     total_rows = 0
-    candidate_rows = 0 # rows after sample-list filtering, before QC
+    candidate_rows = 0  # rows after sample-list filtering, before QC
 
     for row in table_io.iter_rows(input_path, input_delimiter):
         # sample name should always be in the first column
@@ -241,7 +290,12 @@ def run_export(
                 if rule.match.matches(sample):
                     set_qc_matched[rule.name].append(sample)
                     rule_fields = [
-                        qc.ResolvedField(check.column, check.column, match_values[check.column], check.qc)
+                        qc.ResolvedField(
+                            check.column,
+                            check.column,
+                            match_values[check.column],
+                            check.qc,
+                        )
                         for check in rule.columns
                     ]
                     rule_outcome = qc.evaluate_row(rule_fields, sample)
@@ -273,11 +327,15 @@ def run_export(
                     f"{input_path}: set_qc rule {rule.name!r} matched no samples in this run"
                 )
 
-    run_failed_rules = [rule for rule in config.set_qc if set_qc_failures[rule.name]] if config is not None else []
+    run_failed_rules = (
+        [rule for rule in config.set_qc if set_qc_failures[rule.name]]
+        if config is not None
+        else []
+    )
 
     output_rows: list[list[str]] = []
     all_failures: list[QCFailure] = []
-    passed_rows = 0 # rows after QC
+    passed_rows = 0  # rows after QC
 
     if run_failed_rules:
         # A set_qc rule failed: the entire run fails QC, not just the
@@ -290,10 +348,17 @@ def run_export(
         for sample, _ in buffered:
             if sample in offending_samples:
                 continue
-            all_failures.append(QCFailure(
-                sample=sample, column="", output_column="", operator=None, expected=None,
-                actual=None, reason=f"run failed QC due to set_qc rule(s): {failing_rule_names}",
-            ))
+            all_failures.append(
+                QCFailure(
+                    sample=sample,
+                    column="",
+                    output_column="",
+                    operator=None,
+                    expected=None,
+                    actual=None,
+                    reason=f"run failed QC due to set_qc rule(s): {failing_rule_names}",
+                )
+            )
         # output_rows stays empty since the whole run failed
     else:
         for sample, fields_or_row in buffered:
@@ -308,7 +373,9 @@ def run_export(
                 output_rows.append(fields_or_row)
             passed_rows += 1
 
-    table_io.write_tsv(output_path, output_header, output_rows, delimiter=output_delimiter)
+    table_io.write_tsv(
+        output_path, output_header, output_rows, delimiter=output_delimiter
+    )
 
     if config is not None:
         report.log_summary(passed=passed_rows, total=candidate_rows)

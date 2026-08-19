@@ -9,7 +9,15 @@ from .config import QCFailure
 
 logger = logging.getLogger("limsport")
 
-_QC_REPORT_HEADER = ["sample", "column", "output_column", "operator", "expected", "actual", "reason"]
+_QC_REPORT_HEADER = [
+    "sample",
+    "column",
+    "output_column",
+    "operator",
+    "expected",
+    "actual",
+    "reason",
+]
 
 
 def log_summary(passed: int, total: int) -> None:
@@ -39,7 +47,10 @@ def log_qc_failures(failures: list[QCFailure]) -> None:
             )
         else:
             logger.warning(
-                "%s: column %r failed QC (%s)", failure.sample, failure.column, failure.reason
+                "%s: column %r failed QC (%s)",
+                failure.sample,
+                failure.column,
+                failure.reason,
             )
 
 

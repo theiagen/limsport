@@ -15,7 +15,14 @@ from pathlib import Path
 from typing import ClassVar
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from .exceptions import ConfigError
 
@@ -62,11 +69,17 @@ class QCCondition(BaseModel):
     def _validate_operator_constraints(self) -> "QCCondition":
         if self.operator in (QCOperator.IS_EMPTY, QCOperator.IS_NOT_EMPTY):
             if self.value is not None:
-                raise ValueError(f"operator {self.operator.value!r} does not take a value")
+                raise ValueError(
+                    f"operator {self.operator.value!r} does not take a value"
+                )
             if self.case_insensitive:
-                raise ValueError(f"case_insensitive is not valid with operator {self.operator.value!r}")
+                raise ValueError(
+                    f"case_insensitive is not valid with operator {self.operator.value!r}"
+                )
             if self.tolerance_percent is not None:
-                raise ValueError(f"tolerance_percent is not valid with operator {self.operator.value!r}")
+                raise ValueError(
+                    f"tolerance_percent is not valid with operator {self.operator.value!r}"
+                )
             return self
 
         if self.value is None:
@@ -89,7 +102,9 @@ class QCCondition(BaseModel):
                 )
             if self.value == "":
                 # an empty substring is always found (or never absent)
-                raise ValueError(f"operator {self.operator.value!r} requires a non-empty string value")
+                raise ValueError(
+                    f"operator {self.operator.value!r} requires a non-empty string value"
+                )
         elif self.operator is not QCOperator.EQ:
             # string values can only use equivalence or substring operators; error if not
             if not isinstance(self.value, (int, float)):
@@ -109,7 +124,9 @@ class QCCondition(BaseModel):
             )
 
         if self.case_insensitive and not isinstance(self.value, str):
-            raise ValueError("case_insensitive=True is only valid when value is a string")
+            raise ValueError(
+                "case_insensitive=True is only valid when value is a string"
+            )
         return self
 
 
@@ -129,7 +146,9 @@ class QCByRule(BaseModel):
 
     @field_validator("rules")
     @classmethod
-    def _rules_not_empty(cls, rules: dict[str, list[QCCondition]]) -> dict[str, list[QCCondition]]:
+    def _rules_not_empty(
+        cls, rules: dict[str, list[QCCondition]]
+    ) -> dict[str, list[QCCondition]]:
         if not rules:
             raise ValueError("qc.rules must not be empty")
         return rules
@@ -201,7 +220,9 @@ class ColumnConfig(BaseModel):
                 raise ValueError("file_parsing must not be an empty list")
             dupes = _find_duplicates(o.name for o in outputs)
             if dupes:
-                raise ValueError(f"Duplicate file_parsing output name(s): {sorted(dupes)}")
+                raise ValueError(
+                    f"Duplicate file_parsing output name(s): {sorted(dupes)}"
+                )
         return outputs
 
     @model_validator(mode="after")
@@ -272,7 +293,9 @@ class SetQCMatch(BaseModel):
             try:
                 re.compile(self.sample_regex)
             except re.error as e:
-                raise ValueError(f"invalid sample_regex {self.sample_regex!r}: {e}") from e
+                raise ValueError(
+                    f"invalid sample_regex {self.sample_regex!r}: {e}"
+                ) from e
         return self
 
     def matches(self, sample: str) -> bool:
@@ -314,7 +337,9 @@ class SetQCRule(BaseModel):
     def _no_duplicate_columns(cls, columns: list[SetQCCheck]) -> list[SetQCCheck]:
         dupes = _find_duplicates(c.column for c in columns)
         if dupes:
-            raise ValueError(f"Duplicate column(s) within one set_qc rule: {sorted(dupes)}")
+            raise ValueError(
+                f"Duplicate column(s) within one set_qc rule: {sorted(dupes)}"
+            )
         return columns
 
 
@@ -357,9 +382,13 @@ class ExportConfig(BaseModel):
         if dupes:
             raise ValueError(f"Duplicate column name(s) in config: {sorted(dupes)}")
 
-        output_dupes = _find_duplicates(name for c in self.columns for name in c.output_names)
+        output_dupes = _find_duplicates(
+            name for c in self.columns for name in c.output_names
+        )
         if output_dupes:
-            raise ValueError(f"Duplicate output column name(s) in config: {sorted(output_dupes)}")
+            raise ValueError(
+                f"Duplicate output column name(s) in config: {sorted(output_dupes)}"
+            )
         return self
 
 

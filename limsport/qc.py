@@ -25,7 +25,9 @@ def _fold(value: str, case_insensitive: bool) -> str:
     return value.casefold() if case_insensitive else value
 
 
-def _evaluate_contains(raw: str, condition: QCCondition, *, negate: bool) -> tuple[bool, str | None]:
+def _evaluate_contains(
+    raw: str, condition: QCCondition, *, negate: bool
+) -> tuple[bool, str | None]:
     assert isinstance(condition.value, str)
     haystack = _fold(raw, condition.case_insensitive)
     needle = _fold(condition.value, condition.case_insensitive)
@@ -37,7 +39,9 @@ def _evaluate_contains(raw: str, condition: QCCondition, *, negate: bool) -> tup
     return False, f"value {raw!r} {verb} {condition.value!r}"
 
 
-def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, str | None]:
+def evaluate_condition(
+    cell: str | None, condition: QCCondition
+) -> tuple[bool, str | None]:
     """Check one cell against one condition.
 
     Returns (passed, reason_if_failed) — reason is always a string when
@@ -61,7 +65,9 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
         return _evaluate_contains(raw, condition, negate=True)
 
     if isinstance(condition.value, str):  # only equivalence for strings
-        passed = _fold(raw, condition.case_insensitive) == _fold(condition.value, condition.case_insensitive)
+        passed = _fold(raw, condition.case_insensitive) == _fold(
+            condition.value, condition.case_insensitive
+        )
         return passed, None if passed else f"value {raw!r} != {condition.value!r}"
 
     try:
@@ -96,10 +102,14 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
         )
 
     if condition.operator is QCOperator.EQ:
-        passed = (actual == expected)
+        passed = actual == expected
     else:
         passed = _ORDERING_OPS[condition.operator](actual, expected)
-    return passed, None if passed else f"{actual} {condition.operator.value} {condition.value} is False"
+    return passed, (
+        None
+        if passed
+        else f"{actual} {condition.operator.value} {condition.value} is False"
+    )
 
 
 class ResolvedField(NamedTuple):

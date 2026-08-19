@@ -39,11 +39,13 @@ def iter_rows(path: Path, delimiter: str | None = None) -> Iterator[list[str]]:
 
     Rows with less fields are padded while rows with more fields fail
     """
-    delimiter = delimiter or detect_delimiter(path) # detect_delimiter here only runs in the pytests
+    delimiter = delimiter or detect_delimiter(
+        path
+    )  # detect_delimiter here only runs in the pytests
 
     with path.open(newline="", encoding="utf-8") as f:
         reader = csv.reader(f, delimiter=delimiter)
-        width = len(next(reader)) # skip header
+        width = len(next(reader))  # skip header
         for row in reader:
             if len(row) < width:
                 row = row + [""] * (width - len(row))
@@ -59,6 +61,8 @@ def write_tsv(
 ) -> None:
     """Write TSV to output"""
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, delimiter=delimiter, lineterminator="\n", quoting=csv.QUOTE_MINIMAL)
+        writer = csv.writer(
+            f, delimiter=delimiter, lineterminator="\n", quoting=csv.QUOTE_MINIMAL
+        )
         writer.writerow(header)
         writer.writerows(rows)

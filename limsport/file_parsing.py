@@ -44,7 +44,9 @@ def _cleanup(tmp_dir: Path) -> None:
         shutil.rmtree(tmp_dir)
     except OSError as e:
         # cleanup failures shouldn't hard fail but shouldn't be silent either
-        logger.warning("failed to remove temporary download directory %s: %s", tmp_dir, e)
+        logger.warning(
+            "failed to remove temporary download directory %s: %s", tmp_dir, e
+        )
 
 
 def _localize(raw_path: str) -> tuple[str, Path | None]:
@@ -55,7 +57,9 @@ def _localize(raw_path: str) -> tuple[str, Path | None]:
         return raw_path, None
 
     if shutil.which("gcloud") is None:
-        raise FileParsingError(f"{raw_path}: 'gcloud' is required to localize this path but was not found on PATH")
+        raise FileParsingError(
+            f"{raw_path}: 'gcloud' is required to localize this path but was not found on PATH"
+        )
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="limsport-"))
     local_path = tmp_dir / _safe_basename(raw_path)
@@ -88,7 +92,9 @@ def _run_command(output: FileParsingOutput, env: dict[str, str], raw_value: str)
             timeout=output.timeout_seconds,
         )
     except subprocess.TimeoutExpired as e:
-        raise FileParsingError(f"file_parsing command timed out for {raw_value!r}") from e
+        raise FileParsingError(
+            f"file_parsing command timed out for {raw_value!r}"
+        ) from e
 
     if result.returncode != 0:
         raise FileParsingError(
