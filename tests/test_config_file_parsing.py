@@ -2,6 +2,7 @@
 transform.run_export lives in test_transform_file_parsing.py."""
 
 import pytest
+from pydantic import ValidationError
 
 from limsport.config import ExportConfig
 
@@ -23,6 +24,7 @@ def test_file_parsing_accepts_single_output_with_command_and_optional_timeout():
             ]
         }
     )
+    assert config.columns is not None
     file_parsing = config.columns[0].file_parsing
     assert file_parsing is not None
     assert len(file_parsing) == 1
@@ -48,20 +50,21 @@ def test_file_parsing_accepts_multiple_outputs_each_with_their_own_command():
             ]
         }
     )
+    assert config.columns is not None
     file_parsing = config.columns[0].file_parsing
     assert file_parsing is not None
     assert [o.name for o in file_parsing] == ["mean_depth", "coverage_pct"]
     assert file_parsing[1].timeout_seconds == 10
-    assert config.columns[0].output_names == ["mean_depth", "coverage_pct"]
+    assert config.columns[0].generated_output_names == ["mean_depth", "coverage_pct"]
 
 
 def test_file_parsing_rejects_empty_list():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate({"columns": [{"name": "a", "file_parsing": []}]})
 
 
-def test_file_parsing_rejects_duplicate_output_names_within_a_column():
-    with pytest.raises(Exception):
+def test_file_parsing_rejects_duplicate_generated_output_names_within_a_column():
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
                 "columns": [
@@ -78,7 +81,7 @@ def test_file_parsing_rejects_duplicate_output_names_within_a_column():
 
 
 def test_file_parsing_rejects_output_name_collision_across_columns():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
                 "columns": [
@@ -96,7 +99,7 @@ def test_file_parsing_rejects_output_name_collision_across_columns():
 
 
 def test_file_parsing_rejects_rename_on_a_file_parsing_column():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
                 "columns": [
@@ -111,7 +114,7 @@ def test_file_parsing_rejects_rename_on_a_file_parsing_column():
 
 
 def test_file_parsing_rejects_column_level_qc_on_a_file_parsing_column():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
                 "columns": [
@@ -136,19 +139,19 @@ def _single_output_config(**output_kwargs):
 
 
 def test_file_parsing_requires_command():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(_single_output_config())
 
 
 def test_file_parsing_rejects_empty_command():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(_single_output_config(command=""))
 
 
 def test_file_parsing_rejects_whitespace_only_command():
     # min_length=1 alone lets "   " through -- bash treats it as a silent
     # no-op, not a real command, so it must be rejected too.
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(_single_output_config(command="   "))
 
 
@@ -157,7 +160,7 @@ def test_file_parsing_rejects_non_positive_timeout(bad_timeout):
     # 0 or negative means "instant timeout" to subprocess, not
     # "unlimited" -- should be a clear config error, not a confusing
     # runtime failure.
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             _single_output_config(command="cat", timeout_seconds=bad_timeout)
         )
@@ -165,6 +168,7 @@ def test_file_parsing_rejects_non_positive_timeout(bad_timeout):
 
 def test_file_parsing_accepts_no_timeout():
     config = ExportConfig.model_validate(_single_output_config(command="cat"))
+    assert config.columns is not None
     file_parsing = config.columns[0].file_parsing
     assert file_parsing is not None
     assert file_parsing[0].timeout_seconds is None
@@ -173,5 +177,5 @@ def test_file_parsing_accepts_no_timeout():
 def test_file_parsing_rejects_unknown_subkeys():
     # Unlike the original placeholder (extra="allow"), the real schema
     # catches typos in file_parsing's own keys.
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ExportConfig.model_validate(_single_output_config(command="cat", typo_key=1))

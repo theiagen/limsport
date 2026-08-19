@@ -2,10 +2,10 @@
 coverage of the file_parsing module itself lives in test_file_parsing.py."""
 
 import pytest
+from factories import file_parsing_scenario
 
 from limsport import table_io, transform
 from limsport.exceptions import ConfigError
-from factories import file_parsing_scenario
 
 
 def _cut_scenario(tmp_path):
@@ -34,7 +34,7 @@ def test_file_parsing_result_flows_through_qc_and_output(tmp_path):
     out = tmp_path / "out.tsv"
     transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
 
-    header = table_io.read_header(out)
+    header = table_io.get_input_header(out)
     rows = list(table_io.iter_rows(out))
     assert header == ["sample_id", "extracted"]
     # The parsed value ("123", extracted from the file) is what's output and
@@ -84,7 +84,7 @@ def test_file_parsing_not_invoked_for_samples_filtered_out(tmp_path, monkeypatch
     monkeypatch.setattr(
         transform.file_parsing,
         "run",
-        lambda outputs, raw_value: calls.append(raw_value) or ["ok"],
+        lambda outputs, original_path: calls.append(original_path) or ["ok"],
     )
 
     out = tmp_path / "out.tsv"
@@ -119,7 +119,7 @@ def test_file_parsing_runs_independently_per_column_no_caching(tmp_path, monkeyp
     monkeypatch.setattr(
         transform.file_parsing,
         "run",
-        lambda outputs, raw_value: calls.append(raw_value) or ["ok"],
+        lambda outputs, original_path: calls.append(original_path) or ["ok"],
     )
 
     out = tmp_path / "out.tsv"
@@ -164,7 +164,7 @@ def test_file_parsing_multi_output_produces_multiple_columns_from_one_source(tmp
     out = tmp_path / "out.tsv"
     transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
 
-    header = table_io.read_header(out)
+    header = table_io.get_input_header(out)
     rows = list(table_io.iter_rows(out))
     assert header == ["sample_id", "mean_depth", "coverage_pct", "mean_mapq"]
     assert rows == [["SAMPLE_001", "42.5", "99.98", "60.0"]]

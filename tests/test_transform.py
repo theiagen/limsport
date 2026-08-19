@@ -1,7 +1,4 @@
 import pytest
-
-from limsport import table_io, transform
-from limsport.exceptions import InputTableError
 from factories import (
     config_basic,
     config_qc_range,
@@ -15,6 +12,9 @@ from factories import (
     input_with_dupes,
     samples_subset,
 )
+
+from limsport import table_io, transform
+from limsport.exceptions import InputTableError
 
 
 def config_qc_approx(tmp_path):
@@ -53,7 +53,7 @@ def test_samples_only_filters_rows_preserves_columns(tmp_path):
     transform.run_export(
         input_with_dupes(tmp_path), None, samples_subset(tmp_path), out, None
     )
-    header = table_io.read_header(out)
+    header = table_io.get_input_header(out)
     rows = list(table_io.iter_rows(out))
     assert header == ["sample_id", "read_count", "read_count", "status"]
     assert len(rows) == 1
@@ -63,7 +63,7 @@ def test_samples_only_filters_rows_preserves_columns(tmp_path):
 def test_config_reorders_renames_and_drops_columns(tmp_path):
     out = tmp_path / "out.tsv"
     transform.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
-    header = table_io.read_header(out)
+    header = table_io.get_input_header(out)
     assert header == ["sample_id", "total_reads", "Status", "notes"]
     rows = list(table_io.iter_rows(out))
     assert len(rows) == 5
@@ -88,7 +88,7 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
     )
     out = tmp_path / "out.tsv"
     transform.run_export(input_basic(tmp_path), config, None, out, None)
-    header = table_io.read_header(out)
+    header = table_io.get_input_header(out)
     assert header == ["status", "sample_id", "notes", "total_reads"]
 
 
@@ -162,7 +162,12 @@ def test_empty_sample_intersection_produces_header_only_output(tmp_path):
     samples.write_text("DOES_NOT_EXIST\n")
     out = tmp_path / "out.tsv"
     transform.run_export(input_basic(tmp_path), None, samples, out, None)
-    assert table_io.read_header(out) == ["sample_id", "read_count", "status", "notes"]
+    assert table_io.get_input_header(out) == [
+        "sample_id",
+        "read_count",
+        "status",
+        "notes",
+    ]
     assert list(table_io.iter_rows(out)) == []
 
 
@@ -194,8 +199,8 @@ def test_no_config_no_samples_converts_non_tab_input_to_tab_by_default(tmp_path)
     src = input_comma(tmp_path)
     out = tmp_path / "out.tsv"
     transform.run_export(src, None, None, out, None)
-    assert table_io.read_header(out) == ["sample_id", "read_count", "status"]
-    assert list(table_io.iter_rows(out))[0] == ["SAMPLE_001", "5000", "PASS"]
+    assert table_io.get_input_header(out) == ["sample_id", "read_count", "status"]
+    assert next(iter(table_io.iter_rows(out))) == ["SAMPLE_001", "5000", "PASS"]
 
 
 def test_delimiter_override_converts_output(tmp_path):
@@ -203,7 +208,7 @@ def test_delimiter_override_converts_output(tmp_path):
     out = tmp_path / "out.csv"
     transform.run_export(src, None, None, out, None, output_delimiter=",")
     assert hash_file(out) != hash_file(src)  # no longer byte-identical, by design
-    assert table_io.read_header(out, delimiter=",") == [
+    assert table_io.get_input_header(out, delimiter=",") == [
         "sample_id",
         "read_count",
         "status",

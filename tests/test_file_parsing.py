@@ -150,9 +150,9 @@ def test_run_multiple_outputs_localizes_gs_path_only_once(monkeypatch):
     localize_calls = []
     real_localize = file_parsing._localize
 
-    def recording_localize(raw_path):
-        localize_calls.append(raw_path)
-        return real_localize(raw_path)
+    def recording_localize(original_path):
+        localize_calls.append(original_path)
+        return real_localize(original_path)
 
     monkeypatch.setattr(file_parsing, "_localize", recording_localize)
     _mock_gcs_bash(
@@ -261,7 +261,7 @@ def test_localize_dispatches_gs_path_to_gcloud_storage_cp(tmp_path, monkeypatch)
 
 
 @pytest.mark.parametrize(
-    "raw_path,expected_name",
+    "original_path,expected_name",
     [
         ("gs://bucket/..", "downloaded"),  # Path(...).name == ".." unguarded
         # ("gs://bucket/." -- not included: pathlib normalizes a trailing
@@ -269,12 +269,12 @@ def test_localize_dispatches_gs_path_to_gcloud_storage_cp(tmp_path, monkeypatch)
         ("gs://bucket/normal_file.bam", "normal_file.bam"),  # unaffected
     ],
 )
-def test_safe_basename_rejects_path_traversal_segments(raw_path, expected_name):
-    assert file_parsing._safe_basename(raw_path) == expected_name
+def test_safe_basename_rejects_path_traversal_segments(original_path, expected_name):
+    assert file_parsing._safe_basename(original_path) == expected_name
 
 
 def test_localize_never_escapes_temp_dir_for_traversal_path(tmp_path, monkeypatch):
-    # a raw_path ending in "/.." shouldn't make the download target
+    # a original_path ending in "/.." shouldn't make the download target
     # resolve outside the sandboxed temp directory.
     calls = []
 

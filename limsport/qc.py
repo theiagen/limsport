@@ -17,26 +17,43 @@ _ORDERING_OPS = {
 
 
 def _format_number(x: float) -> str:
-    """Format a float for a failure message without scientific notation."""
+    """Format a float for a failure message and avoid scientific notation"""
     return f"{x:,.6f}".rstrip("0").rstrip(".")
 
 
-def _fold(value: str, case_insensitive: bool) -> str:
-    return value.casefold() if case_insensitive else value
+def _remove_case(value: str, case_insensitive: bool) -> str:
+    """Turns a string caseless with .casefold()"""
+    # using casefold instead of lower b/c it's better for non-ascii characters
+    # think of the fancy ê's in the world!!!
+    if case_insensitive:
+        return value.casefold()
+    else:
+        return value
 
 
 def _evaluate_contains(
-    raw: str, condition: QCCondition, *, negate: bool
+    raw_value: str, condition: QCCondition, *, negated: bool
 ) -> tuple[bool, str | None]:
+    """Evalutes the contains and does_not_contain operators.
+    Returns (passed, reason_if_passed)"""
+    # double check the value is a string
     assert isinstance(condition.value, str)
-    haystack = _fold(raw, condition.case_insensitive)
-    needle = _fold(condition.value, condition.case_insensitive)
-    contains = needle in haystack
-    passed = (not contains) if negate else contains
-    if passed:
+    original_string = _remove_case(raw_value, condition.case_insensitive)
+    substring = _remove_case(condition.value, condition.case_insensitive)
+
+    if substring in original_string:
+        if negated:
+            # condition was "does not contain" but it was found :(
+            return False, f"value {raw_value!r} contains {condition.value!r}"
+        else:
+            # condition was "contains" and it was found :)
+            return True, None
+    elif negated:
+        # condition was "does not contain" and it was NOT found :)
         return True, None
-    verb = "contains" if negate else "does not contain"
-    return False, f"value {raw!r} {verb} {condition.value!r}"
+
+    # condition was "contains" and it was NOT found :(
+    return False, f"value {raw_value!r} does not contain {condition.value!r}"
 
 
 def evaluate_condition(
@@ -47,69 +64,79 @@ def evaluate_condition(
     Returns (passed, reason_if_failed) — reason is always a string when
     passed is False, and always None when passed is True.
     """
-    raw = (cell or "").strip()
+    raw_value = (cell or "").strip()
 
+    # check for empty/not empty first -- otherwise empties fail QC
     if condition.operator is QCOperator.IS_EMPTY:
-        passed = not raw
-        return passed, None if passed else f"value {raw!r} is not empty"
+        if not raw_value:
+            return True, None
+        else:
+            return False, f"value {raw_value!r} is not empty"
     if condition.operator is QCOperator.IS_NOT_EMPTY:
-        passed = bool(raw)
-        return passed, None if passed else "missing value"
+        if bool(raw_value):
+            return True, None
+        else:
+            return False, "missing value"
 
-    if not raw:
+    # fail QC if operator is not an empty/not empty
+    if not raw_value:
         return False, "missing value"
 
+    # string checks
     if condition.operator is QCOperator.CONTAINS:
-        return _evaluate_contains(raw, condition, negate=False)
+        return _evaluate_contains(raw_value, condition, negated=False)
     if condition.operator is QCOperator.DOES_NOT_CONTAIN:
-        return _evaluate_contains(raw, condition, negate=True)
+        return _evaluate_contains(raw_value, condition, negated=True)
 
-    if isinstance(condition.value, str):  # only equivalence for strings
-        passed = _fold(raw, condition.case_insensitive) == _fold(
+    if isinstance(condition.value, str):
+        # the only other option is equivalence
+        if _remove_case(raw_value, condition.case_insensitive) == _remove_case(
             condition.value, condition.case_insensitive
-        )
-        return passed, None if passed else f"value {raw!r} != {condition.value!r}"
+        ):
+            return True, None
+        else:
+            return (
+                False,
+                f"value {raw_value!r} != {condition.value!r} (case insensitive: {condition.case_insensitive})",
+            )
 
+    # numeric checks
     try:
         # cast the raw value to a float
-        actual = float(raw)
+        raw_number = float(raw_value)
     except ValueError:
         # cells that can't be cast to a numbers are QC fails
         return False, (
-            f"non-numeric value {raw!r} cannot be compared with "
-            f"{condition.operator.value} {condition.value}"
+            f"non-numeric value {raw_value!r} cannot be compared with {condition.operator.value} {condition.value}"
         )
 
-    # assert-only: config validation already guarantees a non-None value for
-    # every operator that reaches this point (only is_empty/is_not_empty
-    # allow a None value, and those return earlier above)
+    # double-check, shouldn't ever be false
     assert condition.value is not None
 
     # cast the config value, so "5" and 5.0 compare equal
-    expected = float(condition.value)
+    expected_number = float(condition.value)
 
     if condition.operator is QCOperator.APPROX:
-        # assert-only: config validation already guarantees this
+        # double-check
         assert condition.tolerance_percent is not None
 
-        tolerance = abs(expected) * (condition.tolerance_percent / 100)
-        passed = abs(actual - expected) <= tolerance
-        if passed:
+        tolerance = abs(expected_number) * (condition.tolerance_percent / 100)
+        if abs(raw_number - expected_number) <= tolerance:
             return True, None
-        return False, (
-            f"{actual} is not within {condition.tolerance_percent:g}% of {_format_number(expected)} "
-            f"(allowed range {_format_number(expected - tolerance)} to {_format_number(expected + tolerance)})"
+        return (
+            False,
+            f"{raw_number} is not within {condition.tolerance_percent:g}% of {_format_number(expected_number)} (allowed range {_format_number(expected_number - tolerance)} to {_format_number(expected_number + tolerance)})",
         )
 
     if condition.operator is QCOperator.EQ:
-        passed = actual == expected
+        if raw_number == expected_number:
+            return True, None
+
     else:
-        passed = _ORDERING_OPS[condition.operator](actual, expected)
-    return passed, (
-        None
-        if passed
-        else f"{actual} {condition.operator.value} {condition.value} is False"
-    )
+        if _ORDERING_OPS[condition.operator](raw_number, expected_number):
+            return True, None
+
+    return False, f"{raw_number} {condition.operator.value} {condition.value} is False"
 
 
 class ResolvedField(NamedTuple):
@@ -136,7 +163,7 @@ def evaluate_field(field: ResolvedField, sample: str) -> QCFailure | None:
     for condition in field.qc:
         passed, reason = evaluate_condition(field.value, condition)
         if not passed:
-            # confirm reason is a string when fail
+            # confirm reason has content
             assert reason is not None
             return QCFailure(
                 sample=sample,

@@ -1,7 +1,4 @@
 import pytest
-
-from limsport import table_io
-from limsport.exceptions import InputTableError
 from factories import (
     input_basic,
     input_comma,
@@ -9,6 +6,9 @@ from factories import (
     input_ragged_short,
     input_single_column,
 )
+
+from limsport import table_io
+from limsport.exceptions import InputTableError
 
 
 def test_detect_delimiter_tab(tmp_path):
@@ -50,15 +50,15 @@ def test_iter_rows_raises_on_a_row_longer_than_the_header(tmp_path):
         list(table_io.iter_rows(input_ragged_long(tmp_path)))
 
 
-def test_read_header_auto_detects_comma_delimiter(tmp_path):
+def test_get_input_header_auto_detects_comma_delimiter(tmp_path):
     path = input_comma(tmp_path)
-    assert table_io.read_header(path) == ["sample_id", "read_count", "status"]
-    assert list(table_io.iter_rows(path))[0] == ["SAMPLE_001", "5000", "PASS"]
+    assert table_io.get_input_header(path) == ["sample_id", "read_count", "status"]
+    assert next(iter(table_io.iter_rows(path))) == ["SAMPLE_001", "5000", "PASS"]
 
 
-def test_read_header_and_iter_rows_accept_explicit_delimiter(tmp_path):
+def test_get_input_header_and_iter_rows_accept_explicit_delimiter(tmp_path):
     path = input_comma(tmp_path)
-    assert table_io.read_header(path, delimiter=",") == [
+    assert table_io.get_input_header(path, delimiter=",") == [
         "sample_id",
         "read_count",
         "status",
@@ -67,8 +67,8 @@ def test_read_header_and_iter_rows_accept_explicit_delimiter(tmp_path):
     assert rows[0] == ["SAMPLE_001", "5000", "PASS"]
 
 
-def test_read_header(tmp_path):
-    assert table_io.read_header(input_basic(tmp_path)) == [
+def test_get_input_header(tmp_path):
+    assert table_io.get_input_header(input_basic(tmp_path)) == [
         "sample_id",
         "read_count",
         "status",
@@ -87,5 +87,5 @@ def test_write_read_round_trip_with_quotes(tmp_path):
     header = ["a", "b"]
     rows = [['has "quotes"', "plain"], ["another", "row"]]
     table_io.write_tsv(path, header, rows)
-    assert table_io.read_header(path) == header
+    assert table_io.get_input_header(path) == header
     assert list(table_io.iter_rows(path)) == rows

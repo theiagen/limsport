@@ -27,7 +27,7 @@ def detect_delimiter(path: Path) -> str:
     return dialect.delimiter
 
 
-def read_header(path: Path, delimiter: str | None = None) -> list[str]:
+def get_input_header(path: Path, delimiter: str | None = None) -> list[str]:
     """Return the file's header row. delimiter is auto-detected if omitted."""
     delimiter = delimiter or detect_delimiter(path)
     with path.open(newline="", encoding="utf-8") as f:

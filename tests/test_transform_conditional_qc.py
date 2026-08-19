@@ -81,7 +81,7 @@ def test_conditional_qc_unmatched_with_no_default_fails_and_reports_blank_operat
     assert "S3" not in [row[0] for row in rows]  # dropped: no rule, no default
 
     report_rows = {row[0]: row for row in table_io.iter_rows(qc_report)}
-    sample, column, output_column, operator, expected, actual, reason = report_rows[
+    _sample, column, _output_column, operator, expected, actual, reason = report_rows[
         "S3"
     ]
     assert column == "assembly_length"

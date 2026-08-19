@@ -5,7 +5,7 @@ the output TSV, and writes the summary/report logging in report.py.
 
 from pathlib import Path
 
-from . import file_parsing, table_io, qc, report
+from . import file_parsing, qc, report, table_io
 from .config import (
     ColumnConfig,
     ExportConfig,
@@ -19,7 +19,7 @@ from .exceptions import ConfigError, InputTableError
 
 
 def _build_column_name_index(header: list[str]) -> dict[str, list[int]]:
-    """Map each header name to every index it appears at. A name that's duplicated in the input TSV shows up as a list with len() > 1"""
+    """Map each header name to a list of every index it appears at"""
     index: dict[str, list[int]] = {}
     for i, name in enumerate(header):  # returns (0, list[0]), (1, list[1])
         # if the column isn't in the dictionary, set it w/ a list value and add index to list
@@ -28,10 +28,14 @@ def _build_column_name_index(header: list[str]) -> dict[str, list[int]]:
 
 
 def _validate_header_reference(
-    name: str, name_to_indices: dict[str, list[int]], input_path: Path, description: str
+    name: str,
+    column_name_indices: dict[str, list[int]],
+    input_path: Path,
+    description: str,
 ) -> None:
-    """Check each column name from the config against the input file header to confirm it exists or isn't duplicated"""
-    indices = name_to_indices.get(name)
+    """Check each column name from the config against the input file header to confirm
+    it exists or isn't duplicated"""
+    indices = column_name_indices.get(name)
     if not indices:
         raise InputTableError(
             f"{input_path}: {description} {name!r}, which is not in the input header"
@@ -44,18 +48,20 @@ def _validate_header_reference(
 
 
 def _validate_columns_exist(
-    columns: list[ColumnConfig], name_to_indices: dict[str, list[int]], input_path: Path
+    columns: list[ColumnConfig],
+    column_name_indices: dict[str, list[int]],
+    input_path: Path,
 ) -> None:
     """Check before any output is written if the config references a
     column that doesn't exist or exists more than once."""
     for column in columns:
         _validate_header_reference(
-            column.name, name_to_indices, input_path, "config references column"
+            column.name, column_name_indices, input_path, "config references column"
         )
         if isinstance(column.qc, QCByRule):
             _validate_header_reference(
                 column.qc.match,
-                name_to_indices,
+                column_name_indices,
                 input_path,
                 f"column {column.name!r} has qc matching on column",
             )
@@ -64,14 +70,14 @@ def _validate_columns_exist(
                 if isinstance(output.qc, QCByRule):
                     _validate_header_reference(
                         output.qc.match,
-                        name_to_indices,
+                        column_name_indices,
                         input_path,
                         f"file_parsing output {output.name!r} on column {column.name!r} has qc matching on column",
                     )
 
 
 def _validate_set_qc_columns(
-    set_qc: list[SetQCRule], name_to_indices: dict[str, list[int]], input_path: Path
+    set_qc: list[SetQCRule], column_name_indices: dict[str, list[int]], input_path: Path
 ) -> None:
     """Check before any output is written if a set_qc rule references a
     column that doesn't exist or exists more than once."""
@@ -79,7 +85,7 @@ def _validate_set_qc_columns(
         for check in rule.columns:
             _validate_header_reference(
                 check.column,
-                name_to_indices,
+                column_name_indices,
                 input_path,
                 f"set_qc rule {rule.name!r} reads column",
             )
@@ -202,20 +208,20 @@ def run_export(
         and samples_path is None
         and output_delimiter == input_delimiter
     ):
-        # Nothing to filter, transform, or re-delimit
+        # why are you even running this program??
         report.log_nothing_to_do()
         return
 
-    header = table_io.read_header(input_path, input_delimiter)
-    name_to_indices = _build_column_name_index(header)
+    header = table_io.get_input_header(input_path, input_delimiter)
+    column_name_indices = _build_column_name_index(header)
 
     config: ExportConfig | None = (
         load_config(config_path) if config_path is not None else None
     )
     if config is not None:
-        _validate_columns_exist(config.columns or [], name_to_indices, input_path)
+        _validate_columns_exist(config.columns or [], column_name_indices, input_path)
         _validate_file_parsing_allowed(config.columns or [], allow_file_parsing)
-        _validate_set_qc_columns(config.set_qc, name_to_indices, input_path)
+        _validate_set_qc_columns(config.set_qc, column_name_indices, input_path)
 
         if config.columns is not None:
             # ------------------------------------------------------------------
@@ -225,12 +231,14 @@ def run_export(
             # ---                             OR                             ---
             # ------------------------------------------------------------------
             # OUTPUT COLUMNS ARE KEPT IN THE SAME ORDER AS THE INPUT
-            # ordered_columns = sorted(config.columns, key=lambda c: name_to_indices[c.name][0])
+            # ordered_columns = sorted(config.columns, key=lambda c: column_name_indices[c.name][0])
             # ------------------------------------------------------------------
 
-            output_header = [name for c in ordered_columns for name in c.output_names]
+            output_header = [
+                name for c in ordered_columns for name in c.generated_output_names
+            ]
             resolved_columns = [
-                (c, name_to_indices[c.name][0]) for c in ordered_columns
+                (c, column_name_indices[c.name][0]) for c in ordered_columns
             ]
         else:
             # columns omitted: this config exists only for set_qc, so every
@@ -241,7 +249,7 @@ def run_export(
         match_columns = _collect_match_columns(config.columns or []) | {
             check.column for rule in config.set_qc for check in rule.columns
         }
-        match_index = {name: name_to_indices[name][0] for name in match_columns}
+        match_index = {name: column_name_indices[name][0] for name in match_columns}
     else:
         # no config: pass every column through unchanged
         output_header = header
@@ -286,7 +294,7 @@ def run_export(
             match_values = {name: row[idx] for name, idx in match_index.items()}
 
             for rule in config.set_qc:
-                if rule.match.matches(sample):
+                if rule.match.applies_to(sample):
                     set_qc_matched[rule.name].append(sample)
                     rule_fields = [
                         qc.ResolvedField(
@@ -320,7 +328,20 @@ def run_export(
 
     if config is not None:
         for rule in config.set_qc:
-            if not set_qc_matched[rule.name]:
+            if rule.match.samples is not None:
+                # An exact-name matcher names specific samples the caller
+                # expects to exist (e.g. known controls) -- every one of
+                # them must actually show up, not just at least one, or a
+                # typo'd/missing name would be silently never checked.
+                missing = [
+                    s for s in rule.match.samples if s not in set_qc_matched[rule.name]
+                ]
+                if missing:
+                    raise InputTableError(
+                        f"{input_path}: set_qc rule {rule.name!r} match.samples includes "
+                        f"sample(s) not found in this run: {missing}"
+                    )
+            elif not set_qc_matched[rule.name]:
                 # no sample to attach a QC failure to, fail
                 raise InputTableError(
                     f"{input_path}: set_qc rule {rule.name!r} matched no samples in this run"

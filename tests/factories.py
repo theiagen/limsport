@@ -47,7 +47,7 @@ def input_with_dupes(tmp_path):
 def input_comma(tmp_path):
     path = tmp_path / "input_comma.csv"
     path.write_text(
-        "sample_id,read_count,status\n" "SAMPLE_001,5000,PASS\n" "SAMPLE_002,500,PASS\n"
+        "sample_id,read_count,status\nSAMPLE_001,5000,PASS\nSAMPLE_002,500,PASS\n"
     )
     return path
 

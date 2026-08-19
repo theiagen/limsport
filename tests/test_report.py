@@ -1,4 +1,4 @@
-from limsport import table_io, report
+from limsport import report, table_io
 from limsport.config import QCFailure, QCOperator
 
 
@@ -38,7 +38,7 @@ def test_write_qc_report_rows(tmp_path):
     report.write_qc_report(
         path, [_failure("S1", "read_count"), _failure("S2", "status")]
     )
-    header = table_io.read_header(path)
+    header = table_io.get_input_header(path)
     rows = list(table_io.iter_rows(path))
     assert header == _HEADER
     assert rows[0][0] == "S1"
@@ -58,7 +58,7 @@ def test_write_qc_report_includes_output_column(tmp_path):
 def test_write_qc_report_header_only_when_no_failures(tmp_path):
     path = tmp_path / "report.tsv"
     report.write_qc_report(path, [])
-    assert table_io.read_header(path) == _HEADER
+    assert table_io.get_input_header(path) == _HEADER
     assert list(table_io.iter_rows(path)) == []
 
 

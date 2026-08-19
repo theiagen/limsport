@@ -1,49 +1,61 @@
 import pytest
 
-from limsport.config import ColumnConfig
+from limsport.config import ColumnConfig, QCCondition
 from limsport.qc import ResolvedField, evaluate_condition, evaluate_field, evaluate_row
 
 
+def _plain_qc(column: ColumnConfig) -> list[QCCondition]:
+    """A column's `qc` narrowed past the conditional QCByRule form."""
+    assert isinstance(column.qc, list)
+    return column.qc
+
+
 def _condition(operator, value):
-    return ColumnConfig.model_validate(
-        {"name": "x", "qc": [{"operator": operator, "value": value}]}
-    ).qc[0]
+    return _plain_qc(
+        ColumnConfig.model_validate(
+            {"name": "x", "qc": [{"operator": operator, "value": value}]}
+        )
+    )[0]
 
 
 def _no_value_condition(operator):
-    return ColumnConfig.model_validate(
-        {"name": "x", "qc": [{"operator": operator}]}
-    ).qc[0]
+    return _plain_qc(
+        ColumnConfig.model_validate({"name": "x", "qc": [{"operator": operator}]})
+    )[0]
 
 
 def _string_condition(operator, value, case_insensitive=False):
-    return ColumnConfig.model_validate(
-        {
-            "name": "x",
-            "qc": [
-                {
-                    "operator": operator,
-                    "value": value,
-                    "case_insensitive": case_insensitive,
-                }
-            ],
-        }
-    ).qc[0]
+    return _plain_qc(
+        ColumnConfig.model_validate(
+            {
+                "name": "x",
+                "qc": [
+                    {
+                        "operator": operator,
+                        "value": value,
+                        "case_insensitive": case_insensitive,
+                    }
+                ],
+            }
+        )
+    )[0]
 
 
 def _approx_condition(value, tolerance_percent):
-    return ColumnConfig.model_validate(
-        {
-            "name": "x",
-            "qc": [
-                {
-                    "operator": "~=",
-                    "value": value,
-                    "tolerance_percent": tolerance_percent,
-                }
-            ],
-        }
-    ).qc[0]
+    return _plain_qc(
+        ColumnConfig.model_validate(
+            {
+                "name": "x",
+                "qc": [
+                    {
+                        "operator": "~=",
+                        "value": value,
+                        "tolerance_percent": tolerance_percent,
+                    }
+                ],
+            }
+        )
+    )[0]
 
 
 @pytest.mark.parametrize(
@@ -87,8 +99,10 @@ def test_range_semantics_below_within_above():
         }
     )
 
+    conditions = _plain_qc(column)
+
     def _field(value):
-        return ResolvedField(column.name, column.output_name, value, column.qc)
+        return ResolvedField(column.name, column.output_name, value, conditions)
 
     assert evaluate_field(_field("500"), "S1") is not None  # below range: fails
     assert evaluate_field(_field("5000"), "S1") is None  # within range: passes

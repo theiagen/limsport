@@ -1,6 +1,4 @@
 import pytest
-
-from limsport import cli, table_io
 from factories import (
     config_qc_range,
     config_unknown_column,
@@ -9,6 +7,8 @@ from factories import (
     input_single_column,
     samples_subset,
 )
+
+from limsport import cli, table_io
 
 
 def test_end_to_end_no_config_no_samples_writes_nothing(tmp_path):
@@ -159,7 +159,7 @@ def test_delimiter_flag_converts_output(tmp_path):
         ]
     )
     assert rc == 0
-    assert table_io.read_header(out, delimiter=",") == [
+    assert table_io.get_input_header(out, delimiter=",") == [
         "sample_id",
         "read_count",
         "status",

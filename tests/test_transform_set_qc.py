@@ -14,7 +14,7 @@ def _ntc_scenario(tmp_path, *, threshold, match_block='      sample_pattern: "NT
     pass/fail tests below."""
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text(
-        "sample_id\treads\n" "NTC1\t500\n" "SAMPLE_A\t50000\n" "SAMPLE_B\t60000\n"
+        "sample_id\treads\nNTC1\t500\nSAMPLE_A\t50000\nSAMPLE_B\t60000\n"
     )
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -61,7 +61,7 @@ def test_set_qc_failure_reports_full_detail_for_the_offending_sample(tmp_path):
     transform.run_export(input_tsv, config, None, out, qc_report)
 
     report_rows = {row[0]: row for row in table_io.iter_rows(qc_report)}
-    sample, column, output_column, operator, expected, actual, reason = report_rows[
+    _sample, column, _output_column, operator, expected, actual, reason = report_rows[
         "NTC1"
     ]
     assert column == "reads"
@@ -140,7 +140,7 @@ def test_set_qc_column_need_not_be_in_output_columns_allow_list(tmp_path):
     # a check's `column` only needs to exist in the input header, same as
     # QCByRule.match -- it doesn't have to be kept in the output.
     input_tsv = tmp_path / "input.tsv"
-    input_tsv.write_text("sample_id\treads\n" "NTC1\t500\n" "SAMPLE_A\t50000\n")
+    input_tsv.write_text("sample_id\treads\nNTC1\t500\nSAMPLE_A\t50000\n")
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
@@ -215,7 +215,7 @@ def _multi_column_ntc_config(tmp_path, *, contam_threshold):
     the same matched sample(s)."""
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text(
-        "sample_id\treads\tcontam_pct\n" "NTC1\t500\t1\n" "SAMPLE_A\t50000\t2\n"
+        "sample_id\treads\tcontam_pct\nNTC1\t500\t1\nSAMPLE_A\t50000\t2\n"
     )
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -278,7 +278,7 @@ def test_set_qc_multiple_rules_failing_together_name_all_of_them_in_collateral_r
 ):
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text(
-        "sample_id\treads\tcontam_pct\n" "NTC1\t5000\t1\n" "SAMPLE_A\t50000\t2\n"
+        "sample_id\treads\tcontam_pct\nNTC1\t5000\t1\nSAMPLE_A\t50000\t2\n"
     )
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -307,7 +307,6 @@ def test_set_qc_multiple_rules_failing_together_name_all_of_them_in_collateral_r
     transform.run_export(input_tsv, config, None, out, qc_report)
 
     assert list(table_io.iter_rows(out)) == []
-    report_rows = {row[0]: row for row in table_io.iter_rows(qc_report)}
     # NTC1 fails both rules directly -- two full-detail rows
     ntc_rows = [row for row in table_io.iter_rows(qc_report) if row[0] == "NTC1"]
     assert len(ntc_rows) == 2
@@ -376,7 +375,7 @@ def test_set_qc_with_columns_omitted_still_fails_the_whole_run_on_a_set_qc_failu
     tmp_path,
 ):
     input_tsv = tmp_path / "input.tsv"
-    input_tsv.write_text("sample_id\treads\n" "NTC1\t5000\n" "SAMPLE_A\t50000\n")
+    input_tsv.write_text("sample_id\treads\nNTC1\t5000\nSAMPLE_A\t50000\n")
     config = tmp_path / "config.yaml"
     config.write_text(
         "set_qc:\n"
@@ -404,7 +403,7 @@ def test_set_qc_is_empty_lets_a_negative_control_pass_on_a_blank_result(tmp_path
     # the same column don't matter.
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text(
-        "sample_id\tdetected_organism\n" "NTC1\t\n" "SAMPLE_A\tEscherichia coli\n"
+        "sample_id\tdetected_organism\nNTC1\t\nSAMPLE_A\tEscherichia coli\n"
     )
     config = tmp_path / "config.yaml"
     config.write_text(
