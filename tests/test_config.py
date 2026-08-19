@@ -8,7 +8,7 @@ from limsport.exceptions import ConfigError
 
 def _first_qc(config: ExportConfig) -> QCCondition:
     """The first QC condition on the config's first column, narrowed past
-    the optional `columns` and the conditional QCByRule form of `qc`."""
+    the optional `columns` and the ConditionalQC form of `qc`."""
     assert config.columns is not None
     qc = config.columns[0].qc
     assert isinstance(qc, list)

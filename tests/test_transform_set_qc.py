@@ -138,7 +138,7 @@ def test_set_qc_column_not_in_header_raises_before_output_created(tmp_path):
 
 def test_set_qc_column_need_not_be_in_output_columns_allow_list(tmp_path):
     # a check's `column` only needs to exist in the input header, same as
-    # QCByRule.match -- it doesn't have to be kept in the output.
+    # ConditionalQC.match -- it doesn't have to be kept in the output.
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text("sample_id\treads\nNTC1\t500\nSAMPLE_A\t50000\n")
     config = tmp_path / "config.yaml"

@@ -1,11 +1,11 @@
-"""Turns QC results human-readable by using log lines on stderr,
-and an optional TSV report (one row per failing sample/column pair)."""
+"""Turns QC results human-readable by using log lines on stderr, and an optional TSV
+report (one row per failing sample/column pair)."""
 
 import logging
 from pathlib import Path
 
 from . import table_io
-from .config import QCFailure
+from .qc import QCFailure
 
 logger = logging.getLogger("limsport")
 
@@ -62,14 +62,14 @@ def write_qc_report(path: Path, failures: list[QCFailure]) -> None:
     """write one row per failure"""
     rows = [
         [
-            f.sample,
-            f.column,
-            f.output_column,
-            f.operator.value if f.operator is not None else "",
-            str(f.expected) if f.expected is not None else "",
-            f.actual or "",
-            f.reason,
+            fail.sample,
+            fail.column,
+            fail.output_column,
+            fail.operator.value if fail.operator is not None else "",
+            str(fail.expected) if fail.expected is not None else "",
+            fail.actual or "",
+            fail.reason,
         ]
-        for f in failures
+        for fail in failures
     ]
     table_io.write_tsv(path, _QC_REPORT_HEADER, rows)

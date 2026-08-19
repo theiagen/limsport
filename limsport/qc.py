@@ -1,11 +1,17 @@
 """QC evaluation: given a cell's raw string value and a configured
 condition/column/sample, decide pass or fail and why.
+
+The results of that evaluation (QCFailure, QCResult) live here rather than in
+config.py -- they describe what came out of a QC run, not what the YAML config
+can ask for.
 """
 
 import operator as op
 from typing import NamedTuple
 
-from .config import QCCondition, QCFailure, QCOperator, QCOutcome
+from pydantic import BaseModel, Field
+
+from .config import QCCondition, QCOperator
 
 # ordering comparisons are matched to the stdlib operator functions.
 _ORDERING_OPS = {
@@ -14,6 +20,80 @@ _ORDERING_OPS = {
     QCOperator.LE: op.le,
     QCOperator.LT: op.lt,
 }
+
+
+class QCFailure(BaseModel):
+    """One sample's failing check on one output, reported both as a log
+    line and a row in the --qc-report TSV.
+
+    `column` is the input's original name.
+    `output_column` is that column's single output name -- its rename, or
+    itself if there was no rename -- except for a file_parsing column,
+    where several outputs can share one `column` and `output_column`
+    instead names the specific output that failed.
+
+    `operator`/`expected` are None for a conditional `qc` whose row
+    matched no rule and has no default
+    """
+
+    sample: str
+    column: str
+    output_column: str
+    operator: QCOperator | None
+    expected: int | float | str | bool | None
+    actual: str | None
+    reason: str
+
+
+class QCResult(BaseModel):
+    """The result of evaluating every configured QC rule against one sample's row."""
+
+    sample: str
+    passed: bool
+    failures: list[QCFailure] = Field(default_factory=list)
+
+
+class NoMatchingRule(NamedTuple):
+    """Stands in for a QCInput's QC conditions when a conditional `qc` had no rule
+    matching this row and no `default` configured.
+
+    The QCInput fails before any condition is evaluated and contains only the reason.
+    Using this instead of an empty condition list keeps "nothing to check" different
+    from "failed to match a rule" which would both look like [].
+    """
+
+    reason: str
+
+
+class QCInput(NamedTuple):
+    """A row ready for QC. This contains which source column it came from, its
+    output name in the output header, its resolved value, and the QC conditions to
+    check it against.
+    """
+
+    column: str
+    output_column: str
+    value: str
+    qc: list[QCCondition] | NoMatchingRule
+
+    def to_failure(
+        self, sample: str, reason: str, condition: QCCondition | None = None
+    ) -> QCFailure:
+        """Report this QCInput as a QC failure for `sample`.
+
+        `condition` is the specific condition that failed. Omit it when the QCInput
+        failed without anything being evaluated (a `NoMatchingRule` QCInput), which leaves
+        operator/expected empty -- see QCFailure.
+        """
+        return QCFailure(
+            sample=sample,
+            column=self.column,
+            output_column=self.output_column,
+            operator=None if condition is None else condition.operator,
+            expected=None if condition is None else condition.value,
+            actual=self.value,
+            reason=reason,
+        )
 
 
 def _format_number(x: float) -> str:
@@ -139,66 +219,36 @@ def evaluate_condition(
     return False, f"{raw_number} {condition.operator.value} {condition.value} is False"
 
 
-class ResolvedField(NamedTuple):
-    """One value bound for a row, ready for QC: which source column it
-    came from, its output name in the output header, its resolved
-    value, and the QC conditions (if any) to check it against.
+def evaluate_qc_input(qc_input: QCInput, sample: str) -> QCFailure | None:
+    """Check one QCInput against its own QC conditions (&&)
 
-    `unmatched_reason` is set only for a conditional `qc` whose row
-    matched no rule and has no default
+    Exits on the first failing condition. `NoMatchingRule` QCInputs have already failed and
+    shouldn't be seen here
     """
-
-    column: str
-    output_column: str
-    value: str
-    qc: list[QCCondition]
-    unmatched_reason: str | None = None
-
-
-def evaluate_field(field: ResolvedField, sample: str) -> QCFailure | None:
-    """Check one resolved field against its own QC conditions (&&)
-
-    Exits on the first failing condition
-    """
-    for condition in field.qc:
-        passed, reason = evaluate_condition(field.value, condition)
+    # confirm that the qc_input.qc is not `NoMatchingRule`
+    assert not isinstance(qc_input.qc, NoMatchingRule)
+    for condition in qc_input.qc:
+        passed, reason = evaluate_condition(qc_input.value, condition)
         if not passed:
-            # confirm reason has content
+            # confirm reason has content, then create QCFailure object
             assert reason is not None
-            return QCFailure(
-                sample=sample,
-                column=field.column,
-                output_column=field.output_column,
-                operator=condition.operator,
-                expected=condition.value,
-                actual=field.value,
-                reason=reason,
-            )
+            return qc_input.to_failure(sample, reason, condition)
     return None
 
 
-def evaluate_row(fields: list[ResolvedField], sample: str) -> QCOutcome:
-    """Check every QC-configured field for one sample's row."""
+def evaluate_row(qc_inputs: list[QCInput], sample: str) -> QCResult:
+    """Check every QC-configured QCInput for one sample's row."""
     failures: list[QCFailure] = []
-    for field in fields:
-        if field.unmatched_reason is not None:
-            failures.append(
-                QCFailure(
-                    sample=sample,
-                    column=field.column,
-                    output_column=field.output_column,
-                    operator=None,
-                    expected=None,
-                    actual=field.value,
-                    reason=field.unmatched_reason,
-                )
-            )
+    for qc_input in qc_inputs:
+        if isinstance(qc_input.qc, NoMatchingRule):
+            # no rule matched, so there's no condition to evaluate or report
+            failures.append(qc_input.to_failure(sample, qc_input.qc.reason))
             continue
-        if not field.qc:
-            continue  # fields with no QC rules are never evaluated or cast
-        failure = evaluate_field(field, sample)
+        if not qc_input.qc:
+            continue  # QCInputs with no QC rules are never evaluated or cast
+        failure = evaluate_qc_input(qc_input, sample)
 
         if failure is not None:
             failures.append(failure)
 
-    return QCOutcome(sample=sample, passed=not failures, failures=failures)
+    return QCResult(sample=sample, passed=not failures, failures=failures)

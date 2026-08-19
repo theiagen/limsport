@@ -232,7 +232,11 @@ def test_file_parsing_without_flag_returns_1(tmp_path, capsys):
     assert "allow-file-parsing" in capsys.readouterr().err
 
 
-def test_file_parsing_with_flag_succeeds(tmp_path):
+def test_file_parsing_with_flag_succeeds(tmp_path, monkeypatch):
+    # chdir into tmp_path because --qc-report is omitted here: its default is
+    # the relative Path("qc_report.tsv"), which would otherwise land in
+    # whatever directory pytest was launched from (i.e. the repo root).
+    monkeypatch.chdir(tmp_path)
     input_tsv, config = file_parsing_scenario(
         tmp_path, data_content="hello\n", command='cat "$FILE"'
     )

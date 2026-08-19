@@ -1,11 +1,17 @@
 import pytest
 
 from limsport.config import ColumnConfig, QCCondition
-from limsport.qc import ResolvedField, evaluate_condition, evaluate_field, evaluate_row
+from limsport.qc import (
+    NoMatchingRule,
+    QCInput,
+    evaluate_condition,
+    evaluate_qc_input,
+    evaluate_row,
+)
 
 
 def _plain_qc(column: ColumnConfig) -> list[QCCondition]:
-    """A column's `qc` narrowed past the conditional QCByRule form."""
+    """A column's `qc` narrowed past the ConditionalQC form."""
     assert isinstance(column.qc, list)
     return column.qc
 
@@ -101,12 +107,14 @@ def test_range_semantics_below_within_above():
 
     conditions = _plain_qc(column)
 
-    def _field(value):
-        return ResolvedField(column.name, column.output_name, value, conditions)
+    def _qc_input(value):
+        return QCInput(column.name, column.output_name, value, conditions)
 
-    assert evaluate_field(_field("500"), "S1") is not None  # below range: fails
-    assert evaluate_field(_field("5000"), "S1") is None  # within range: passes
-    assert evaluate_field(_field("2000000"), "S1") is not None  # above range: fails
+    assert evaluate_qc_input(_qc_input("500"), "S1") is not None  # below range: fails
+    assert evaluate_qc_input(_qc_input("5000"), "S1") is None  # within range: passes
+    assert (
+        evaluate_qc_input(_qc_input("2000000"), "S1") is not None
+    )  # above range: fails
 
 
 @pytest.mark.parametrize(
@@ -307,39 +315,39 @@ def test_whitespace_only_cell_treated_as_missing_value():
     assert reason == "missing value"
 
 
-def test_field_with_no_qc_always_passes():
-    assert evaluate_field(ResolvedField("notes", "notes", "anything", []), "S1") is None
-    assert evaluate_field(ResolvedField("notes", "notes", "", []), "S1") is None
+def test_qc_input_with_no_qc_always_passes():
+    assert evaluate_qc_input(QCInput("notes", "notes", "anything", []), "S1") is None
+    assert evaluate_qc_input(QCInput("notes", "notes", "", []), "S1") is None
 
 
-def test_evaluate_field_reports_source_column_and_output_column_separately():
+def test_evaluate_qc_input_reports_source_column_and_output_column_separately():
     # A file_parsing output's failure should point at both the source
     # column it came from and the specific output that failed, even when
     # those names differ.
     condition = _condition(">=", 1000)
-    field = ResolvedField("coverage_tsv", "mean_depth", "500", [condition])
-    failure = evaluate_field(field, "S1")
+    qc_input = QCInput("coverage_tsv", "mean_depth", "500", [condition])
+    failure = evaluate_qc_input(qc_input, "S1")
     assert failure is not None
     assert failure.column == "coverage_tsv"
     assert failure.output_column == "mean_depth"
 
 
-def test_evaluate_row_aggregates_failures_across_fields():
+def test_evaluate_row_aggregates_failures_across_qc_inputs():
     read_count_qc = _condition(">=", 1000)
     status_qc = _condition("=", "PASS")
-    fields = [
-        ResolvedField("read_count", "read_count", "500", [read_count_qc]),
-        ResolvedField("status", "status", "FAIL", [status_qc]),
+    qc_inputs = [
+        QCInput("read_count", "read_count", "500", [read_count_qc]),
+        QCInput("status", "status", "FAIL", [status_qc]),
     ]
-    outcome = evaluate_row(fields, "S1")
+    outcome = evaluate_row(qc_inputs, "S1")
     assert outcome.passed is False
     assert {f.column for f in outcome.failures} == {"read_count", "status"}
 
 
 def test_evaluate_row_all_pass():
     read_count_qc = _condition(">=", 1000)
-    fields = [ResolvedField("read_count", "read_count", "5000", [read_count_qc])]
-    outcome = evaluate_row(fields, "S1")
+    qc_inputs = [QCInput("read_count", "read_count", "5000", [read_count_qc])]
+    outcome = evaluate_row(qc_inputs, "S1")
     assert outcome.passed is True
     assert outcome.failures == []
 
@@ -350,31 +358,33 @@ def test_evaluate_row_multiple_outputs_from_one_source_column_report_independent
     # suppress or merge with the other.
     depth_qc = _condition(">=", 30)
     mapq_qc = _condition(">=", 50)
-    fields = [
-        ResolvedField("coverage_tsv", "mean_depth", "10", [depth_qc]),
-        ResolvedField("coverage_tsv", "mean_mapq", "60", [mapq_qc]),
+    qc_inputs = [
+        QCInput("coverage_tsv", "mean_depth", "10", [depth_qc]),
+        QCInput("coverage_tsv", "mean_mapq", "60", [mapq_qc]),
     ]
-    outcome = evaluate_row(fields, "S1")
+    outcome = evaluate_row(qc_inputs, "S1")
     assert outcome.passed is False
     assert len(outcome.failures) == 1
     assert outcome.failures[0].output_column == "mean_depth"
 
 
-def _unmatched_field(reason="no matching rule"):
-    return ResolvedField("assembly_length", "assembly_length", "5000000", [], reason)
+def _unmatched_qc_input(reason="no matching rule"):
+    return QCInput(
+        "assembly_length", "assembly_length", "5000000", NoMatchingRule(reason)
+    )
 
 
-def test_evaluate_row_reports_unmatched_conditional_qc_field_as_a_failure():
-    # A conditional-qc field with no matching rule and no default has an
-    # empty qc list, same shape as "no QC configured" -- but
-    # unmatched_reason distinguishes it, so it fails instead of silently
-    # passing.
+def test_evaluate_row_reports_unmatched_conditional_qc_input_as_a_failure():
+    # A conditional-qc QCInput with no matching rule and no default carries
+    # NoMatchingRule in place of its conditions, which is what keeps it distinct
+    # from the empty-list "no QC configured" case -- so it fails instead of
+    # silently passing.
     #
     # NOTE: this asserts the ACTIVE behavior from transform.py's
     # _resolve_qc DECISION POINT. If that's switched to the silent-pass
-    # ALTERNATIVE, this test needs to change too (unmatched_reason would
-    # never be set, so this scenario can't arise this way anymore).
-    outcome = evaluate_row([_unmatched_field()], "S1")
+    # ALTERNATIVE, this test needs to change too (NoMatchingRule would never be
+    # returned, so this scenario can't arise this way anymore).
+    outcome = evaluate_row([_unmatched_qc_input()], "S1")
     assert outcome.passed is False
     failure = outcome.failures[0]
     assert failure.column == "assembly_length"
@@ -384,13 +394,13 @@ def test_evaluate_row_reports_unmatched_conditional_qc_field_as_a_failure():
     assert failure.expected is None
 
 
-def test_evaluate_row_unmatched_conditional_qc_field_does_not_suppress_other_fields():
+def test_evaluate_row_unmatched_conditional_qc_input_does_not_suppress_others():
     passing_qc = _condition(">=", 1)
-    fields = [
-        _unmatched_field(),
-        ResolvedField("read_count", "read_count", "5000", [passing_qc]),
+    qc_inputs = [
+        _unmatched_qc_input(),
+        QCInput("read_count", "read_count", "5000", [passing_qc]),
     ]
-    outcome = evaluate_row(fields, "S1")
+    outcome = evaluate_row(qc_inputs, "S1")
     assert outcome.passed is False
     assert len(outcome.failures) == 1
     assert outcome.failures[0].column == "assembly_length"

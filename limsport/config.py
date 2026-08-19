@@ -140,7 +140,7 @@ class QCCondition(BaseModel):
         return self
 
 
-class QCByRule(BaseModel):
+class ConditionalQC(BaseModel):
     """The conditional form of `qc` has a list of conditions that apply to a given row
     depending on that rows value in the `match` column
 
@@ -164,15 +164,15 @@ class QCByRule(BaseModel):
         return rules
 
 
-def _qc_is_set(qc: list[QCCondition] | QCByRule) -> bool:
+def _qc_is_set(qc: list[QCCondition] | ConditionalQC) -> bool:
     """True if `qc` has content (either as a list or in conditional format)"""
-    return isinstance(qc, QCByRule) or bool(qc)
+    return isinstance(qc, ConditionalQC) or bool(qc)
 
 
 class FileParsingOutput(BaseModel):
     """One output value extracted from a column's file via `command`
 
-    `qc` can be either a plain list[QCCondition], or the conditional QCByRule form.
+    `qc` can be either a plain list[QCCondition], or the ConditionalQC form.
 
     Requires --allow-file-parsing on the CLI to avoid lawsuits probably
     """
@@ -182,7 +182,7 @@ class FileParsingOutput(BaseModel):
     name: str = Field(min_length=1)
     command: str = Field(min_length=1)
     timeout_seconds: float | None = None
-    qc: list[QCCondition] | QCByRule = Field(default_factory=list)
+    qc: list[QCCondition] | ConditionalQC = Field(default_factory=list)
 
     @field_validator("command")
     @classmethod
@@ -208,14 +208,14 @@ class ColumnConfig(BaseModel):
     """An entry in the config's `columns` list: one column to keep in the
     output, with optional rename and QC rules.
 
-    `qc` is either a plain list[QCCondition] or the conditional QCByRule form
+    `qc` is either a plain list[QCCondition] or the ConditionalQC form
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     name: str
     rename: str | None = None
-    qc: list[QCCondition] | QCByRule = Field(default_factory=list)
+    qc: list[QCCondition] | ConditionalQC = Field(default_factory=list)
     file_parsing: list[FileParsingOutput] | None = None
 
     @field_validator("file_parsing")
@@ -399,37 +399,6 @@ class ExportConfig(BaseModel):
                 f"Duplicate generated file_parsing output column name(s) in config: {sorted(generated_output_dupes)}"
             )
         return self
-
-
-class QCFailure(BaseModel):
-    """One sample's failing check on one output, reported both as a log
-    line and a row in the --qc-report TSV.
-
-    `column` is the input's original name.
-    `output_column` is that column's single output name -- its rename, or
-    itself if there was no rename -- except for a file_parsing column,
-    where several outputs can share one `column` and `output_column`
-    instead names the specific output that failed.
-
-    `operator`/`expected` are None for a conditional `qc` whose row
-    matched no rule and has no default
-    """
-
-    sample: str
-    column: str
-    output_column: str
-    operator: QCOperator | None
-    expected: int | float | str | bool | None
-    actual: str | None
-    reason: str
-
-
-class QCOutcome(BaseModel):
-    """The result of evaluating every configured QC rule against one sample's row."""
-
-    sample: str
-    passed: bool
-    failures: list[QCFailure] = Field(default_factory=list)
 
 
 def load_config(path: Path) -> ExportConfig:

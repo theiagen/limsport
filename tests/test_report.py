@@ -1,5 +1,6 @@
 from limsport import report, table_io
-from limsport.config import QCFailure, QCOperator
+from limsport.config import QCOperator
+from limsport.qc import QCFailure
 
 
 def _failure(

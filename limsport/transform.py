@@ -8,10 +8,9 @@ from pathlib import Path
 from . import file_parsing, qc, report, table_io
 from .config import (
     ColumnConfig,
+    ConditionalQC,
     ExportConfig,
-    QCByRule,
     QCCondition,
-    QCFailure,
     SetQCRule,
     load_config,
 )
@@ -58,7 +57,7 @@ def _validate_columns_exist(
         _validate_header_reference(
             column.name, column_name_indices, input_path, "config references column"
         )
-        if isinstance(column.qc, QCByRule):
+        if isinstance(column.qc, ConditionalQC):
             _validate_header_reference(
                 column.qc.match,
                 column_name_indices,
@@ -67,7 +66,7 @@ def _validate_columns_exist(
             )
         if column.file_parsing is not None:
             for output in column.file_parsing:
-                if isinstance(output.qc, QCByRule):
+                if isinstance(output.qc, ConditionalQC):
                     _validate_header_reference(
                         output.qc.match,
                         column_name_indices,
@@ -112,81 +111,73 @@ def _load_sample_list(path: Path) -> set[str]:
 
 
 def _resolve_qc(
-    qc_value: list[QCCondition] | QCByRule, match_values: dict[str, str], column: str
-) -> tuple[list[QCCondition], str | None]:
+    qc_value: list[QCCondition] | ConditionalQC,
+    match_values: dict[str, str],
+    column: str,
+) -> list[QCCondition] | qc.NoMatchingRule:
     """Pick which QC conditions apply to one output for one row
 
-    Returns (conditions, unmatched_reason). Plain list QC is applied to all rows.
-    If conditional QC is specified, the match must be met or the sample will fail QC
+    Plain list QC is applied to all rows. If conditional QC is specified, the
+    match must be met or the sample will fail QC -- signalled by returning
+    qc.NoMatchingRule instead of a condition list
     """
     if isinstance(qc_value, list):
-        return qc_value, None
+        return qc_value
 
     match_value = match_values[qc_value.match]
     conditions = qc_value.rules.get(match_value)
     if conditions is not None:
-        return conditions, None
+        return conditions
     if qc_value.default is not None:
-        return qc_value.default, None
+        return qc_value.default
 
     # ------------------------------------------------------------------
     # TREAT UNMATCHED CONDITIONALS AS QC FAIL
-    reason = (
+    return qc.NoMatchingRule(
         f"no qc rule matches {qc_value.match}={match_value!r} for "
         f"{column}, and no default is configured"
     )
-    return [], reason
     # ------------------------------------------------------------------
     # ---                             OR                             ---
     # ------------------------------------------------------------------
     # TREAT UNMATCHED CONDITIONALS AS QC PASS
-    # return [], None
+    # return []
     # ------------------------------------------------------------------
 
 
 def _resolve_column(
     column: ColumnConfig, raw_cell: str, match_values: dict[str, str]
-) -> list[qc.ResolvedField]:
-    """Resolve one column's raw cell into its output field(s).
+) -> list[qc.QCInput]:
+    """Resolve one column's raw cell into one QCInput per output.
 
     A file_parsing column's raw cell is a path. QC and the output both see
     the parsed result(s) instead of the path.
     """
     if column.file_parsing is not None:
         values = file_parsing.run(column.file_parsing, raw_cell)
-        fields = []
+        qc_inputs = []
         for output, value in zip(column.file_parsing, values):
-            conditions, unmatched_reason = _resolve_qc(
+            conditions = _resolve_qc(
                 output.qc,
                 match_values,
                 f"file_parsing output {output.name!r} (column {column.name!r})",
             )
-            fields.append(
-                qc.ResolvedField(
-                    column.name, output.name, value, conditions, unmatched_reason
-                )
-            )
-        return fields
+            qc_inputs.append(qc.QCInput(column.name, output.name, value, conditions))
+        return qc_inputs
 
-    conditions, unmatched_reason = _resolve_qc(
-        column.qc, match_values, f"column {column.name!r}"
-    )
-    return [
-        qc.ResolvedField(
-            column.name, column.output_name, raw_cell, conditions, unmatched_reason
-        )
-    ]
+    conditions = _resolve_qc(column.qc, match_values, f"column {column.name!r}")
+    return [qc.QCInput(column.name, column.output_name, raw_cell, conditions)]
 
 
 def _collect_match_columns(columns: list[ColumnConfig]) -> set[str]:
     """Every column name referenced as a conditional-qc match"""
     matches: set[str] = set()
     for c in columns:
-        if isinstance(c.qc, QCByRule):
+        if isinstance(c.qc, ConditionalQC):
             matches.add(c.qc.match)
         if c.file_parsing is not None:
             for output in c.file_parsing:
-                if isinstance(output.qc, QCByRule):
+                if isinstance(output.qc, ConditionalQC):
                     matches.add(output.qc.match)
     return matches
 
@@ -265,12 +256,12 @@ def run_export(
     # happens only after the whole input is read (see below), because a
     # set_qc rule's failure can fail every row in the run, not just the
     # sample(s) it matched. When there's no config, a row is just its raw
-    # cells; with one, it's the row's resolved (column, value, qc) fields.
+    # cells; with one, it's the row's resolved (column, value, qc) QCInputs.
     buffered: list[tuple[str, list]] = []
     set_qc_matched: dict[str, list[str]] = {
         rule.name: [] for rule in (config.set_qc if config else [])
     }
-    set_qc_failures: dict[str, list[QCFailure]] = {
+    set_qc_failures: dict[str, list[qc.QCFailure]] = {
         rule.name: [] for rule in (config.set_qc if config else [])
     }
 
@@ -296,8 +287,8 @@ def run_export(
             for rule in config.set_qc:
                 if rule.match.applies_to(sample):
                     set_qc_matched[rule.name].append(sample)
-                    rule_fields = [
-                        qc.ResolvedField(
+                    rule_qc_inputs = [
+                        qc.QCInput(
                             check.column,
                             check.column,
                             match_values[check.column],
@@ -305,15 +296,15 @@ def run_export(
                         )
                         for check in rule.columns
                     ]
-                    rule_outcome = qc.evaluate_row(rule_fields, sample)
+                    rule_outcome = qc.evaluate_row(rule_qc_inputs, sample)
                     if not rule_outcome.passed:
                         set_qc_failures[rule.name].extend(rule_outcome.failures)
 
             if config.columns is not None:
-                fields: list[qc.ResolvedField] = []
+                qc_inputs: list[qc.QCInput] = []
                 for column, idx in resolved_columns:
-                    fields.extend(_resolve_column(column, row[idx], match_values))
-                buffered.append((sample, fields))
+                    qc_inputs.extend(_resolve_column(column, row[idx], match_values))
+                buffered.append((sample, qc_inputs))
             else:
                 # columns omitted: nothing to resolve/check per-row
                 buffered.append((sample, row))
@@ -354,7 +345,7 @@ def run_export(
     )
 
     output_rows: list[list[str]] = []
-    all_failures: list[QCFailure] = []
+    all_failures: list[qc.QCFailure] = []
     passed_rows = 0  # rows after QC
 
     if run_failed_rules:
@@ -369,7 +360,7 @@ def run_export(
             if sample in offending_samples:
                 continue
             all_failures.append(
-                QCFailure(
+                qc.QCFailure(
                     sample=sample,
                     column="",
                     output_column="",
@@ -381,16 +372,16 @@ def run_export(
             )
         # output_rows stays empty since the whole run failed
     else:
-        for sample, fields_or_row in buffered:
+        for sample, qc_inputs_or_row in buffered:
             if config is not None and config.columns is not None:
-                outcome = qc.evaluate_row(fields_or_row, sample)
+                outcome = qc.evaluate_row(qc_inputs_or_row, sample)
                 all_failures.extend(outcome.failures)
                 if not outcome.passed:
                     # row failed qc, do not add to output
                     continue
-                output_rows.append([field.value for field in fields_or_row])
+                output_rows.append([qc_input.value for qc_input in qc_inputs_or_row])
             else:
-                output_rows.append(fields_or_row)
+                output_rows.append(qc_inputs_or_row)
             passed_rows += 1
 
     table_io.write_tsv(

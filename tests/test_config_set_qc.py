@@ -159,7 +159,7 @@ def test_set_qc_rejects_duplicate_rule_names():
 
 
 def test_set_qc_check_qc_does_not_accept_conditional_form():
-    # a check's qc is always the plain-list form -- QCByRule
+    # a check's qc is always the plain-list form -- ConditionalQC
     # (match/rules/default) isn't valid here, since "which conditions apply"
     # is already answered by which sample matched.
     with pytest.raises(ValidationError):
