@@ -169,6 +169,8 @@ set_qc:
 
 **Every** matched sample must pass **every** check for the rule to pass. If any matched sample fails any check, the whole run is considered a QC fail.
 
+A rule that identifies zero samples in the run is itself a hard error (there's no sample to attach a QC failure to), not a QC failure -- the run aborts before any output is written. For `samples:` specifically, this applies **per name**: every sample name listed must exist in the run, not just at least one of them, so a typo'd or missing name (e.g. a dropped negative control) can't silently go unchecked.
+
 ### `file_parsing` configuration
 
 A column marked with `file_parsing` treats the row's value as a file path.

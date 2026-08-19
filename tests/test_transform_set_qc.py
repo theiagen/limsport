@@ -172,6 +172,29 @@ def test_set_qc_samples_matcher_identifies_by_exact_name(tmp_path):
     assert list(table_io.iter_rows(out)) == []  # NTC1's 500 still exceeds 100
 
 
+def test_set_qc_samples_matcher_with_one_missing_name_raises(tmp_path):
+    # NTC1 exists and would otherwise satisfy the rule on its own, but a
+    # samples: matcher names specific samples the caller expects to exist
+    # -- every one of them must show up, not just at least one.
+    input_tsv, config = _ntc_scenario(
+        tmp_path, threshold=1000, match_block='      samples: ["NTC1", "NTC2"]\n'
+    )
+    out = tmp_path / "out.tsv"
+    with pytest.raises(InputTableError, match=r"NTC read count.*\['NTC2'\]"):
+        transform.run_export(input_tsv, config, None, out, None)
+    assert not out.exists()
+
+
+def test_set_qc_samples_matcher_with_every_name_missing_raises(tmp_path):
+    input_tsv, config = _ntc_scenario(
+        tmp_path, threshold=1000, match_block='      samples: ["NTC404", "NTC500"]\n'
+    )
+    out = tmp_path / "out.tsv"
+    with pytest.raises(InputTableError, match=r"\['NTC404', 'NTC500'\]"):
+        transform.run_export(input_tsv, config, None, out, None)
+    assert not out.exists()
+
+
 def test_set_qc_sample_regex_matcher(tmp_path):
     input_tsv, config = _ntc_scenario(
         tmp_path, threshold=1000, match_block='      sample_regex: "^NTC\\\\d+$"\n'

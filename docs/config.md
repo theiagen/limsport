@@ -1,8 +1,8 @@
 # Config Builder
 
-Build a `config.yaml` for LIMSport without writing YAML by hand: add the columns you want to keep,
-optionally rename them, add QC thresholds, or extract values from a file, then download the finished
-config.
+Build a `config.yaml` for LIMSport without writing YAML yourself! Add the columns you want to keep,
+optionally rename them, add QC thresholds, or extract values from a file. Download the finished
+config when ready!
 
 <!-- embed the html inline to look real nice -->
 

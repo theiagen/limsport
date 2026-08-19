@@ -2,7 +2,7 @@
   "name": "limsport-config-builder",
   "private": true,
   "type": "module",
-  "description": "Browser-based config.yaml builder for LIMSport. No dependencies -- the browser page is vanilla HTML/CSS/JS, and tests use only Node's built-in test runner plus the real limsport Python package for validation.",
+  "description": "Browser-based config.yaml builder for LIMSport",
   "scripts": {
     "test": "node --test tests/"
   }

@@ -10,11 +10,12 @@ from .config import ColumnConfig, ExportConfig, QCByRule, QCCondition, QCFailure
 from .exceptions import ConfigError, InputTableError
 
 
-def _build_name_index(header: list[str]) -> dict[str, list[int]]:
+def _build_column_name_index(header: list[str]) -> dict[str, list[int]]:
     """Map each header name to every index it appears at. A name that's
     duplicated in the input TSV shows up as a list with len() > 1"""
     index: dict[str, list[int]] = {}
-    for i, name in enumerate(header):
+    for i, name in enumerate(header): # returns (0, list[0]), (1, list[1])
+        # if the column isn't in the dictionary, set it w/ a list value and add index to list
         index.setdefault(name, []).append(i)
     return index
 
@@ -22,7 +23,7 @@ def _build_name_index(header: list[str]) -> dict[str, list[int]]:
 def _validate_header_reference(
     name: str, name_to_indices: dict[str, list[int]], input_path: Path, description: str
 ) -> None:
-    """Check each column name against the input file header"""
+    """Check each column name from the config against the input file header to confirm it exists or isn't duplicated"""
     indices = name_to_indices.get(name)
     if not indices:
         raise InputTableError(f"{input_path}: {description} {name!r}, which is not in the input header")
@@ -168,7 +169,7 @@ def run_export(
         return
 
     header = table_io.read_header(input_path, input_delimiter)
-    name_to_indices = _build_name_index(header)
+    name_to_indices = _build_column_name_index(header)
 
     config: ExportConfig | None = load_config(config_path) if config_path is not None else None
     if config is not None:

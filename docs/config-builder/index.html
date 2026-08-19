@@ -12,7 +12,7 @@
     <p>
       Build a <code>config.yaml</code> for
       <a href="https://github.com/theiagen/limsport" target="_blank" rel="noopener">LIMSport</a>
-      without writing YAML by hand. Add the columns you want to keep, optionally rename them, add QC
+      without writing the YAML yourself! Add the columns you want to keep, optionally rename them, add QC
       thresholds, or pull values out of a file. Download the finished config when ready!
     </p>
   </header>
@@ -29,8 +29,7 @@
       <div class="set-qc-section">
         <h3>Set-level QC (optional)</h3>
         <p class="hint">
-          Fail the entire run if specific sample(s) -- like a negative control -- don't pass a check.
-          When this fires, every sample is dropped from the output, not just the one(s) matched.
+          Fail the entire run if specific sample(s) fail a QC check
         </p>
         <div id="set-qc-rules"></div>
         <button type="button" id="add-set-qc-btn" class="btn-add btn-add-set-qc">+ Add set-level QC rule</button>

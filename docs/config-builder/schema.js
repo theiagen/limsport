@@ -2,11 +2,6 @@
  * Pure logic for the LIMSport config builder: turns the wizard's in-memory
  * state into the same shape `limsport.config.ExportConfig` expects, validates
  * it the way that Pydantic model does, and serializes it to YAML.
- *
- * No DOM access here on purpose -- this file is imported both by the
- * browser page (app.js) and by the Node test suite (tests/schema.test.mjs),
- * which feeds its output straight through the real `load_config()` in
- * limsport/config.py to confirm it's accepted.
  */
 
 export const OPERATORS = [
@@ -120,9 +115,6 @@ function buildCondition(cond, label, errors) {
     return null;
   }
   if (NO_VALUE_OPERATORS.has(cond.operator)) {
-    // is_empty/is_not_empty take no value -- any leftover value/tolerance/
-    // case-insensitive state from a previous operator is simply ignored,
-    // same as app.js hides those controls for these two operators.
     return { operator: cond.operator };
   }
   const raw = (cond.value ?? "").toString().trim();

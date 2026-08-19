@@ -74,6 +74,11 @@ def evaluate_condition(cell: str | None, condition: QCCondition) -> tuple[bool, 
             f"{condition.operator.value} {condition.value}"
         )
 
+    # assert-only: config validation already guarantees a non-None value for
+    # every operator that reaches this point (only is_empty/is_not_empty
+    # allow a None value, and those return earlier above)
+    assert condition.value is not None
+
     # cast the config value, so "5" and 5.0 compare equal
     expected = float(condition.value)
 
