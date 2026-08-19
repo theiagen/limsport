@@ -1,4 +1,5 @@
-"""Pydantic models for the YAML export config, plus the loader that turns a
+"""
+Pydantic models for the YAML export config, plus the loader that turns a
 config file on disk into a validated ExportConfig.
 
 The config works as a column allow-list: if one is given, only the columns
@@ -6,6 +7,18 @@ listed in it make it into the output (see transform.py). Each column can
 also be renamed and given QC rules. `columns` can be omitted entirely if
 the config only exists for its `set_qc` (run-level) rules -- see
 ExportConfig.
+
+Included classes:
+    - QCCondition
+    - ConditionalQC
+    - FileParsingOutput
+    - ColumnConfig
+    - SetQCCheck
+    - SetQCRule
+    - ExportConfig
+
+External methods:
+    - load_config()
 """
 
 import re
@@ -28,7 +41,15 @@ from .exceptions import ConfigError
 
 
 def _find_duplicate_columns(columns: Iterable[str]) -> set[str]:
-    """Return every name that appears more than once in the `names` list of columns"""
+    """
+    Find the names that show up more than once.
+
+    Args:
+        columns: the names to check, in any order.
+
+    Returns:
+        The set of names that appeared at least twice, empty if there were none.
+    """
     seen: set[str] = set()
     duplicates: set[str] = set()
 
@@ -56,10 +77,18 @@ class QCOperator(str, Enum):
 
 
 class QCCondition(BaseModel):
-    """A single comparison: `operator value`, e.g. `>= 1000`.
+    """
+    A single comparison: `operator value`, e.g. `>= 1000`.
 
     A column can have several qc conditions (see ColumnConfig.qc) to express ranges
     like ">= 1000 and <= 1000000"
+
+    Attributes:
+        - model_config: pydantic
+        - operator: the QCOperator for the condition
+        - value: the value for the operator
+        - tolerance_percent: the modifier for the APPROX condition
+        - case_insensitive: the modifier for string conditions
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -71,6 +100,14 @@ class QCCondition(BaseModel):
 
     @model_validator(mode="after")
     def _validate_operator_requirements(self) -> "QCCondition":
+        """Check that this operator can take the `value` and modifiers it was given.
+
+        Returns:
+          `self`, unchanged, once every rule holds.
+
+        Raises:
+          ValueError: if the value or modifiers don't suit the operator.
+        """
         # presence-absence operators and applicable modifiers
         if self.operator in (QCOperator.IS_EMPTY, QCOperator.IS_NOT_EMPTY):
             if self.value is not None:
@@ -141,11 +178,18 @@ class QCCondition(BaseModel):
 
 
 class ConditionalQC(BaseModel):
-    """The conditional form of `qc` has a list of conditions that apply to a given row
+    """
+    The conditional form of `qc` has a list of conditions that apply to a given row
     depending on that rows value in the `match` column
 
     A row whose `match` value isn't a key in `rules` uses `default` if given. Without a
     `default`, it's reported as a QC fail
+
+    Attributes:
+        - model_config: pydantic
+        - match: the column to match on
+        - rules: a dictionary of match conditions and their associated QCCondition(s)
+        - default: the default QCCondition(s) to apply if no match was found
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -159,22 +203,48 @@ class ConditionalQC(BaseModel):
     def _rules_are_not_empty(
         cls, rules: dict[str, list[QCCondition]]
     ) -> dict[str, list[QCCondition]]:
+        """
+        A conditional `qc` has to configure at least one rule.
+
+        Args:
+            rules: the `match` value to conditions mapping being validated.
+
+        Returns:
+            The validated rules mapping.
+
+        Raises:
+            ValueError: if the mapping is empty.
+        """
         if not rules:
             raise ValueError("qc.rules must not be empty")
         return rules
 
 
 def _qc_is_set(qc: list[QCCondition] | ConditionalQC) -> bool:
-    """True if `qc` has content (either as a list or in conditional format)"""
+    """
+    True if `qc` has content (either as a list or in conditional format)
+
+    Args:
+        qc: the configured `qc`, in either form.
+
+    Returns:
+        True for any ConditionalQC, or for a non-empty condition list.
+    """
     return isinstance(qc, ConditionalQC) or bool(qc)
 
 
 class FileParsingOutput(BaseModel):
-    """One output value extracted from a column's file via `command`
+    """
+    One output value extracted from a column's file via `command`
 
-    `qc` can be either a plain list[QCCondition], or the ConditionalQC form.
+    `qc` can be either a plain list[QCCondition], or the ConditionalQC form. Requires --allow-file-parsing on the CLI to avoid lawsuits probably
 
-    Requires --allow-file-parsing on the CLI to avoid lawsuits probably
+    Attributes:
+        - model_config: pydantic
+        - name: the name of the output column generated from the command
+        - command: the parsing command to perform on the file
+        - timeout_seconds: how long to try before giving up
+        - qc: the list any QC to perform on the generated output
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -187,6 +257,18 @@ class FileParsingOutput(BaseModel):
     @field_validator("command")
     @classmethod
     def _command_is_not_blank(cls, command: str) -> str:
+        """
+        A `command` needs more than whitespace in it.
+
+        Args:
+            command: the command string being validated.
+
+        Returns:
+            The validated command string.
+
+        Raises:
+            ValueError: if the command is empty or only whitespace.
+        """
         # min_length=1 lets whitespace-only strings (like "   ") through booo
         if not command.strip():
             raise ValueError("file_parsing command cannot be blank")
@@ -195,6 +277,18 @@ class FileParsingOutput(BaseModel):
     @field_validator("timeout_seconds")
     @classmethod
     def _timeout_must_be_positive(cls, timeout_seconds: float | None) -> float | None:
+        """
+        `timeout_seconds`, when it's given at all, has to be a positive number.
+
+        Args:
+            timeout_seconds: the timeout being validated, or None for no timeout.
+
+        Returns:
+            The validated timeout, still None if none was set.
+
+        Raises:
+            ValueError: if the timeout is zero or negative.
+        """
         # None means no timeout. 0 or negative are treated by subprocess as already
         # expired, so every command fails instantly; give an error
         if timeout_seconds is not None and timeout_seconds <= 0:
@@ -205,8 +299,16 @@ class FileParsingOutput(BaseModel):
 
 
 class ColumnConfig(BaseModel):
-    """An entry in the config's `columns` list: one column to keep in the
+    """
+    An entry in the config's `columns` list: one column to keep in the
     output, with optional rename and QC rules.
+
+    Attributes:
+        - model_config: pydantic
+        - name: the name of the input column
+        - rename: the name of the output column
+        - qc: the QC to perform on the column content
+        - file_parsing: if this column requires file parsing
 
     `qc` is either a plain list[QCCondition] or the ConditionalQC form
     """
@@ -223,6 +325,18 @@ class ColumnConfig(BaseModel):
     def _file_parsing_outputs_are_not_empty_and_unique(
         cls, outputs: list[FileParsingOutput] | None
     ) -> list[FileParsingOutput] | None:
+        """
+        A `file_parsing` list needs at least one output and no repeated names.
+
+        Args:
+            outputs: the file_parsing outputs being validated, or None if there are none.
+
+        Returns:
+            The validated outputs, still None if there were none.
+
+        Raises:
+            ValueError: if the list is empty or two outputs share a name.
+        """
         if outputs is not None:
             if not outputs:
                 raise ValueError("file_parsing must not be an empty list")
@@ -235,8 +349,15 @@ class ColumnConfig(BaseModel):
 
     @model_validator(mode="after")
     def _file_parsing_excludes_rename_and_qc(self) -> "ColumnConfig":
-        # Once file_parsing is set, output identity and QC should only come from its
-        # outputs list
+        """
+        A file_parsing column can't also carry a `rename` or its own `qc`.
+
+        Returns:
+            `self`, unchanged, once every rule holds.
+
+        Raises:
+            ValueError: if a file_parsing column sets `rename` or `qc`.
+        """
         if self.file_parsing is not None:
             if self.rename is not None:
                 raise ValueError(
@@ -252,25 +373,42 @@ class ColumnConfig(BaseModel):
 
     @property
     def output_name(self) -> str:
-        """The column's name in the output table: the rename if given, else the
-        original name. A file_parsing column uses `generated_output_names()` instead.
+        """
+        The column's name in the output table.
+
+        A file_parsing column uses `generated_output_names()` instead.
+
+        Returns:
+          The rename if given, else the original name.
         """
         return self.rename or self.name
 
     @property
     def generated_output_names(self) -> list[str]:
-        """Every output name the file parsing section generates"""
+        """
+        Every output name this column contributes to the output header.
+
+        Returns:
+          One name per file_parsing output, or just `output_name` for a column
+          that doesn't use file_parsing.
+        """
         if self.file_parsing is not None:
             return [o.name for o in self.file_parsing]
         return [self.output_name]
 
 
 class SetQCMatch(BaseModel):
-    """Identifies which sample(s) a `set_qc` rule applies to. One of these is required:
+    """
+    Identifies which sample(s) a `set_qc` rule applies to.
 
-    - `sample_pattern`: a case-sensitive substring match against sample name
-    - `sample_regex`: `re.search` against the sample name, case-sensitive (use an inline `(?i)` flag for case-insensitive matching).
-    - `samples`: an explicit, exact list of sample names.
+    Attributes:
+        - model-config: pydantic
+
+        Only one of the following attributes is accepted at a time:
+
+        - sample_pattern: a case-sensitive substring match against sample name
+        - sample_regex: `re.search` against the sample name, case-sensitive (use an inline `(?i)` flag for case-insensitive matching).
+        - samples: an explicit, exact list of sample names.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -281,6 +419,15 @@ class SetQCMatch(BaseModel):
 
     @model_validator(mode="after")
     def _only_one_match_method(self) -> "SetQCMatch":
+        """
+        A match picks its samples exactly one way, and that one way has to be usable.
+
+        Returns:
+            `self`, unchanged, once every rule holds.
+
+        Raises:
+            ValueError: if the match doesn't name exactly one usable method.
+        """
         given = [
             name
             for name, value in (
@@ -306,7 +453,15 @@ class SetQCMatch(BaseModel):
         return self
 
     def applies_to(self, sample: str) -> bool:
-        """True if the qc match rule applies to this sample."""
+        """
+        True if the qc match rule applies to this sample.
+
+        Args:
+            sample: the sample name to test.
+
+        Returns:
+            True if whichever match method was configured selects `sample`.
+        """
         if self.sample_pattern is not None:
             return self.sample_pattern in sample
         if self.sample_regex is not None:
@@ -317,8 +472,10 @@ class SetQCMatch(BaseModel):
 
 
 class SetQCCheck(BaseModel):
-    """One column and QC condition list within a `SetQCRule`. A rule can list
-    conditions, checked against the same matched sample(s)"""
+    """
+    One column and QC condition list within a `SetQCRule`. A rule can list
+    conditions, checked against the same matched sample(s)
+    """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
@@ -344,6 +501,17 @@ class SetQCRule(BaseModel):
     def _no_duplicate_columns_permitted(
         cls, columns: list[SetQCCheck]
     ) -> list[SetQCCheck]:
+        """One set_qc rule can only check a given column once.
+
+        Args:
+          columns: the rule's checks being validated.
+
+        Returns:
+          The validated checks.
+
+        Raises:
+          ValueError: if two checks in the rule name the same column.
+        """
         dupes = _find_duplicate_columns(c.column for c in columns)
         if dupes:
             raise ValueError(
@@ -368,6 +536,17 @@ class ExportConfig(BaseModel):
     @field_validator("set_qc")
     @classmethod
     def _validate_set_qc(cls, set_qc: list[SetQCRule]) -> list[SetQCRule]:
+        """Every set_qc rule needs its own name.
+
+        Args:
+          set_qc: the run-level rules being validated.
+
+        Returns:
+          The validated rules.
+
+        Raises:
+          ValueError: if two rules share a name.
+        """
         dupes = _find_duplicate_columns(rule.name for rule in set_qc)
         if dupes:
             raise ValueError(f"Duplicate set_qc rule name(s): {sorted(dupes)}")
@@ -375,6 +554,14 @@ class ExportConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_columns(self) -> "ExportConfig":
+        """Check that the config asks for something and that output names don't collide.
+
+        Returns:
+          `self`, unchanged, once every rule holds.
+
+        Raises:
+          ValueError: if the config configures nothing, or two columns claim the same output name.
+        """
         if self.columns is None:
             if not self.set_qc:
                 raise ValueError(
@@ -402,7 +589,17 @@ class ExportConfig(BaseModel):
 
 
 def load_config(path: Path) -> ExportConfig:
-    """Read and validate a YAML config file"""
+    """Read and validate a YAML config file
+
+    Args:
+      path: the config file to read.
+
+    Returns:
+      The validated ExportConfig the file describes.
+
+    Raises:
+      ConfigError: if the file isn't valid YAML, or doesn't validate as a config.
+    """
     try:
         raw = yaml.safe_load(path.read_text())
     except yaml.YAMLError as e:

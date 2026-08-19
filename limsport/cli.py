@@ -10,7 +10,18 @@ from .exceptions import LIMSportError
 
 
 def existing_file(value: str) -> Path:
-    """confirm that an input file must already exist"""
+    """
+    Confirms that an input file must already exist
+
+    Args:
+      value: the path string given on the command line.
+
+    Returns:
+      The value as a Path.
+
+    Raises:
+      argparse.ArgumentTypeError: if the path does not exist or is not a file.
+    """
     path = Path(value)
     if not path.is_file():
         raise argparse.ArgumentTypeError(f"file not found: {value}")
@@ -18,6 +29,12 @@ def existing_file(value: str) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """
+    Builds the argparse parser for the LIMSport CLI.
+
+    Returns:
+      The parser with every LIMSport option registered.
+    """
     parser = argparse.ArgumentParser(
         prog="limsport",
         description="Transform a TSV table's column names and perform QC on rows to generate a LIMS-importable file.",
@@ -69,6 +86,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """
+    Sets up logging, parses the arguments, and runs the export.
+
+    Args:
+      argv: the argument list to parse, or None to read them from sys.argv.
+
+    Returns:
+      The process exit code -- 0 on success, 1 if the export raised a
+      LIMSportError or an OSError.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s: %(message)s",

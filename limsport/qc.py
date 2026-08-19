@@ -1,9 +1,14 @@
-"""QC evaluation: given a cell's raw string value and a configured
-condition/column/sample, decide pass or fail and why.
+"""
+This module performs QC evaluation; given a cell's raw string value and a configured condition/column/sample, it will decide if that row passes or fails and why.
 
-The results of that evaluation (QCFailure, QCResult) live here rather than in
-config.py -- they describe what came out of a QC run, not what the YAML config
-can ask for.
+Three classes are included:
+    - QCFailure
+    - QCResult
+    - QCInput
+
+Included external methods:
+    - evaluate_condition()
+    - evaluate_row()
 """
 
 import operator as op
@@ -23,17 +28,20 @@ _ORDERING_OPS = {
 
 
 class QCFailure(BaseModel):
-    """One sample's failing check on one output, reported both as a log
-    line and a row in the --qc-report TSV.
+    """
+    One sample's failing check on one output, reported both as a log line and a row in
+    the --qc-report TSV.
 
-    `column` is the input's original name.
-    `output_column` is that column's single output name -- its rename, or
-    itself if there was no rename -- except for a file_parsing column,
-    where several outputs can share one `column` and `output_column`
-    instead names the specific output that failed.
+    `operator`, `expected`, and `actual` can all be None
 
-    `operator`/`expected` are None for a conditional `qc` whose row
-    matched no rule and has no default
+    Attributes:
+        sample: the name of the sample
+        column: the original column name from the input
+        output_column: the column name to output
+        operator: the QC operator ('=', '>=', etc.)
+        expected: the expected value (left hand of the operation)
+        actual: the actual value from the row (right hand of the operation)
+        reason: the reason why the sample failed the QC operation
     """
 
     sample: str
@@ -44,9 +52,30 @@ class QCFailure(BaseModel):
     actual: str | None
     reason: str
 
+    def to_list(self):
+        """
+        Returns the contents of QCFailure as a list
+        """
+        return [
+            self.sample,
+            self.column,
+            self.output_column,
+            self.operator.value if self.operator is not None else "",
+            str(self.expected) if self.expected is not None else "",
+            self.actual or "",
+            self.reason,
+        ]
+
 
 class QCResult(BaseModel):
-    """The result of evaluating every configured QC rule against one sample's row."""
+    """
+    The result of evaluating every configured QC rule against one sample's row.
+
+    Attributes:
+        sample: the name of the sample
+        passed: whether or not the sample passed QC (true = pass, false = fail)
+        failures: a list of any QCFailure objects,
+    """
 
     sample: str
     passed: bool
@@ -54,21 +83,31 @@ class QCResult(BaseModel):
 
 
 class NoMatchingRule(NamedTuple):
-    """Stands in for a QCInput's QC conditions when a conditional `qc` had no rule
+    """
+    Stands in for a QCInput's QC conditions when a conditional `qc` had no rule
     matching this row and no `default` configured.
 
     The QCInput fails before any condition is evaluated and contains only the reason.
     Using this instead of an empty condition list keeps "nothing to check" different
     from "failed to match a rule" which would both look like [].
+
+    Attributes:
+        reason: the reason why this sample had no matching rule.
     """
 
     reason: str
 
 
 class QCInput(NamedTuple):
-    """A row ready for QC. This contains which source column it came from, its
-    output name in the output header, its resolved value, and the QC conditions to
-    check it against.
+    """
+    A row ready for QC. This contains which source column it came from, its output name
+    in the output header, its value, and the QC conditions to check it against.
+
+    Attributes:
+        column: the original column name from the input
+        output_column: the column name to output
+        value: the content of the row at column
+        qc: a list of QC operations to perform, or an indication that no QC operations could be identified for the row.
     """
 
     column: str
@@ -79,11 +118,16 @@ class QCInput(NamedTuple):
     def to_failure(
         self, sample: str, reason: str, condition: QCCondition | None = None
     ) -> QCFailure:
-        """Report this QCInput as a QC failure for `sample`.
+        """
+        Reports this QCInput as a QC failure for `sample`.
 
-        `condition` is the specific condition that failed. Omit it when the QCInput
-        failed without anything being evaluated (a `NoMatchingRule` QCInput), which leaves
-        operator/expected empty -- see QCFailure.
+        Args:
+            sample: the sample name
+            reason: the explanation of the failure
+            condition: the specific QCCondition that failed
+
+        Returns:
+            A QCFailure describing this input's failure
         """
         return QCFailure(
             sample=sample,
@@ -97,14 +141,31 @@ class QCInput(NamedTuple):
 
 
 def _format_number(x: float) -> str:
-    """Format a float for a failure message and avoid scientific notation"""
+    """
+    Formats a float for a failure message and avoid scientific notation
+
+    Args:
+        x: the number to format
+
+    Returns:
+        The number as a string without trailing zeros
+    """
     return f"{x:,.6f}".rstrip("0").rstrip(".")
 
 
 def _remove_case(value: str, case_insensitive: bool) -> str:
-    """Turns a string caseless with .casefold()"""
-    # using casefold instead of lower b/c it's better for non-ascii characters
-    # think of the fancy ê's in the world!!!
+    """
+    Turns a string caseless with .casefold()
+
+    Think of all the fancy ê's in the world!
+
+    Args:
+        value: the string to fold
+        case_insensitive: whether to fold at all; False returns `value` unchanged.
+
+    Returns:
+        The folded string, or `value` untouched when case_insensitive is False.
+    """
     if case_insensitive:
         return value.casefold()
     else:
@@ -114,9 +175,17 @@ def _remove_case(value: str, case_insensitive: bool) -> str:
 def _evaluate_contains(
     raw_value: str, condition: QCCondition, *, negated: bool
 ) -> tuple[bool, str | None]:
-    """Evalutes the contains and does_not_contain operators.
-    Returns (passed, reason_if_passed)"""
-    # double check the value is a string
+    """
+    Evaluates the `contains` and `does_not_contain` operators.
+
+    Args:
+        raw_value: the cell value to search
+        condition: the QCCondition supplying the substring to look for
+        negated: True for does_not_contain, False for contains.
+
+    Returns:
+        A tuple with the boolean result and the reason behind it (None if True)
+    """
     assert isinstance(condition.value, str)
     original_string = _remove_case(raw_value, condition.case_insensitive)
     substring = _remove_case(condition.value, condition.case_insensitive)
@@ -139,10 +208,15 @@ def _evaluate_contains(
 def evaluate_condition(
     cell: str | None, condition: QCCondition
 ) -> tuple[bool, str | None]:
-    """Check one cell against one condition.
+    """
+    Checks one cell against one condition.
 
-    Returns (passed, reason_if_failed) — reason is always a string when
-    passed is False, and always None when passed is True.
+    Args:
+        cell: the raw cell value, or None if the column was missing.
+        condition: the single QCCondition to check it against.
+
+    Returns:
+        A tuple with the boolean result and the reason behind it (None if True)
     """
     raw_value = (cell or "").strip()
 
@@ -224,6 +298,13 @@ def evaluate_qc_input(qc_input: QCInput, sample: str) -> QCFailure | None:
 
     Exits on the first failing condition. `NoMatchingRule` QCInputs have already failed and
     shouldn't be seen here
+
+    Args:
+      qc_input: the input to check; its `qc` must not be NoMatchingRule.
+      sample: the sample name to record on any failure.
+
+    Returns:
+      The first QCFailure found, or None if every condition passed.
     """
     # confirm that the qc_input.qc is not `NoMatchingRule`
     assert not isinstance(qc_input.qc, NoMatchingRule)
@@ -237,7 +318,16 @@ def evaluate_qc_input(qc_input: QCInput, sample: str) -> QCFailure | None:
 
 
 def evaluate_row(qc_inputs: list[QCInput], sample: str) -> QCResult:
-    """Check every QC-configured QCInput for one sample's row."""
+    """
+    Checks every QC-configured QCInput for one sample's row.
+
+    Args:
+        qc_inputs: every QC check needed to perform on this row
+        sample: the sample name
+
+    Returns:
+        A QCResult holding the pass/fail verdict and a list of every failure found.
+    """
     failures: list[QCFailure] = []
     for qc_input in qc_inputs:
         if isinstance(qc_input.qc, NoMatchingRule):

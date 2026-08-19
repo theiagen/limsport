@@ -18,7 +18,15 @@ from .exceptions import ConfigError, InputTableError
 
 
 def _build_column_name_index(header: list[str]) -> dict[str, list[int]]:
-    """Map each header name to a list of every index it appears at"""
+    """Map each header name to a list of every index it appears at
+
+    Args:
+      header: the input file's header row, in file order.
+
+    Returns:
+      A dict of header name to every index that name occupies -- more than
+      one index means the name is duplicated in the input.
+    """
     index: dict[str, list[int]] = {}
     for i, name in enumerate(header):  # returns (0, list[0]), (1, list[1])
         # if the column isn't in the dictionary, set it w/ a list value and add index to list
@@ -33,7 +41,18 @@ def _validate_header_reference(
     description: str,
 ) -> None:
     """Check each column name from the config against the input file header to confirm
-    it exists or isn't duplicated"""
+    it exists or isn't duplicated
+
+    Args:
+      name: the column name the config referenced.
+      column_name_indices: the input header's name-to-indices index.
+      input_path: the input table's path, used in the error message.
+      description: how the config referenced this column, used in the error message.
+
+    Raises:
+      InputTableError: if the column is missing from the input header, or appears
+        more than once.
+    """
     indices = column_name_indices.get(name)
     if not indices:
         raise InputTableError(
@@ -52,7 +71,18 @@ def _validate_columns_exist(
     input_path: Path,
 ) -> None:
     """Check before any output is written if the config references a
-    column that doesn't exist or exists more than once."""
+    column that doesn't exist or exists more than once.
+
+    Args:
+      columns: every column the config configures, including their qc matches
+        and file_parsing outputs.
+      column_name_indices: the input header's name-to-indices index.
+      input_path: the input table's path, used in the error message.
+
+    Raises:
+      InputTableError: if any referenced column is missing from the input header,
+        or appears more than once.
+    """
     for column in columns:
         _validate_header_reference(
             column.name, column_name_indices, input_path, "config references column"
@@ -79,7 +109,17 @@ def _validate_set_qc_columns(
     set_qc: list[SetQCRule], column_name_indices: dict[str, list[int]], input_path: Path
 ) -> None:
     """Check before any output is written if a set_qc rule references a
-    column that doesn't exist or exists more than once."""
+    column that doesn't exist or exists more than once.
+
+    Args:
+      set_qc: every set_qc rule in the config.
+      column_name_indices: the input header's name-to-indices index.
+      input_path: the input table's path, used in the error message.
+
+    Raises:
+      InputTableError: if a rule reads a column that is missing from the input
+        header, or appears more than once.
+    """
     for rule in set_qc:
         for check in rule.columns:
             _validate_header_reference(
@@ -93,7 +133,15 @@ def _validate_set_qc_columns(
 def _validate_file_parsing_allowed(
     columns: list[ColumnConfig], allow_file_parsing: bool
 ) -> None:
-    """Quit if the config uses file_parsing but the user didn't opt in."""
+    """Quit if the config uses file_parsing but the user didn't opt in.
+
+    Args:
+      columns: every column the config configures.
+      allow_file_parsing: whether --allow-file-parsing was given.
+
+    Raises:
+      ConfigError: if any column configures file_parsing without the opt-in.
+    """
     if allow_file_parsing:
         return
     names = [c.name for c in columns if c.file_parsing is not None]
@@ -104,7 +152,17 @@ def _validate_file_parsing_allowed(
 
 
 def _load_sample_list(path: Path) -> set[str]:
-    """Return list of samples in the input TSV"""
+    """Read the sample names to filter the run down to.
+
+    The names come from the `--samples` file, not from the input table.
+
+    Args:
+      path: the file listing one sample name per line.
+
+    Returns:
+      The sample names, stripped of surrounding whitespace, with blank
+      lines dropped.
+    """
     names = {line.strip() for line in path.read_text().splitlines()}
     names.discard("")  # remove blank lines
     return names
@@ -118,8 +176,17 @@ def _resolve_qc(
     """Pick which QC conditions apply to one output for one row
 
     Plain list QC is applied to all rows. If conditional QC is specified, the
-    match must be met or the sample will fail QC -- signalled by returning
-    qc.NoMatchingRule instead of a condition list
+    match must be met or the sample will fail QC
+
+    Args:
+      qc_value: this output's configured QC -- a plain condition list, or a
+        conditional.
+      match_values: each conditional-qc match column mapped to this row's value.
+      column: how to name this output in a no-matching-rule reason.
+
+    Returns:
+      The conditions to check this row against, or qc.NoMatchingRule when a
+      conditional `qc` matched no rule and has no default.
     """
     if isinstance(qc_value, list):
         return qc_value
@@ -152,6 +219,14 @@ def _resolve_column(
 
     A file_parsing column's raw cell is a path. QC and the output both see
     the parsed result(s) instead of the path.
+
+    Args:
+      column: the column's config, including any rename, qc, and file_parsing.
+      raw_cell: this row's value in that column.
+      match_values: each conditional-qc match column mapped to this row's value.
+
+    Returns:
+      One QCInput per output name this column generates, in output order.
     """
     if column.file_parsing is not None:
         values = file_parsing.run(column.file_parsing, raw_cell)
@@ -170,7 +245,16 @@ def _resolve_column(
 
 
 def _collect_match_columns(columns: list[ColumnConfig]) -> set[str]:
-    """Every column name referenced as a conditional-qc match"""
+    """Every column name referenced as a conditional-qc match
+
+    Args:
+      columns: every column the config configures, including their
+        file_parsing outputs.
+
+    Returns:
+      The set of match column names, which must be read from each row even when
+      they aren't output themselves.
+    """
     matches: set[str] = set()
     for c in columns:
         if isinstance(c.qc, ConditionalQC):
@@ -191,6 +275,27 @@ def run_export(
     output_delimiter: str = "\t",
     allow_file_parsing: bool = False,
 ) -> None:
+    """Run the whole export: read the input table, apply the config and sample
+    filters, write the output table, and report what happened.
+
+    Args:
+      input_path: the input table to read; its delimiter is auto-detected.
+      config_path: the YAML config for column mapping and QC, or None to pass
+        every column through unchanged.
+      samples_path: a file listing the sample names to include, or None to
+        keep all.
+      output_path: where to write the output table.
+      qc_report_path: where to write the QC failure report, or None to skip it.
+      output_delimiter: the delimiter to write the output table with.
+      allow_file_parsing: whether the config may run file_parsing commands.
+
+    Raises:
+      InputTableError: if the config or a set_qc rule references a column that
+        is missing or duplicated in the header, or if a set_qc rule matches no
+        sample in this run.
+      ConfigError: if the config is invalid, or uses file_parsing without
+        `allow_file_parsing`.
+    """
     # auto-detect delimiter
     input_delimiter = table_io.detect_delimiter(input_path)
 

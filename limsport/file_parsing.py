@@ -25,6 +25,12 @@ def _safe_basename(original_path: str) -> str:
 
     original_path comes from TSV data. A crafted value like "gs://bucket/.." returns  "..",
     which causes issues. If there's anything unsafe, rename it to "downloaded"
+
+    Args:
+      original_path: the path from the input TSV to take the basename of.
+
+    Returns:
+      The basename, or "downloaded" when it would be unsafe.
     """
     name = Path(original_path).name
     if not name or name in (".", ".."):
@@ -33,7 +39,11 @@ def _safe_basename(original_path: str) -> str:
 
 
 def _cleanup(temp_dir: Path) -> None:
-    """Remove temporary download directory"""
+    """Remove temporary download directory
+
+    Args:
+      temp_dir: the directory to delete; failures are logged, not raised.
+    """
     try:
         shutil.rmtree(temp_dir)
     except OSError as e:
@@ -46,6 +56,15 @@ def _cleanup(temp_dir: Path) -> None:
 def _localize(original_path: str) -> tuple[str, Path | None]:
     """gs:// paths get downloaded to a fresh temp dir; returns (local_path, temp_dir to
     clean up). Anything else comes back as (original_path, None) since it's likely local
+
+    Args:
+      original_path: the path from the input TSV to localize.
+
+    Returns:
+      (local_path, temp_dir) -- temp_dir is None when nothing was downloaded.
+
+    Raises:
+      FileParsingError: if 'gcloud' is missing from PATH, or the download fails.
     """
     if not original_path.startswith(_GCS_PREFIX):
         return original_path, None
@@ -80,8 +99,18 @@ def _run_command(
     """Run one output's command with the given environment (which has the file set as
     $FILE), and return its single-line result.
 
-    Raises FileParsingError for a failing command, a timeout, or a result that contains
-    a newline. `original_path` is only used to identify the failing row in error messages.
+    Args:
+      output: the configured output supplying the command and its timeout.
+      env: the environment to run the command in, with $FILE already set.
+      original_path: the row's original path, only used to identify the failing
+        row in error messages.
+
+    Returns:
+      The command's stdout with trailing newlines stripped.
+
+    Raises:
+      FileParsingError: for a failing command, a timeout, or a result containing
+        a newline.
     """
     try:
         result = subprocess.run(
@@ -116,8 +145,18 @@ def run(output_columns: list[FileParsingOutput], original_path: str) -> list[str
     against it in order (sharing that one localized copy and environment), clean up
     afterward, and return the results in the same order as outputs.
 
-    Raises FileParsingError for a failing command, a missing cloud CLI tool, a timeout,
-    or a result that contains a newline. A failure on any output aborts the process.
+    A failure on any output aborts the process.
+
+    Args:
+      output_columns: the configured outputs to run, in output order.
+      original_path: the path from the input TSV to run the commands against.
+
+    Returns:
+      One single-line result per output, in the same order as `output_columns`.
+
+    Raises:
+      FileParsingError: for a failing command, a missing cloud CLI tool, a
+        timeout, or a result containing a newline.
     """
     local_path, temp_dir = _localize(original_path)
     try:

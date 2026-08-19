@@ -11,7 +11,15 @@ _CANDIDATE_DELIMITERS = "\t,;|"
 
 def detect_delimiter(path: Path) -> str:
     """Detect the delimiter from the header: tab, comma, semicolon, or pipe.
-    Raises an error if none of those can be identified confidently.
+
+    Args:
+      path: the input table to sniff the first line of.
+
+    Returns:
+      The single delimiter character.
+
+    Raises:
+      InputTableError: if the file is empty, or none can be identified confidently.
     """
     with path.open(newline="", encoding="utf-8") as f:
         header_line = f.readline()
@@ -28,7 +36,18 @@ def detect_delimiter(path: Path) -> str:
 
 
 def get_input_header(path: Path, delimiter: str | None = None) -> list[str]:
-    """Return the file's header row. delimiter is auto-detected if omitted."""
+    """Return the file's header row.
+
+    Args:
+      path: the input table to read.
+      delimiter: the delimiter to split on, or None to auto-detect it.
+
+    Returns:
+      The header's column names, in file order.
+
+    Raises:
+      InputTableError: if `delimiter` is None and one cannot be detected.
+    """
     delimiter = delimiter or detect_delimiter(path)
     with path.open(newline="", encoding="utf-8") as f:
         return next(csv.reader(f, delimiter=delimiter))
@@ -37,7 +56,17 @@ def get_input_header(path: Path, delimiter: str | None = None) -> list[str]:
 def iter_rows(path: Path, delimiter: str | None = None) -> Iterator[list[str]]:
     """Yield each data row as a list of raw string cells.
 
-    Rows with less fields are padded while rows with more fields fail
+    Args:
+      path: the input table to read; its header is skipped.
+      delimiter: the delimiter to split on, or None to auto-detect it.
+
+    Yields:
+      One data row's raw string cells, padded with empty strings when the row
+      has less fields than the header.
+
+    Raises:
+      InputTableError: if a row has more fields than the header, or if
+        `delimiter` is None and one cannot be detected.
     """
     delimiter = delimiter or detect_delimiter(
         path
@@ -59,7 +88,14 @@ def iter_rows(path: Path, delimiter: str | None = None) -> Iterator[list[str]]:
 def write_tsv(
     path: Path, header: list[str], rows: Iterable[list[str]], delimiter: str = "\t"
 ) -> None:
-    """Write TSV to output"""
+    """Write TSV to output
+
+    Args:
+      path: the file to write, overwriting anything already there.
+      header: the column names to write as the first row.
+      rows: the data rows to write, in order.
+      delimiter: the delimiter to join cells with; defaults to a tab.
+    """
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(
             f, delimiter=delimiter, lineterminator="\n", quoting=csv.QUOTE_MINIMAL
