@@ -142,6 +142,7 @@ def test_help_lists_all_flags(capsys):
         "--qc-report",
         "--delimiter",
         "--allow-file-parsing",
+        "--max-file-parsing-failures",
     ]:
         assert flag in out
 
@@ -255,3 +256,26 @@ def test_file_parsing_with_flag_succeeds(tmp_path, monkeypatch):
     assert rc == 0
     rows = list(table_io.iter_rows(out))
     assert rows == [["SAMPLE_001", "hello"]]
+
+
+def test_max_file_parsing_failures_defaults_to_no_limit():
+    args = cli.build_parser().parse_args(["--input", __file__])
+    assert args.max_file_parsing_failures is None
+
+
+def test_max_file_parsing_failures_accepts_zero():
+    # 0 is meaningful -- it restores the old abort-on-first-failure behaviour --
+    # so it must not be confused with "no limit"
+    args = cli.build_parser().parse_args(
+        ["--input", __file__, "--max-file-parsing-failures", "0"]
+    )
+    assert args.max_file_parsing_failures == 0
+
+
+@pytest.mark.parametrize("value", ["-1", "two", "1.5"])
+def test_max_file_parsing_failures_rejects_bad_values(value, capsys):
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(
+            ["--input", __file__, "--max-file-parsing-failures", value]
+        )
+    assert "--max-file-parsing-failures" in capsys.readouterr().err

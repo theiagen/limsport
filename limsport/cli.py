@@ -3,6 +3,7 @@ argparse entry point for the `limsport` command
 
 External methods:
     - existing_file()
+    - non_negative_int()
     - build_parser()
     - main()
 """
@@ -12,7 +13,7 @@ import logging
 import sys
 from pathlib import Path
 
-from . import transform
+from . import pipeline
 from .exceptions import LIMSportError
 
 
@@ -33,6 +34,28 @@ def existing_file(value: str) -> Path:
     if not path.is_file():
         raise argparse.ArgumentTypeError(f"file not found: {value}")
     return path
+
+
+def non_negative_int(value: str) -> int:
+    """
+    Confirms a count option is zero or more.
+
+    Args:
+        value: the number given on the command line.
+
+    Returns:
+        The value as an int.
+
+    Raises:
+        argparse.ArgumentTypeError: if it isn't a whole number of zero or more.
+    """
+    try:
+        number = int(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"not a whole number: {value}") from e
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or greater: {value}")
+    return number
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,7 +105,15 @@ def build_parser() -> argparse.ArgumentParser:
         "-d",
         type=str,
         default="\t",
-        help="output delimiter (default: '\t')",
+        help="output delimiter (default: '\\t')",
+    )
+    parser.add_argument(
+        "--max-file-parsing-failures",
+        type=non_negative_int,
+        default=None,
+        help="abort once more than N rows fail file_parsing (default: no limit; a "
+        "file that won't parse fails that row's QC and the run continues). Use 0 to "
+        "abort on the first failure.",
     )
     parser.add_argument(
         "--allow-file-parsing",
@@ -112,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
-        transform.run_export(
+        pipeline.run_export(
             args.input,
             args.config,
             args.samples,
@@ -120,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
             args.qc_report,
             args.delimiter,
             args.allow_file_parsing,
+            args.max_file_parsing_failures,
         )
     except (LIMSportError, OSError) as e:
         # LIMSportError covers config/input-table domain errors (see

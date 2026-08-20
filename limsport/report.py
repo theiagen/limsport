@@ -6,6 +6,7 @@ External methods:
     - log_summary()
     - log_no_qc_summary()
     - log_nothing_to_do()
+    - log_file_parsing_failures()
     - log_qc_failures()
     - log_unknown_samples()
     - write_qc_report()
@@ -15,19 +16,9 @@ import logging
 from pathlib import Path
 
 from . import table_io
-from .qc import QCFailure
+from .qc import REPORT_HEADER, QCFailure
 
 logger = logging.getLogger("limsport")
-
-_QC_REPORT_HEADER = [
-    "sample",
-    "input_column",
-    "output_column",
-    "operator",
-    "expected",
-    "actual",
-    "reason",
-]
 
 
 def log_summary(passed: int, total: int) -> None:
@@ -57,6 +48,24 @@ def log_nothing_to_do() -> None:
     Logs that there was nothing to do.
     """
     logger.info("no config, samples, or delimiter change given; nothing to do!")
+
+
+def log_file_parsing_failures(failed: int, total: int) -> None:
+    """
+    Warns that some rows were dropped because their file wouldn't parse.
+
+    Logged separately from the QC summary because it usually means a broken path or
+    an unreadable file, not a sample that genuinely failed its thresholds.
+
+    Args:
+        failed: the number of rows whose file_parsing failed.
+        total: the number of rows QC was run against.
+    """
+    logger.warning(
+        "%d/%d samples dropped: file_parsing could not produce a value (see the QC report for each reason)",
+        failed,
+        total,
+    )
 
 
 def log_qc_failures(failures: list[QCFailure]) -> None:
@@ -103,5 +112,5 @@ def write_qc_report(path: Path, failures: list[QCFailure]) -> None:
         path: where to write the QC report TSV.
         failures: every failure to report, one row each.
     """
-    rows = [fail.to_list() for fail in failures]
-    table_io.write_tsv(path, _QC_REPORT_HEADER, rows)
+    # a generator, not a list: on a failed run there is one failure per sample
+    table_io.write_tsv(path, REPORT_HEADER, (fail.to_list() for fail in failures))

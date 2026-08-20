@@ -5,7 +5,7 @@ import pytest
 
 from limsport import file_parsing
 from limsport.config import FileParsingOutput
-from limsport.exceptions import FileParsingError
+from limsport.exceptions import FileParsingError, ToolNotFoundError
 
 
 def _outputs(command, timeout_seconds=None, name="out"):
@@ -320,8 +320,14 @@ def test_localize_missing_gcloud_raises_before_any_download_attempt(monkeypatch)
     monkeypatch.setattr(
         file_parsing.subprocess, "run", lambda *a, **kw: calls.append((a, kw))
     )
-    with pytest.raises(FileParsingError, match="gcloud"):
+    # ToolNotFoundError, not FileParsingError: pipeline.py catches the latter and
+    # turns it into a QC failure for the row. A missing tool fails every row alike,
+    # so it has to stay fatal.
+    with pytest.raises(ToolNotFoundError, match="gcloud"):
         file_parsing._localize("gs://bucket/f.txt")
+    assert not isinstance(ToolNotFoundError("x"), FileParsingError), (
+        "ToolNotFoundError must not be catchable as FileParsingError"
+    )
     assert calls == []
 
 

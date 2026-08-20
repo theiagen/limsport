@@ -1,5 +1,5 @@
 """Config-shape validation for file_parsing -- end-to-end behavior through
-transform.run_export lives in test_transform_file_parsing.py."""
+pipeline.run_export lives in test_pipeline_file_parsing.py."""
 
 import pytest
 from pydantic import ValidationError

@@ -6,6 +6,7 @@ Included classes:
     - ConfigError
     - InputTableError
     - FileParsingError
+    - ToolNotFoundError
 """
 
 
@@ -33,4 +34,17 @@ class FileParsingError(LIMSportError):
     """
     A file_parsing command failed, produced a disallowed newline, or a cloud file
     couldn't be localized.
+
+    This is about one row's data, so ingest.py catches it and fails that row's QC
+    rather than the whole run. Anything that would fail every row identically must
+    NOT subclass this -- see ToolNotFoundError.
+    """
+
+
+class ToolNotFoundError(LIMSportError):
+    """
+    A command line tool file_parsing needs (e.g. 'gcloud') isn't installed.
+
+    Deliberately not a FileParsingError: no row can succeed without the tool, so
+    this aborts the run instead of producing one identical QC failure per row.
     """

@@ -20,7 +20,9 @@ External methods:
     - load_config()
 """
 
+import functools
 import re
+from collections import Counter
 from collections.abc import Iterable
 from enum import Enum
 from pathlib import Path
@@ -39,25 +41,28 @@ from pydantic import (
 from .exceptions import ConfigError
 
 
-def _find_duplicates(items: Iterable[str]) -> set[str]:
+def _reject_duplicates(items: Iterable[str], label: str) -> None:
     """
-    Finds items that appear more than once.
+    Rejects a config list that names the same thing twice.
 
     Args:
-        items: the list of items to check
+        items: the names to check
+        label: what the names are, used in the error message
 
-    Returns:
-        The set of items that appear at least twice
+    Raises:
+        ValueError: if any name appears more than once.
     """
-    seen: set[str] = set()
-    duplicates: set[str] = set()
+    duplicates = {item for item, count in Counter(items).items() if count > 1}
+    if duplicates:
+        raise ValueError(f"Duplicate {label}: {sorted(duplicates)}")
 
-    for item in items:
-        if item in seen:
-            duplicates.add(item)
-        else:
-            seen.add(item)
-    return duplicates
+
+class _StrictModel(BaseModel):
+    """
+    Base for every config model: an unrecognised YAML key is an error, not ignored.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
 
 class QCOperator(str, Enum):
@@ -77,21 +82,18 @@ class QCOperator(str, Enum):
     IS_NOT_EMPTY = "is_not_empty"
 
 
-class QCCondition(BaseModel):
+class QCCondition(_StrictModel):
     """
     A single comparison: `operator value`, e.g. `>= 1000`.
 
     A column can have several qc conditions to express ranges.
 
     Attributes:
-        - model_config: pydantic
         - operator: the QCOperator for the condition
         - value: the value for the operator
         - tolerance_percent: the modifier for the APPROX condition
         - case_insensitive: the modifier for string conditions
     """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     operator: QCOperator
     value: int | float | str | bool | None = None
@@ -178,7 +180,7 @@ class QCCondition(BaseModel):
         return self
 
 
-class ConditionalQC(BaseModel):
+class ConditionalQC(_StrictModel):
     """
     The conditional form of `qc` has a list of conditions that apply to a given row
     depending on that rows value in the `match_column`
@@ -187,13 +189,10 @@ class ConditionalQC(BaseModel):
     Without a `default`, it's reported as a QC fail
 
     Attributes:
-        - model_config: pydantic
         - match_column: the column to match on
         - cases: a dictionary of match values and their associated QCCondition(s)
         - default: the default QCCondition(s) to apply if no match was found
     """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     match_column: str = Field(min_length=1)
     cases: dict[str, list[QCCondition]]
@@ -234,7 +233,7 @@ def _qc_is_set(qc: list[QCCondition] | ConditionalQC) -> bool:
     return isinstance(qc, ConditionalQC) or bool(qc)
 
 
-class FileParsingOutput(BaseModel):
+class FileParsingOutput(_StrictModel):
     """
     One output value extracted from a column's file via `command`
 
@@ -242,14 +241,11 @@ class FileParsingOutput(BaseModel):
     --allow-file-parsing on the CLI, to avoid lawsuits probably
 
     Attributes:
-        - model_config: pydantic
         - output_column: the name of the output column generated from the command
         - command: the parsing command to perform on the file
         - timeout_seconds: how long to try before giving up
         - qc: the list any QC to perform on the generated output
     """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     output_column: str = Field(min_length=1)
     command: str = Field(min_length=1)
@@ -300,21 +296,18 @@ class FileParsingOutput(BaseModel):
         return timeout_seconds
 
 
-class ColumnConfig(BaseModel):
+class ColumnConfig(_StrictModel):
     """
     An entry in the config's `columns` list: one column to keep in the output, with an
     optional output name and QC rules.
 
     Attributes:
-        - model_config: pydantic
         - input_column: the name of the input column
         - output_column: the name of the output column
         - qc: the QC to perform on the column content; either a plain list[QCCondition]
           or the ConditionalQC form
         - file_parsing: if this column requires file parsing
     """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     input_column: str
     output_column: str | None = None
@@ -341,11 +334,9 @@ class ColumnConfig(BaseModel):
         if outputs is not None:
             if not outputs:
                 raise ValueError("file_parsing must not be an empty list")
-            dupes = _find_duplicates(o.output_column for o in outputs)
-            if dupes:
-                raise ValueError(
-                    f"Duplicate file_parsing output name(s): {sorted(dupes)}"
-                )
+            _reject_duplicates(
+                (o.output_column for o in outputs), "file_parsing output name(s)"
+            )
         return outputs
 
     @model_validator(mode="after")
@@ -385,6 +376,20 @@ class ColumnConfig(BaseModel):
         return self.output_column or self.input_column
 
     @property
+    def expands_expensively(self) -> bool:
+        """
+        Whether producing this column's output value(s) costs more than string work.
+
+        `file_parsing` spawns a subprocess (and maybe a download) per cell. Callers
+        use this to decide whether it's worth reading the input an extra time to
+        settle run-level QC before paying that cost -- see layout.build_layout().
+
+        Returns:
+            True if expanding this column for one row is expensive.
+        """
+        return self.file_parsing is not None
+
+    @property
     def generated_output_column_names(self) -> list[str]:
         """
         Every output name this column contributes to the output header.
@@ -398,12 +403,11 @@ class ColumnConfig(BaseModel):
         return [self.output_column_name]
 
 
-class SetQCMatch(BaseModel):
+class SetQCMatch(_StrictModel):
     """
     Identifies which sample(s) a `set_qc` rule applies to.
 
     Attributes:
-        - model-config: pydantic
 
         Only one of the following attributes is accepted at a time:
 
@@ -412,8 +416,6 @@ class SetQCMatch(BaseModel):
           inline `(?i)` flag for case-insensitive matching).
         - samples: an explicit, exact list of sample names.
     """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     sample_pattern: str | None = None
     sample_regex: str | None = None
@@ -451,6 +453,23 @@ class SetQCMatch(BaseModel):
                 ) from e
         return self
 
+    # applies_to() runs once per row per rule, so the set and the compiled pattern
+    # are built on first use rather than per row. _only_one_match_method() has
+    # already proven the regex compiles.
+    @functools.cached_property
+    def _sample_set(self) -> frozenset[str]:
+        """
+        The `samples` list as a set, for O(1) membership from applies_to().
+        """
+        return frozenset(self.samples or ())
+
+    @functools.cached_property
+    def _compiled_regex(self) -> re.Pattern[str] | None:
+        """
+        The compiled `sample_regex`, or None when a different matcher is configured.
+        """
+        return re.compile(self.sample_regex) if self.sample_regex is not None else None
+
     def applies_to(self, sample: str) -> bool:
         """
         True if the qc match rule applies to this sample.
@@ -463,32 +482,29 @@ class SetQCMatch(BaseModel):
         """
         if self.sample_pattern is not None:
             return self.sample_pattern in sample
-        if self.sample_regex is not None:
-            return re.search(self.sample_regex, sample) is not None
+        if self._compiled_regex is not None:
+            return self._compiled_regex.search(sample) is not None
         # confirm that the list of samples isn't "None"
         assert self.samples is not None
-        return sample in self.samples
+        return sample in self._sample_set
 
 
-class SetQCCheck(BaseModel):
+class SetQCCheck(_StrictModel):
     """
     One column and QC condition list within a `SetQCRule`.
 
     A rule can list multiple conditions, checked against the same matched sample(s).
 
     Attributes:
-        - model_config: pydantic
         - input_column: the column on which to apply the QC check
         - qc: the qc to perform (no ConditionalQC permitted at this time)
     """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     input_column: str = Field(min_length=1)
     qc: list[QCCondition] = Field(min_length=1)
 
 
-class SetQCRule(BaseModel):
+class SetQCRule(_StrictModel):
     """
     A run-level (set) QC check in which every sample identified by `match_samples`
     must pass every check in `checks` or else the entire run is considered a QC fail.
@@ -496,13 +512,10 @@ class SetQCRule(BaseModel):
     A rule that matches zero samples in a given run is a LIMSport error, not a QC.
 
     Attributes:
-        - model_config: pydantic
         - rule_name: the name of the rule
         - match_samples: the samples to match
         - checks: the list of QC checks to apply to the matched samples
     """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     rule_name: str = Field(min_length=1)
     match_samples: SetQCMatch
@@ -525,26 +538,21 @@ class SetQCRule(BaseModel):
         Raises:
             ValueError: if two checks in the rule name the same input_column.
         """
-        dupes = _find_duplicates(c.input_column for c in checks)
-        if dupes:
-            raise ValueError(
-                f"Duplicate column(s) within one set_qc rule: {sorted(dupes)}"
-            )
+        _reject_duplicates(
+            (c.input_column for c in checks), "column(s) within one set_qc rule"
+        )
         return checks
 
 
-class ExportConfig(BaseModel):
+class ExportConfig(_StrictModel):
     """
     The top-level shape of the YAML config file: a list of columns, plus optional
     run-level (`set_qc`) checks.
 
     Attributes:
-        - model_config: pydantic
         - columns: the list of columns to keep in the output with any modifications/qc checks
         - set_qc: a list of set-level qc rules to apply
     """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     columns: list[ColumnConfig] | None = None
     set_qc: list[SetQCRule] = Field(default_factory=list)
@@ -564,9 +572,7 @@ class ExportConfig(BaseModel):
         Raises:
             ValueError: if two rules share a name.
         """
-        dupes = _find_duplicates(rule.rule_name for rule in set_qc)
-        if dupes:
-            raise ValueError(f"Duplicate set_qc rule name(s): {sorted(dupes)}")
+        _reject_duplicates((rule.rule_name for rule in set_qc), "set_qc rule name(s)")
         return set_qc
 
     @model_validator(mode="after")
@@ -593,17 +599,14 @@ class ExportConfig(BaseModel):
                 "config 'columns' must not be empty; omit it entirely if you don't want to perform any column operations"
             )
 
-        dupes = _find_duplicates(c.input_column for c in self.columns)
-        if dupes:
-            raise ValueError(f"Duplicate column name(s) in config: {sorted(dupes)}")
-
-        generated_output_dupes = _find_duplicates(
-            name for c in self.columns for name in c.generated_output_column_names
+        _reject_duplicates(
+            (c.input_column for c in self.columns), "column name(s) in config"
         )
-        if generated_output_dupes:
-            raise ValueError(
-                f"Duplicate generated file_parsing output column name(s) in config: {sorted(generated_output_dupes)}"
-            )
+
+        _reject_duplicates(
+            (name for c in self.columns for name in c.generated_output_column_names),
+            "output column name(s) in config",
+        )
         return self
 
 

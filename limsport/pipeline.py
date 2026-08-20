@@ -33,13 +33,11 @@ class _ExportPlan:
         column_positions: each configured column paired with the header index it
           reads from.
         match_index: the columns that are used in QC mapped to to its header index.
-          ConditionalQC -> contains the columns upon which the match/qc conditions apply;
+          ConditionalQC-> contains the columns upon which the match/qc conditions apply;
           set_qc -> contains the columns that are being checked
         config_has_columns: True when the config lists `columns`, so each row is
           expanded into QCInputs. False when there is no config or only `set_qc`.
-        set_qc_prepass: True when it's worth reading the input once for set_qc
-          alone before doing any per-row work. Only pays off when set_qc and
-          file_parsing are both configured -- see _plan_export().
+        set_qc_prepass: True when both file_parsing and set_qc are used in the config
     """
 
     output_header: list[str]
@@ -54,12 +52,9 @@ class _InputInformation:
     """
     Information from reading the input file, and what got written while reading it.
 
-    Rows are written straight out to a staging file as they're read, so nothing
-    accumulates here except the sample names -- and those are only needed to
-    report the collateral failures when a set_qc rule fails the whole run.
-
     Attributes:
-        sample_names: every sample surviving the sample-list filter, in input order.
+        sample_names: every sample surviving the sample-list filter. Only collected
+          when there are set_qc rules, since nothing else reads it.
         set_qc_matched: each set_qc rule name mapped to the samples it matched.
         set_qc_failures: each set_qc rule name mapped to the failures it collected.
         row_failures: per-row QC failures. Discarded when a set_qc rule fails the
@@ -68,8 +63,7 @@ class _InputInformation:
         candidate_rows: the number of rows surviving the sample-list filter, before QC.
         seen_samples: a set of every sample name encountered
         written_rows: how many rows were written to the staging file.
-        set_qc_failed: True once any set_qc check has failed. Every later row then
-          skips its own expansion and QC, because the run is already doomed.
+        set_qc_failed: True once any set_qc check has failed to prevent any further processing
     """
 
     sample_names: list[str] = field(default_factory=list)
@@ -377,7 +371,6 @@ def _plan_export(
     header: list[str],
     column_name_indices: dict[str, list[int]],
     input_path: Path,
-    allow_file_parsing: bool,
 ) -> _ExportPlan:
     """
     Validates the config against this input's header, then works out what has to
@@ -388,7 +381,6 @@ def _plan_export(
         header: the input file's header row, in file order.
         column_name_indices: the input header's name-to-indices index.
         input_path: the input table's path, used in the error messages.
-        allow_file_parsing: whether --allow-file-parsing was given.
 
     Returns:
         The plan every later step reads from.
@@ -396,7 +388,6 @@ def _plan_export(
     Raises:
         InputTableError: if the config or a set_qc rule references a column that is
           missing or duplicated in the header.
-        ConfigError: if the config uses file_parsing without `allow_file_parsing`.
     """
     # no config at all: every input column passes through untouched
     if config is None:
@@ -409,7 +400,6 @@ def _plan_export(
         )
 
     _validate_columns_exist(config.columns or [], column_name_indices, input_path)
-    _validate_file_parsing_allowed(config.columns or [], allow_file_parsing)
     _validate_set_qc_check_columns(config.set_qc, column_name_indices, input_path)
 
     if config.columns is not None:
@@ -447,17 +437,17 @@ def _plan_export(
     # A set_qc failure fails the whole run, so any per-row work done before the
     # failure is discovered is wasted. Reading the input once for set_qc alone
     # first avoids that -- but it costs a whole extra parse of the input, so it
-    # only pays when the per-row work is genuinely expensive. That means
-    # file_parsing, which spawns a subprocess (and maybe a download) per cell;
-    # ordinary qc is just string comparisons and isn't worth a second pass.
-    uses_file_parsing = any(c.file_parsing is not None for c in (config.columns or []))
+    # only pays when expanding a row is genuinely expensive. Each column says
+    # whether it is; ordinary qc is just string comparisons and isn't worth a
+    # second pass.
+    expansion_is_expensive = any(c.expands_expensively for c in (config.columns or []))
 
     return _ExportPlan(
         output_header=output_header,
         column_positions=column_positions,
         match_index={name: column_name_indices[name][0] for name in match_columns},
         config_has_columns=config.columns is not None,
-        set_qc_prepass=bool(config.set_qc) and uses_file_parsing,
+        set_qc_prepass=bool(config.set_qc) and expansion_is_expensive,
     )
 
 
@@ -467,7 +457,7 @@ def _scan_rows(
     plan: _ExportPlan,
     set_qc_rules: list[SetQCRule],
     requested_samples: set[str] | None,
-    writer=None,
+    writer,
 ) -> _InputInformation:
     """
     Reads every input row, QCs it, and writes the passing ones straight to `writer`.
@@ -495,7 +485,9 @@ def _scan_rows(
           are none (or no config).
         requested_samples: the sample names to keep, or None to keep all.
         writer: an open row writer from table_io.open_row_writer(), or None to
-          evaluate set_qc only and write nothing.
+          evaluate set_qc only and write nothing. Required, with no default: a
+          caller that omits it wants the real pass, and silently getting a
+          pre-pass instead would produce an empty output with no error.
 
     Returns:
         The sample names, the set_qc bookkeeping, and what was written.
@@ -516,9 +508,12 @@ def _scan_rows(
                 # skip samples not specified
                 continue
         scan.candidate_rows += 1
-        # kept even when the run is doomed: a failed set_qc rule reports one
-        # collateral failure per sample, so every name is needed
-        scan.sample_names.append(sample)
+        if set_qc_rules:
+            # only _whole_run_failures() reads this, and only a failing set_qc rule
+            # gets there -- so without rules it would be a string per row, retained
+            # for the whole run, that nothing can ever read. Kept even once the run
+            # is doomed: every sample earns a collateral failure row.
+            scan.sample_names.append(sample)
 
         # This row's value for every column in match_index. Read two different
         # ways below: conditional qc looks a value up to pick which conditions
@@ -650,6 +645,8 @@ def _whole_run_failures(
     failures: list[qc.QCFailure] = []
     offending_samples: set[str] = set()
     failing_rule_names = [rule.rule_name for rule in run_failed_rules]
+    # identical for every collateral row, so build it once rather than per sample
+    collateral_reason = f"run failed QC due to set_qc rule(s): {failing_rule_names}"
 
     for rule in run_failed_rules:
         rule_failures = scan.set_qc_failures[rule.rule_name]
@@ -668,7 +665,7 @@ def _whole_run_failures(
                 operator=None,
                 expected=None,
                 actual=None,
-                reason=f"run failed QC due to set_qc rule(s): {failing_rule_names}",
+                reason=collateral_reason,
             )
         )
     return failures
@@ -777,9 +774,11 @@ def run_export(
     config: ExportConfig | None = (
         load_config(config_path) if config_path is not None else None
     )
-    plan = _plan_export(
-        config, header, column_name_indices, input_path, allow_file_parsing
-    )
+    if config is not None:
+        # a capability question, not a header question: refuse before the input is
+        # touched, so it can't be masked by a column error the user can't act on yet
+        _validate_file_parsing_allowed(config.columns or [], allow_file_parsing)
+    plan = _plan_export(config, header, column_name_indices, input_path)
     set_qc_rules = config.set_qc if config is not None else []
     requested_samples = (
         _load_sample_list(samples_path) if samples_path is not None else None
@@ -792,7 +791,12 @@ def run_export(
         # controls often sit at the end of the table and a rule matching zero
         # samples isn't detected until the read finishes either way.
         prescan = _scan_rows(
-            input_path, input_delimiter, plan, set_qc_rules, requested_samples
+            input_path,
+            input_delimiter,
+            plan,
+            set_qc_rules,
+            requested_samples,
+            writer=None,  # set_qc only: evaluate the gate, expand and write nothing
         )
         _warn_unknown_samples(requested_samples, prescan)
         _check_set_qc_matched(set_qc_rules, prescan, input_path)

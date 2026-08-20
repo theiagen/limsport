@@ -384,7 +384,7 @@ def test_evaluate_row_reports_unmatched_conditional_qc_input_as_a_failure():
     # from the empty-list "no QC configured" case -- so it fails instead of
     # silently passing.
     #
-    # NOTE: this asserts the ACTIVE behavior from transform.py's
+    # NOTE: this asserts the ACTIVE behavior from pipeline.py's
     # _resolve_qc DECISION POINT. If that's switched to the silent-pass
     # ALTERNATIVE, this test needs to change too (NoMatchingRule would never be
     # returned, so this scenario can't arise this way anymore).

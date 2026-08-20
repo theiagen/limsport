@@ -1,6 +1,6 @@
 """Config-shape validation for the conditional form of `qc` (the
 match/rules/default mapping) -- end-to-end behavior through
-transform.run_export lives in test_transform_conditional_qc.py."""
+pipeline.run_export lives in test_pipeline_conditional_qc.py."""
 
 import pytest
 from pydantic import ValidationError

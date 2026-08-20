@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 from .config import FileParsingOutput
-from .exceptions import FileParsingError
+from .exceptions import FileParsingError, ToolNotFoundError
 
 logger = logging.getLogger("limsport")
 
@@ -71,14 +71,15 @@ def _localize(original_path: str) -> tuple[str, Path | None]:
         (local_path, temp_dir) -- temp_dir is None when nothing was downloaded.
 
     Raises:
-        FileParsingError: if 'gcloud' is missing from PATH, or the download fails.
+        ToolNotFoundError: if 'gcloud' is missing from PATH.
+        FileParsingError: if the download fails.
     """
     if not original_path.startswith(_GCS_PREFIX):
         return original_path, None
 
     # check for gcloud on path
     if shutil.which("gcloud") is None:
-        raise FileParsingError(
+        raise ToolNotFoundError(
             f"{original_path}: 'gcloud' is required to localize this path but was not found on PATH"
         )
 
@@ -164,8 +165,11 @@ def run(output_columns: list[FileParsingOutput], original_path: str) -> list[str
         A list of the single-line results per output, in the same order as `output_columns`.
 
     Raises:
-        FileParsingError: for a failing command, a missing cloud CLI tool, a
-          timeout, or a result containing a newline.
+        ToolNotFoundError: if a cloud CLI tool is needed but not installed. Fatal:
+          it would fail every row the same way.
+        FileParsingError: for a failing command, a failed download, a timeout, or a
+          result containing a newline. All are about this one row's file, so the
+          caller turns them into a QC failure for the row.
     """
     local_path, temp_dir = _localize(original_path)
     try:

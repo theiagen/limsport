@@ -102,7 +102,9 @@ if [ "$HAVE_GCLOUD" -eq 1 ]; then
     fi
     echo
 
-    run_fail "localization failure: a nonexistent/inaccessible gs:// bucket" \
+    # the bucket is unreadable for the only sample in this input, so every row
+    # fails and the guard aborts rather than writing an empty table
+    run_fail "localization failure: a nonexistent/inaccessible gs:// bucket fails every row" \
         limsport --input "$INPUTS/input_forbidden_bucket.tsv" --config "$CONFIGS/config_forbidden_bucket.yaml" \
             --output "$TMP/out.tsv" --allow-file-parsing
 
@@ -112,7 +114,7 @@ if [ "$HAVE_GCLOUD" -eq 1 ]; then
 else
     skip "main run: every QC operator, conditional qc, real gs:// file_parsing, and set_qc together"
     skip "whole-run-fails: NTC1's raw read count violates its set_qc rule, zeroing the entire output"
-    skip "localization failure: a nonexistent/inaccessible gs:// bucket"
+    skip "localization failure: a nonexistent/inaccessible gs:// bucket fails every row"
     skip "delimiter conversion (same main config, written as CSV -- needs gcloud, same as the main run)"
 fi
 
@@ -152,6 +154,18 @@ run_ok "multi-format adjunct: JSON/custom-TSV/invented-report file_parsing, sing
     limsport --input "$INPUTS/input_multi_format.tsv" --config "$CONFIGS/config_multi_format.yaml" \
         --output "$OUTPUTS/output_multi_format.tsv" --qc-report "$OUTPUTS/qc_report_multi_format.tsv" --allow-file-parsing
 
+run_ok "partial file_parsing failure: SAMPLE_B's metadata file is missing, so only that row drops" \
+    limsport --input "$INPUTS/input_multi_format_one_missing.tsv" --config "$CONFIGS/config_one_missing_file.yaml" \
+        --output "$TMP/out_one_missing.tsv" --qc-report "$TMP/qc_one_missing.tsv" --allow-file-parsing
+
+run_ok "  ^ confirm SAMPLE_A/C/D were still written and SAMPLE_B is in the QC report" \
+    bash -c 'grep -q SAMPLE_A "$1" && grep -q SAMPLE_C "$1" && grep -q SAMPLE_D "$1" \
+        && ! grep -q SAMPLE_B "$1" && grep -q SAMPLE_B "$2"' _ "$TMP/out_one_missing.tsv" "$TMP/qc_one_missing.tsv"
+
+run_fail "  ^ and --max-file-parsing-failures 0 turns that same partial failure fatal" \
+    limsport --input "$INPUTS/input_multi_format_one_missing.tsv" --config "$CONFIGS/config_one_missing_file.yaml" \
+        --output "$TMP/out.tsv" --allow-file-parsing --max-file-parsing-failures 0
+
 run_fail "error 1: config references a column that doesn't exist" \
     limsport --input "$INPUTS/theiaprok_illumina_pe.tsv" --config "$CONFIGS/config_bad_column.yaml" --output "$TMP/out.tsv"
 
@@ -170,11 +184,14 @@ run_fail "error 5: an explicit columns: [] is always rejected, even with set_qc 
 run_fail "error 6: multi-format file_parsing used without --allow-file-parsing" \
     limsport --input "$INPUTS/input_multi_format.tsv" --config "$CONFIGS/config_multi_format.yaml" --output "$TMP/out.tsv"
 
-run_fail "error 7: the multi-format command references a JSON key that doesn't exist" \
+# A file_parsing failure fails its own row's QC, not the run -- but these two
+# commands are broken for EVERY sample, so the all-rows-failed guard still aborts
+# them. See the partial-failure run above for the row-level behaviour.
+run_fail "error 7: a command referencing a missing JSON key fails every row, so the run aborts" \
     limsport --input "$INPUTS/input_multi_format.tsv" --config "$CONFIGS/config_multi_format_bad_command.yaml" \
         --output "$TMP/out.tsv" --allow-file-parsing
 
-run_fail "error 8: the multi-format command's result contains a newline" \
+run_fail "error 8: a command whose result contains a newline fails every row, so the run aborts" \
     limsport --input "$INPUTS/input_multi_format.tsv" --config "$CONFIGS/config_multi_format_newline.yaml" \
         --output "$TMP/out.tsv" --allow-file-parsing
 

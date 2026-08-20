@@ -110,22 +110,15 @@ def write_tsv(
         rows: the data rows to write, in order.
         delimiter: the delimiter to join cells with; defaults to a tab.
     """
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(
-            f, delimiter=delimiter, lineterminator="\n", quoting=csv.QUOTE_MINIMAL
-        )
-        writer.writerow(header)
+    with open_row_writer(path, header, delimiter) as writer:
         writer.writerows(rows)
 
 
 @contextmanager
 def open_row_writer(path: Path, header: list[str], delimiter: str = "\t"):
     """
-    Opens `path` for writing, writes the header, and yields a writer for the rows.
-
-    Use this instead of write_tsv() when the rows aren't all known up front, so they
-    never have to be held in memory at once. The csv settings are identical to
-    write_tsv(), so the two produce byte-identical files for the same rows.
+    Opens `path` for writing, writes the header, and yields a writer for the rows to
+    avoid holding everything in memory
 
     Args:
         path: the file to write, overwriting anything already there.

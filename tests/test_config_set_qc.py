@@ -1,5 +1,5 @@
 """Config-shape validation for `set_qc` (run-level QC rules) -- end-to-end
-behavior through transform.run_export lives in test_transform_set_qc.py."""
+behavior through pipeline.run_export lives in test_pipeline_set_qc.py."""
 
 import pytest
 from pydantic import ValidationError
@@ -197,7 +197,7 @@ def test_set_qc_check_qc_does_not_accept_conditional_form():
 
 
 class TestSetQCMatchMatches:
-    """Unit tests for SetQCmatch.applies_to(), independent of transform.py."""
+    """Unit tests for SetQCmatch.applies_to(), independent of pipeline.py."""
 
     def test_sample_pattern_is_a_substring_match(self):
         match = SetQCMatch(sample_pattern="NTC")

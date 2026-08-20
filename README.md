@@ -37,6 +37,7 @@ See `examples/` for a demo.
 | `--qc-report`, `-r` | no | QC failure report TSV path (default: `qc_report.tsv`) |
 | `--delimiter`, `-d` | no | output delimiter (default: tab) |
 | `--allow-file-parsing` | no | required if the config uses `file_parsing` (see below) |
+| `--max-file-parsing-failures` | no | abort once more than N rows fail `file_parsing` (default: no limit) |
 
 ## The config file
 
@@ -213,6 +214,26 @@ Each output result **must** be a single line, internal newline characters will c
 
 To activate file parsing, you **must** permit the behavior with the `--allow-file-parsing` option. It's a liability thing.
 
+### When a file won't parse
+
+A file that can't be parsed fails **that row's QC**, not the whole run. The sample is
+left out of the output, its reason lands in the QC report like any other QC failure,
+and every other sample is still processed and written. This covers a failing command,
+a timeout, a result containing a newline, and a `gs://` path that can't be downloaded.
+
+Three things stay fatal, because none of them is about one row's data:
+
+- **a tool `file_parsing` needs isn't installed** (e.g. `gcloud`) — no row could succeed
+- **every row's `file_parsing` failed** — a command or path template that is broken for
+  every sample leaves nothing to write, and a header-only table with an exit code of 0
+  would report that as a success
+- **more than `--max-file-parsing-failures` rows failed**, if you set a limit
+
+The all-rows-failed guard is always on and independent of the limit: the limit tunes
+how much genuinely bad data you'll tolerate, while the guard asks whether anything
+worked at all. `--max-file-parsing-failures` defaults to no limit; `0` aborts on the
+first failure, which is how LIMSport behaved before.
+
 ## The QC report
 
 A QC report (default: `qc_report.tsv`) contains one row per failing sample/output pair, so a sample failing three outputs produces three rows. It has the following columns:
@@ -242,7 +263,9 @@ limsport/
 ├── table_io.py      TSV/delimited I/O: read/write, delimiter detection
 ├── qc.py            pure QC evaluation (cell + condition -> pass/fail/why)
 ├── file_parsing.py  file_parsing: cloud localization, bash execution
-├── transform.py     orchestrates one export: wires the above together
+├── layout.py        validates the config against the input header, plans the output
+├── ingest.py        reads the rows: sample filter, QC, writes the passers
+├── pipeline.py      orchestrates one export: wires the above together
 ├── report.py        turns QC results into log lines and the report TSV
 └── exceptions.py    the LIMSportError hierarchy cli.py catches
 ```

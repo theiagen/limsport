@@ -6,25 +6,48 @@ Three classes are included:
     - QCResult
     - QCInput
 
+Plus the stand-ins for "this output could not be checked":
+    - UncheckableOutput (base)
+    - NoMatchingRule
+    - ParsingFailed
+
 Included external methods:
     - evaluate_condition()
     - evaluate_row()
+
+Included constants:
+    - REPORT_HEADER -- the --qc-report TSV's columns, in QCFailure.to_list() order
 """
 
 import operator as op
+from dataclasses import dataclass
 from typing import NamedTuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .config import QCCondition, QCOperator
 
-# ordering comparisons are matched to the stdlib operator functions.
-_ORDERING_OPS = {
+# numeric comparisons are matched to the stdlib operator functions.
+_COMPARISON_OPS = {
     QCOperator.GT: op.gt,
     QCOperator.GE: op.ge,
+    QCOperator.EQ: op.eq,
     QCOperator.LE: op.le,
     QCOperator.LT: op.lt,
 }
+
+
+# The --qc-report TSV's columns. Kept here because QCFailure.to_list() emits its
+# cells in this exact order; the two have to be changed together.
+REPORT_HEADER = [
+    "sample",
+    "input_column",
+    "output_column",
+    "operator",
+    "expected",
+    "actual",
+    "reason",
+]
 
 
 class QCFailure(BaseModel):
@@ -52,9 +75,9 @@ class QCFailure(BaseModel):
     actual: str | None
     reason: str
 
-    def to_list(self):
+    def to_list(self) -> list[str]:
         """
-        Returns the contents of QCFailure as a list
+        Returns the contents of QCFailure as a list, in REPORT_HEADER order.
         """
         return [
             self.sample,
@@ -67,35 +90,58 @@ class QCFailure(BaseModel):
         ]
 
 
-class QCResult(BaseModel):
+class QCResult(NamedTuple):
     """
     The result of evaluating every configured QC rule against one sample's row.
 
     Attributes:
-        sample: the name of the sample
-        passed: whether or not the sample passed QC (true = pass, false = fail)
-        failures: a list of any QCFailure objects,
+        failures: a list of any QCFailure objects; empty when the sample passed.
     """
 
-    sample: str
-    passed: bool
-    failures: list[QCFailure] = Field(default_factory=list)
+    failures: list[QCFailure]
+
+    @property
+    def passed(self) -> bool:
+        """
+        True when the row cleared every QC condition it was checked against.
+        """
+        return not self.failures
 
 
-class NoMatchingRule(NamedTuple):
+@dataclass(frozen=True)
+class UncheckableOutput:
     """
-    Stands in for a QCInput's QC conditions when a conditional `qc` had no rule
-    matching this row and no `default` configured.
+    Stands in for a QCInput's QC conditions when the output cannot be checked at all.
 
-    The QCInput fails before any condition is evaluated and contains only the reason.
-    Using this instead of an empty condition list keeps "nothing to check" different
-    from "failed to match a rule" which would both look like [].
+    The QCInput fails before any condition is evaluated and carries only the reason.
+    Using this instead of an empty condition list keeps "nothing to check" distinct
+    from "could not be checked", which would both otherwise look like [].
+
+    That distinction is what makes an unproducible value fail its row even when no
+    `qc` is configured on it: evaluate_row() tests for this before it skips inputs
+    with no conditions.
 
     Attributes:
-        reason: the reason why this sample had no matching rule.
+        reason: why this output could not be checked, reported to the user as-is.
     """
 
     reason: str
+
+
+@dataclass(frozen=True)
+class NoMatchingRule(UncheckableOutput):
+    """
+    A conditional `qc` had no rule matching this row and no `default` configured.
+    """
+
+
+@dataclass(frozen=True)
+class ParsingFailed(UncheckableOutput):
+    """
+    file_parsing could not produce this output's value for this row, so there is no
+    value to check or to write. The row fails QC and is left out of the output; the
+    run carries on with the rows whose files did parse.
+    """
 
 
 class QCInput(NamedTuple):
@@ -107,14 +153,14 @@ class QCInput(NamedTuple):
         input_column: the original column name from the input
         output_column: the column name to output
         value: the content of the row at column
-        qc: a list of QC operations to perform, or an indication that no QC operations
-          could be identified for the row.
+        qc: a list of QC operations to perform, or an UncheckableOutput saying why
+          this output could not be checked at all.
     """
 
     input_column: str
     output_column: str
     value: str
-    qc: list[QCCondition] | NoMatchingRule
+    qc: list[QCCondition] | UncheckableOutput
 
     def to_failure(
         self, sample: str, reason: str, condition: QCCondition | None = None
@@ -191,19 +237,12 @@ def _evaluate_contains(
     original_string = _remove_case(raw_value, condition.case_insensitive)
     substring = _remove_case(condition.value, condition.case_insensitive)
 
-    if substring in original_string:
-        if negated:
-            # condition was "does not contain" but it was found :(
-            return False, f"value {raw_value!r} contains {condition.value!r}"
-        else:
-            # condition was "contains" and it was found :)
-            return True, None
-    elif negated:
-        # condition was "does not contain" and it was NOT found :)
+    found = substring in original_string
+    if found != negated:
+        # "contains" and it was found, or "does not contain" and it wasn't :)
         return True, None
-
-    # condition was "contains" and it was NOT found :(
-    return False, f"value {raw_value!r} does not contain {condition.value!r}"
+    verb = "contains" if found else "does not contain"
+    return False, f"value {raw_value!r} {verb} {condition.value!r}"
 
 
 def evaluate_condition(
@@ -283,13 +322,8 @@ def evaluate_condition(
             f"{raw_number} is not within {condition.tolerance_percent:g}% of {_format_number(expected_number)} (allowed range {_format_number(expected_number - tolerance)} to {_format_number(expected_number + tolerance)})",
         )
 
-    if condition.operator is QCOperator.EQ:
-        if raw_number == expected_number:
-            return True, None
-
-    else:
-        if _ORDERING_OPS[condition.operator](raw_number, expected_number):
-            return True, None
+    if _COMPARISON_OPS[condition.operator](raw_number, expected_number):
+        return True, None
 
     return False, f"{raw_number} {condition.operator.value} {condition.value} is False"
 
@@ -297,18 +331,18 @@ def evaluate_condition(
 def evaluate_qc_input(qc_input: QCInput, sample: str) -> QCFailure | None:
     """Check one QCInput against its own QC conditions (&&)
 
-    Exits on the first failing condition. `NoMatchingRule` QCInputs have already failed and
-    shouldn't be seen here
+    Exits on the first failing condition. An UncheckableOutput QCInput has already
+    failed and shouldn't be seen here
 
     Args:
-      qc_input: the input to check; its `qc` must not be NoMatchingRule.
+      qc_input: the input to check; its `qc` must not be UncheckableOutput.
       sample: the sample name to record on any failure.
 
     Returns:
       The first QCFailure found, or None if every condition passed.
     """
-    # confirm that the qc_input.qc is not `NoMatchingRule`
-    assert not isinstance(qc_input.qc, NoMatchingRule)
+    # confirm that the qc_input.qc is a real condition list
+    assert not isinstance(qc_input.qc, UncheckableOutput)
     for condition in qc_input.qc:
         passed, reason = evaluate_condition(qc_input.value, condition)
         if not passed:
@@ -331,8 +365,8 @@ def evaluate_row(qc_inputs: list[QCInput], sample: str) -> QCResult:
     """
     failures: list[QCFailure] = []
     for qc_input in qc_inputs:
-        if isinstance(qc_input.qc, NoMatchingRule):
-            # no rule matched, so there's no condition to evaluate or report
+        if isinstance(qc_input.qc, UncheckableOutput):
+            # nothing to evaluate -- the input already carries its own reason
             failures.append(qc_input.to_failure(sample, qc_input.qc.reason))
             continue
         if not qc_input.qc:
@@ -342,4 +376,4 @@ def evaluate_row(qc_inputs: list[QCInput], sample: str) -> QCResult:
         if failure is not None:
             failures.append(failure)
 
-    return QCResult(sample=sample, passed=not failures, failures=failures)
+    return QCResult(failures=failures)

@@ -468,7 +468,7 @@ def test_case_insensitive_true_rejected_on_numeric_value():
 
 def test_unknown_column_config_raises_on_load(tmp_path):
     # Loading only validates the config's own shape; missing-in-input-header
-    # checking happens in transform.py, not here.
+    # checking happens in pipeline.py, not here.
     config = load_config(config_unknown_column(tmp_path))
     assert config.columns is not None
     assert [c.input_column for c in config.columns] == ["sample_id", "does_not_exist"]
