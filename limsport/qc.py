@@ -36,7 +36,7 @@ class QCFailure(BaseModel):
 
     Attributes:
         sample: the name of the sample
-        column: the original column name from the input
+        input_column: the original column name from the input
         output_column: the column name to output
         operator: the QC operator ('=', '>=', etc.)
         expected: the expected value (left hand of the operation)
@@ -45,7 +45,7 @@ class QCFailure(BaseModel):
     """
 
     sample: str
-    column: str
+    input_column: str
     output_column: str
     operator: QCOperator | None
     expected: int | float | str | bool | None
@@ -58,7 +58,7 @@ class QCFailure(BaseModel):
         """
         return [
             self.sample,
-            self.column,
+            self.input_column,
             self.output_column,
             self.operator.value if self.operator is not None else "",
             str(self.expected) if self.expected is not None else "",
@@ -104,13 +104,14 @@ class QCInput(NamedTuple):
     in the output header, its value, and the QC conditions to check it against.
 
     Attributes:
-        column: the original column name from the input
+        input_column: the original column name from the input
         output_column: the column name to output
         value: the content of the row at column
-        qc: a list of QC operations to perform, or an indication that no QC operations could be identified for the row.
+        qc: a list of QC operations to perform, or an indication that no QC operations
+          could be identified for the row.
     """
 
-    column: str
+    input_column: str
     output_column: str
     value: str
     qc: list[QCCondition] | NoMatchingRule
@@ -131,7 +132,7 @@ class QCInput(NamedTuple):
         """
         return QCFailure(
             sample=sample,
-            column=self.column,
+            input_column=self.input_column,
             output_column=self.output_column,
             operator=None if condition is None else condition.operator,
             expected=None if condition is None else condition.value,
