@@ -497,3 +497,109 @@ def test_set_qc_failure_stops_running_file_parsing_for_the_remaining_rows(tmp_pa
     assert not calls.exists() or calls.read_text() == ""
     # every sample is still accounted for: NTC1 in detail, the rest collateral
     assert len(list(table_io.iter_rows(qc_report))) == 21
+
+
+def _late_control_file_parsing_scenario(tmp_path, *, ntc_reads):
+    """20 ordinary samples with file_parsing, then the NTC as the very LAST row.
+    `calls` counts file_parsing subprocess invocations."""
+    data = tmp_path / "data.txt"
+    data.write_text("42\n")
+    calls = tmp_path / "calls.log"
+
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text(
+        "sample_id\tdata_path\treads\n"
+        + "".join(f"SAMPLE_{i:03d}\t{data}\t10\n" for i in range(20))
+        + f"NTC1\t{data}\t{ntc_reads}\n"  # the control is last
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "columns:\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: data_path\n"
+        "    file_parsing:\n"
+        "      - output_column: extracted\n"
+        "        command: |\n"
+        f'          echo call >> {calls}; cat "$FILE"\n'
+        "set_qc:\n"
+        '  - rule_name: "NTC reads are low"\n'
+        "    match_samples:\n"
+        '      sample_pattern: "NTC"\n'
+        "    checks:\n"
+        "      - input_column: reads\n"
+        "        qc:\n"
+        '          - {operator: "<=", value: 1000}\n'
+    )
+    return input_tsv, config, calls
+
+
+def test_set_qc_failure_on_the_last_row_still_runs_no_file_parsing(tmp_path):
+    # The point of the set_qc pre-pass: a control at the END of the input must not
+    # cost a single subprocess, even though its failure isn't known until the last
+    # row is read. Without the pre-pass, all 20 rows before it are expanded first.
+    input_tsv, config, calls = _late_control_file_parsing_scenario(
+        tmp_path, ntc_reads=9999
+    )
+    out = tmp_path / "out.tsv"
+    qc_report = tmp_path / "qc_report.tsv"
+    transform.run_export(
+        input_tsv, config, None, out, qc_report, allow_file_parsing=True
+    )
+
+    assert not calls.exists() or calls.read_text() == ""
+    assert list(table_io.iter_rows(out)) == []
+    # 1 detail row for NTC1 + 20 collateral rows
+    assert len(list(table_io.iter_rows(qc_report))) == 21
+
+
+def test_set_qc_zero_match_runs_no_file_parsing_before_raising(tmp_path):
+    # A rule matching no sample is a hard error, and it must not cost any
+    # file_parsing work either -- it's only detectable once the input is read.
+    data = tmp_path / "data.txt"
+    data.write_text("42\n")
+    calls = tmp_path / "calls.log"
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text(
+        "sample_id\tdata_path\treads\n"
+        + "".join(f"SAMPLE_{i:03d}\t{data}\t10\n" for i in range(20))
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "columns:\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: data_path\n"
+        "    file_parsing:\n"
+        "      - output_column: extracted\n"
+        "        command: |\n"
+        f'          echo call >> {calls}; cat "$FILE"\n'
+        "set_qc:\n"
+        '  - rule_name: "NTC reads are low"\n'
+        "    match_samples:\n"
+        '      sample_pattern: "NTC"\n'  # nothing in the input matches
+        "    checks:\n"
+        "      - input_column: reads\n"
+        "        qc:\n"
+        '          - {operator: "<=", value: 1000}\n'
+    )
+    out = tmp_path / "out.tsv"
+    with pytest.raises(InputTableError, match="matched no samples"):
+        transform.run_export(
+            input_tsv, config, None, out, None, allow_file_parsing=True
+        )
+    assert not calls.exists() or calls.read_text() == ""
+    assert not out.exists()
+
+
+def test_set_qc_pass_with_file_parsing_still_expands_every_row_once(tmp_path):
+    # The pre-pass must not change the outcome when set_qc passes: every row is
+    # still expanded exactly once -- not twice -- and reaches the output.
+    input_tsv, config, calls = _late_control_file_parsing_scenario(
+        tmp_path, ntc_reads=500
+    )
+    out = tmp_path / "out.tsv"
+    transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+
+    rows = list(table_io.iter_rows(out))
+    assert len(rows) == 21  # 20 samples + the NTC
+    assert all(row[1] == "42" for row in rows)  # every one was really parsed
+    assert len(calls.read_text().splitlines()) == 21  # once each, not twice

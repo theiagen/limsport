@@ -37,12 +37,16 @@ class _ExportPlan:
           set_qc -> contains the columns that are being checked
         config_has_columns: True when the config lists `columns`, so each row is
           expanded into QCInputs. False when there is no config or only `set_qc`.
+        set_qc_prepass: True when it's worth reading the input once for set_qc
+          alone before doing any per-row work. Only pays off when set_qc and
+          file_parsing are both configured -- see _plan_export().
     """
 
     output_header: list[str]
     column_positions: list[tuple[ColumnConfig, int]]
     match_index: dict[str, int]
     config_has_columns: bool
+    set_qc_prepass: bool
 
 
 @dataclass
@@ -401,6 +405,7 @@ def _plan_export(
             column_positions=[],
             match_index={},
             config_has_columns=False,
+            set_qc_prepass=False,
         )
 
     _validate_columns_exist(config.columns or [], column_name_indices, input_path)
@@ -439,11 +444,20 @@ def _plan_export(
         check.input_column for rule in config.set_qc for check in rule.checks
     }
 
+    # A set_qc failure fails the whole run, so any per-row work done before the
+    # failure is discovered is wasted. Reading the input once for set_qc alone
+    # first avoids that -- but it costs a whole extra parse of the input, so it
+    # only pays when the per-row work is genuinely expensive. That means
+    # file_parsing, which spawns a subprocess (and maybe a download) per cell;
+    # ordinary qc is just string comparisons and isn't worth a second pass.
+    uses_file_parsing = any(c.file_parsing is not None for c in (config.columns or []))
+
     return _ExportPlan(
         output_header=output_header,
         column_positions=column_positions,
         match_index={name: column_name_indices[name][0] for name in match_columns},
         config_has_columns=config.columns is not None,
+        set_qc_prepass=bool(config.set_qc) and uses_file_parsing,
     )
 
 
@@ -453,10 +467,15 @@ def _scan_rows(
     plan: _ExportPlan,
     set_qc_rules: list[SetQCRule],
     requested_samples: set[str] | None,
-    writer,
+    writer=None,
 ) -> _InputInformation:
     """
     Reads every input row, QCs it, and writes the passing ones straight to `writer`.
+
+    With `writer=None` this is a set_qc-only pre-pass: rows are still read, filtered
+    and counted, and set_qc is still evaluated, but no row is expanded and nothing is
+    written. That's what makes it cheap enough to run before the real pass -- see
+    _ExportPlan.set_qc_prepass.
 
     A row's own QC verdict never depends on a later row, so it's decided here and
     the row is written immediately -- nothing is held in memory. Only one decision
@@ -475,7 +494,8 @@ def _scan_rows(
         set_qc_rules: the config's run-level rules, or an empty list when there
           are none (or no config).
         requested_samples: the sample names to keep, or None to keep all.
-        writer: an open row writer from table_io.open_row_writer().
+        writer: an open row writer from table_io.open_row_writer(), or None to
+          evaluate set_qc only and write nothing.
 
     Returns:
         The sample names, the set_qc bookkeeping, and what was written.
@@ -528,8 +548,9 @@ def _scan_rows(
                 scan.set_qc_failures[rule.rule_name].extend(rule_outcome.failures)
                 scan.set_qc_failed = True
 
-        if scan.set_qc_failed:
-            # the run can no longer produce output, so skip the expensive part
+        if writer is None or scan.set_qc_failed:
+            # a set_qc-only pre-pass, or a run that can no longer produce output
+            # -- either way, skip the expensive part
             continue
 
         if not plan.config_has_columns:
@@ -550,6 +571,26 @@ def _scan_rows(
         scan.written_rows += 1
 
     return scan
+
+
+def _warn_unknown_samples(
+    requested_samples: set[str] | None, scan: _InputInformation
+) -> None:
+    """
+    Warns about names in the --samples file that never showed up in the input.
+
+    Logged before the set_qc checks that can abort the run, so the warning is still
+    seen when the run then fails.
+
+    Args:
+        requested_samples: the sample names asked for, or None if none were.
+        scan: a finished scan, read for the samples it actually saw.
+    """
+    if requested_samples is None:
+        return
+    unknown = requested_samples - scan.seen_samples
+    if unknown:
+        report.log_unknown_samples(unknown)
 
 
 def _check_set_qc_matched(
@@ -744,6 +785,26 @@ def run_export(
         _load_sample_list(samples_path) if samples_path is not None else None
     )
 
+    if plan.set_qc_prepass:
+        # Read the input once for set_qc alone, before any file_parsing runs. A
+        # set_qc failure fails the whole run, so without this the expensive work
+        # is done and then thrown away -- and worst case that's all of it, since
+        # controls often sit at the end of the table and a rule matching zero
+        # samples isn't detected until the read finishes either way.
+        prescan = _scan_rows(
+            input_path, input_delimiter, plan, set_qc_rules, requested_samples
+        )
+        _warn_unknown_samples(requested_samples, prescan)
+        _check_set_qc_matched(set_qc_rules, prescan, input_path)
+        prescan_outcome = _apply_qc(set_qc_rules, prescan)
+        if prescan_outcome.run_failed:
+            # nothing expensive has run yet, and now none of it has to
+            table_io.write_tsv(
+                output_path, plan.output_header, [], delimiter=output_delimiter
+            )
+            _report_results(config, prescan, prescan_outcome, qc_report_path)
+            return
+
     # Rows are written as they're read, but to a staging file rather than to
     # output_path, because one decision can't be made until the last row is in:
     # a failing set_qc rule fails every row in the run, not just the sample(s) it
@@ -765,13 +826,9 @@ def run_export(
                 writer,
             )
 
-        if requested_samples is not None:
-            # names in the sample list that never showed up in the input are
-            # warnings. Logged before the check below, which can abort the run.
-            unknown = requested_samples - scan.seen_samples
-            if unknown:
-                report.log_unknown_samples(unknown)
-
+        if not plan.set_qc_prepass:
+            # the pre-pass already logged these
+            _warn_unknown_samples(requested_samples, scan)
         _check_set_qc_matched(set_qc_rules, scan, input_path)
 
         # set_qc's verdict is known, so what was staged can finally be judged
