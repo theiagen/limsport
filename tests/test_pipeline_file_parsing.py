@@ -1,11 +1,13 @@
-"""End-to-end file_parsing tests through transform.run_export -- unit-level
+"""End-to-end file_parsing tests through pipeline.run_export -- unit-level
 coverage of the file_parsing module itself lives in test_file_parsing.py."""
+
+import logging
 
 import pytest
 from factories import file_parsing_scenario
 
-from limsport import table_io, transform
-from limsport.exceptions import ConfigError
+from limsport import file_parsing, pipeline, table_io
+from limsport.exceptions import ConfigError, FileParsingError, ToolNotFoundError
 
 
 def _cut_scenario(tmp_path):
@@ -23,7 +25,7 @@ def test_file_parsing_requires_allow_flag(tmp_path):
     input_tsv, config = _cut_scenario(tmp_path)
     out = tmp_path / "out.tsv"
     with pytest.raises(ConfigError, match="allow-file-parsing"):
-        transform.run_export(
+        pipeline.run_export(
             input_tsv, config, None, out, None
         )  # allow_file_parsing defaults to False
     assert not out.exists()
@@ -32,7 +34,7 @@ def test_file_parsing_requires_allow_flag(tmp_path):
 def test_file_parsing_result_flows_through_qc_and_output(tmp_path):
     input_tsv, config = _cut_scenario(tmp_path)
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+    pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
 
     header = table_io.get_input_header(out)
     rows = list(table_io.iter_rows(out))
@@ -43,11 +45,17 @@ def test_file_parsing_result_flows_through_qc_and_output(tmp_path):
     assert rows == [["SAMPLE_001", "123"]]
 
 
-def test_file_parsing_command_failure_aborts_whole_export(tmp_path):
-    data_file = tmp_path / "data.txt"
-    data_file.write_text("irrelevant\n")
+def _mixed_scenario(tmp_path, command, extra_qc=""):
+    """Two samples whose data files differ only in content, so `command` can be
+    written to succeed for one and fail for the other."""
+    good = tmp_path / "good.txt"
+    good.write_text("123\n")
+    bad = tmp_path / "bad.txt"
+    bad.write_text("nope\n")
     input_tsv = tmp_path / "input.tsv"
-    input_tsv.write_text(f"sample_id\tdata_path\nSAMPLE_001\t{data_file}\n")
+    input_tsv.write_text(
+        f"sample_id\tdata_path\nSAMPLE_GOOD\t{good}\nSAMPLE_BAD\t{bad}\n"
+    )
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
@@ -55,13 +63,167 @@ def test_file_parsing_command_failure_aborts_whole_export(tmp_path):
         "  - input_column: data_path\n"
         "    file_parsing:\n"
         "      - output_column: extracted\n"
-        "        command: exit 1\n"
+        f"        command: {command}\n" + extra_qc
+    )
+    return input_tsv, config
+
+
+def test_file_parsing_failure_on_every_row_aborts_the_run(tmp_path):
+    # One bad file among many is data and fails only its own row, but *every* file
+    # failing means the command or path template is broken -- there'd be nothing
+    # left to write, and a header-only table plus exit 0 would call that a success.
+    input_tsv, config = _cut_scenario(tmp_path)
+    config.write_text(config.read_text().replace("'cut -d: -f2 \"$FILE\"'", "exit 1"))
+    out = tmp_path / "out.tsv"
+
+    with pytest.raises(FileParsingError, match="every row"):
+        pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+    assert not out.exists()
+
+
+def test_every_row_failing_aborts_even_under_a_generous_failure_limit(tmp_path):
+    # --max-file-parsing-failures tunes how much genuinely bad data to tolerate.
+    # "did anything work at all" is a different question, so a high limit does not
+    # buy you an empty output.
+    input_tsv, config = _mixed_scenario(tmp_path, "exit 1")
+    with pytest.raises(FileParsingError, match="every row"):
+        pipeline.run_export(
+            input_tsv,
+            config,
+            None,
+            tmp_path / "out.tsv",
+            None,
+            allow_file_parsing=True,
+            max_file_parsing_failures=999,
+        )
+
+
+def test_file_parsing_failure_drops_only_the_failing_row(tmp_path):
+    # grep exits 1 when it finds nothing, so SAMPLE_BAD's file fails and
+    # SAMPLE_GOOD's does not
+    input_tsv, config = _mixed_scenario(tmp_path, 'grep 123 "$FILE"')
+    out = tmp_path / "out.tsv"
+    qc_report = tmp_path / "qc.tsv"
+
+    pipeline.run_export(
+        input_tsv, config, None, out, qc_report, allow_file_parsing=True
+    )
+
+    # the whole point: one unreadable file no longer costs you every other sample
+    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123"]]
+    report_rows = list(table_io.iter_rows(qc_report))
+    assert [r[0] for r in report_rows] == ["SAMPLE_BAD"]
+
+
+def test_file_parsing_failure_fails_the_row_even_with_no_qc_configured(tmp_path):
+    # There is no condition to fail, but there is also no value to write, so the
+    # row still has to be dropped rather than written with a blank cell.
+    input_tsv, config = _mixed_scenario(tmp_path, 'grep 123 "$FILE"')
+    out = tmp_path / "out.tsv"
+
+    pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+
+    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123"]]
+
+
+def test_file_parsing_failure_reports_the_path_it_could_not_parse(tmp_path):
+    input_tsv, config = _mixed_scenario(tmp_path, 'grep 123 "$FILE"')
+    qc_report = tmp_path / "qc.tsv"
+    pipeline.run_export(
+        input_tsv,
+        config,
+        None,
+        tmp_path / "out.tsv",
+        qc_report,
+        allow_file_parsing=True,
+    )
+    sample, input_column, output_column, _, _, actual, reason = next(
+        iter(table_io.iter_rows(qc_report))
+    )
+    assert (sample, input_column, output_column) == (
+        "SAMPLE_BAD",
+        "data_path",
+        "extracted",
+    )
+    # `actual` names the path that wouldn't parse, not the value that never existed
+    assert actual.endswith("bad.txt")
+    assert "exit 1" in reason
+
+
+def test_file_parsing_warns_about_the_rows_it_dropped(tmp_path, caplog):
+    input_tsv, config = _mixed_scenario(tmp_path, 'grep 123 "$FILE"')
+    with caplog.at_level(logging.WARNING, logger="limsport"):
+        pipeline.run_export(
+            input_tsv,
+            config,
+            None,
+            tmp_path / "out.tsv",
+            None,
+            allow_file_parsing=True,
+        )
+    assert any(
+        "1/2 samples dropped" in r.message and "file_parsing" in r.message
+        for r in caplog.records
+    )
+
+
+def test_max_file_parsing_failures_zero_restores_the_fatal_behaviour(tmp_path):
+    input_tsv, config = _mixed_scenario(tmp_path, 'grep 123 "$FILE"')
+    out = tmp_path / "out.tsv"
+    # an export already sitting at the output path -- a re-run that aborts must not
+    # damage it, which is the whole reason rows are staged before being committed
+    out.write_text("PREVIOUS EXPORT\n")
+
+    with pytest.raises(FileParsingError, match="max-file-parsing-failures"):
+        pipeline.run_export(
+            input_tsv,
+            config,
+            None,
+            out,
+            None,
+            allow_file_parsing=True,
+            max_file_parsing_failures=0,
+        )
+
+    assert out.read_text() == "PREVIOUS EXPORT\n"
+    assert not out.with_name(out.name + ".tmp").exists()
+
+
+def test_max_file_parsing_failures_tolerates_up_to_the_limit(tmp_path):
+    input_tsv, config = _mixed_scenario(tmp_path, 'grep 123 "$FILE"')
+    out = tmp_path / "out.tsv"
+    pipeline.run_export(
+        input_tsv,
+        config,
+        None,
+        out,
+        None,
+        allow_file_parsing=True,
+        max_file_parsing_failures=1,
+    )
+    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123"]]
+
+
+def test_missing_cloud_tool_still_aborts_the_whole_run(tmp_path, monkeypatch):
+    # A missing gcloud fails every row identically, so it stays fatal rather than
+    # producing one indistinguishable QC failure per sample.
+    monkeypatch.setattr(file_parsing.shutil, "which", lambda tool: None)
+    data = tmp_path / "data.txt"
+    data.write_text("123\n")
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text("sample_id\tdata_path\nSAMPLE_001\tgs://bucket/f.txt\n")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "columns:\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: data_path\n"
+        "    file_parsing:\n"
+        "      - output_column: extracted\n"
+        '        command: cat "$FILE"\n'
     )
     out = tmp_path / "out.tsv"
-    with pytest.raises(Exception, match="exit 1"):
-        transform.run_export(
-            input_tsv, config, None, out, None, allow_file_parsing=True
-        )
+    with pytest.raises(ToolNotFoundError, match="gcloud"):
+        pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
     assert not out.exists()
 
 
@@ -82,13 +244,13 @@ def test_file_parsing_not_invoked_for_samples_filtered_out(tmp_path, monkeypatch
 
     calls = []
     monkeypatch.setattr(
-        transform.file_parsing,
+        file_parsing,
         "run",
         lambda outputs, original_path: calls.append(original_path) or ["ok"],
     )
 
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, samples, out, None, allow_file_parsing=True)
+    pipeline.run_export(input_tsv, config, samples, out, None, allow_file_parsing=True)
     # Only SAMPLE_001's row should ever have triggered file_parsing -- an
     # expensive command (or a cloud download) must never run for a row
     # that's about to be discarded by the sample filter anyway.
@@ -117,13 +279,13 @@ def test_file_parsing_runs_independently_per_column_no_caching(tmp_path, monkeyp
 
     calls = []
     monkeypatch.setattr(
-        transform.file_parsing,
+        file_parsing,
         "run",
         lambda outputs, original_path: calls.append(original_path) or ["ok"],
     )
 
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+    pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
     assert calls == [str(data_file), str(data_file)]
 
 
@@ -162,7 +324,7 @@ def _multi_output_scenario(tmp_path, coverage_pct="99.98"):
 def test_file_parsing_multi_output_produces_multiple_columns_from_one_source(tmp_path):
     input_tsv, config = _multi_output_scenario(tmp_path)
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+    pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
 
     header = table_io.get_input_header(out)
     rows = list(table_io.iter_rows(out))
@@ -178,7 +340,7 @@ def test_file_parsing_multi_output_qc_applies_independently_per_output(tmp_path)
     )  # fails >= 95
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_tsv, config, None, out, qc_report, allow_file_parsing=True
     )
 
@@ -208,8 +370,8 @@ def test_allow_file_parsing_flag_is_harmless_when_config_has_no_file_parsing(tmp
 
     out_with_flag = tmp_path / "with_flag.tsv"
     out_without_flag = tmp_path / "without_flag.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_tsv, config, None, out_with_flag, None, allow_file_parsing=True
     )
-    transform.run_export(input_tsv, config, None, out_without_flag, None)
+    pipeline.run_export(input_tsv, config, None, out_without_flag, None)
     assert out_with_flag.read_text() == out_without_flag.read_text()

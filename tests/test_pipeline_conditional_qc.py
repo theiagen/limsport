@@ -1,10 +1,10 @@
 """End-to-end tests for the conditional form of `qc` through
-transform.run_export, on both a plain column and a file_parsing output --
+pipeline.run_export, on both a plain column and a file_parsing output --
 config-shape validation lives in test_config_conditional_qc.py."""
 
 import pytest
 
-from limsport import table_io, transform
+from limsport import pipeline, table_io
 from limsport.exceptions import InputTableError
 
 
@@ -43,7 +43,7 @@ def _conditional_qc_scenario(tmp_path, default_block=""):
 def test_conditional_qc_applies_different_thresholds_per_organism_row(tmp_path):
     input_tsv, config = _conditional_qc_scenario(tmp_path)
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None)
+    pipeline.run_export(input_tsv, config, None, out, None)
     rows = list(table_io.iter_rows(out))
     # S1 passes under E. coli's floor (>= 4.6M); S2 fails Klebsiella's
     # higher floor (>= 5.2M) at the same raw value -- proving the two
@@ -57,7 +57,7 @@ def test_conditional_qc_default_used_when_no_rule_matches(tmp_path):
         default_block='      default:\n        - {operator: ">=", value: 100}\n',
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None)
+    pipeline.run_export(input_tsv, config, None, out, None)
     rows = list(table_io.iter_rows(out))
     # S3's taxon ("Mystery Bug") matches no rule, but the lenient default
     # (>= 100) passes its real value, so it's still in the output.
@@ -67,7 +67,7 @@ def test_conditional_qc_default_used_when_no_rule_matches(tmp_path):
 def test_conditional_qc_unmatched_with_no_default_fails_and_reports_blank_operator(
     tmp_path,
 ):
-    # NOTE: asserts the ACTIVE behavior from transform.py's _resolve_qc
+    # NOTE: asserts the ACTIVE behavior from pipeline.py's _resolve_qc
     # DECISION POINT (unmatched + no default -> QC failure). If that's
     # switched to the silent-pass ALTERNATIVE, this test's expectations
     # need to flip: S3 would stay in `out` and qc_report would have no
@@ -75,7 +75,7 @@ def test_conditional_qc_unmatched_with_no_default_fails_and_reports_blank_operat
     input_tsv, config = _conditional_qc_scenario(tmp_path)  # no default block
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
 
     rows = list(table_io.iter_rows(out))
     assert "S3" not in [row[0] for row in rows]  # dropped: no rule, no default
@@ -108,7 +108,7 @@ def test_conditional_qc_match_column_not_in_header_raises_before_output_created(
     )
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError, match="taxon"):
-        transform.run_export(input_tsv, config, None, out, None)
+        pipeline.run_export(input_tsv, config, None, out, None)
     assert not out.exists()
 
 
@@ -150,7 +150,7 @@ def test_file_parsing_output_conditional_qc_applies_different_thresholds_per_org
 ):
     input_tsv, config = _file_parsing_conditional_qc_scenario(tmp_path)
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+    pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
     rows = list(table_io.iter_rows(out))
     # Both rows parse the identical raw value (5000000), but S1 passes
     # under E. coli's floor (>= 4.6M) while S2 fails Klebsiella's higher

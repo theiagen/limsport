@@ -15,7 +15,7 @@ from factories import (
     samples_subset,
 )
 
-from limsport import table_io, transform
+from limsport import pipeline, table_io
 from limsport.exceptions import InputTableError
 
 
@@ -48,13 +48,13 @@ def samples_with_unknown(tmp_path):
 def test_no_config_no_samples_writes_nothing(tmp_path):
     src = input_basic(tmp_path)
     out = tmp_path / "out.tsv"
-    transform.run_export(src, None, None, out, None)
+    pipeline.run_export(src, None, None, out, None)
     assert not out.exists()
 
 
 def test_samples_only_filters_rows_preserves_columns(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_with_dupes(tmp_path), None, samples_subset(tmp_path), out, None
     )
     header = table_io.get_input_header(out)
@@ -66,7 +66,7 @@ def test_samples_only_filters_rows_preserves_columns(tmp_path):
 
 def test_config_reorders_output_columns_and_drops_columns(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
+    pipeline.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
     header = table_io.get_input_header(out)
     assert header == ["sample_id", "total_reads", "Status", "notes"]
     rows = list(table_io.iter_rows(out))
@@ -91,7 +91,7 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
         "    output_column: total_reads\n"
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_basic(tmp_path), config, None, out, None)
+    pipeline.run_export(input_basic(tmp_path), config, None, out, None)
     header = table_io.get_input_header(out)
     assert header == ["status", "sample_id", "notes", "total_reads"]
 
@@ -99,7 +99,7 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
 def test_unknown_config_column_raises_before_output_created(tmp_path):
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
-        transform.run_export(
+        pipeline.run_export(
             input_basic(tmp_path),
             config_unknown_column(tmp_path),
             None,
@@ -111,7 +111,7 @@ def test_unknown_config_column_raises_before_output_created(tmp_path):
 
 def test_qc_range_drops_expected_samples(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_basic(tmp_path), config_qc_range(tmp_path), None, out, None
     )
     rows = list(table_io.iter_rows(out))
@@ -123,7 +123,7 @@ def test_qc_range_drops_expected_samples(tmp_path):
 
 def test_qc_approx_tolerance_drops_expected_samples(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_basic(tmp_path), config_qc_approx(tmp_path), None, out, None
     )
     rows = list(table_io.iter_rows(out))
@@ -136,7 +136,7 @@ def test_qc_approx_tolerance_drops_expected_samples(tmp_path):
 def test_ambiguous_duplicate_column_reference_raises(tmp_path):
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
-        transform.run_export(
+        pipeline.run_export(
             input_with_dupes(tmp_path),
             config_dupe_reference(tmp_path),
             None,
@@ -149,7 +149,7 @@ def test_ambiguous_duplicate_column_reference_raises(tmp_path):
 def test_unknown_sample_name_warns_but_succeeds(tmp_path, caplog):
     out = tmp_path / "out.tsv"
     with caplog.at_level("WARNING"):
-        transform.run_export(
+        pipeline.run_export(
             input_basic(tmp_path),
             None,
             samples_with_unknown(tmp_path),
@@ -165,7 +165,7 @@ def test_empty_sample_intersection_produces_header_only_output(tmp_path):
     samples = tmp_path / "no_match.txt"
     samples.write_text("DOES_NOT_EXIST\n")
     out = tmp_path / "out.tsv"
-    transform.run_export(input_basic(tmp_path), None, samples, out, None)
+    pipeline.run_export(input_basic(tmp_path), None, samples, out, None)
     assert table_io.get_input_header(out) == [
         "sample_id",
         "read_count",
@@ -177,7 +177,7 @@ def test_empty_sample_intersection_produces_header_only_output(tmp_path):
 
 def test_combined_config_and_samples_compose(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_basic(tmp_path),
         config_qc_range(tmp_path),
         samples_subset(tmp_path),
@@ -191,7 +191,7 @@ def test_combined_config_and_samples_compose(tmp_path):
 
 def test_column_with_empty_qc_list_never_drops_sample(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
+    pipeline.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
     rows = list(table_io.iter_rows(out))
     assert len(rows) == 5
 
@@ -202,7 +202,7 @@ def test_no_config_no_samples_converts_non_tab_input_to_tab_by_default(tmp_path)
     # (converted), not treated as a no-op.
     src = input_comma(tmp_path)
     out = tmp_path / "out.tsv"
-    transform.run_export(src, None, None, out, None)
+    pipeline.run_export(src, None, None, out, None)
     assert table_io.get_input_header(out) == ["sample_id", "read_count", "status"]
     assert next(iter(table_io.iter_rows(out))) == ["SAMPLE_001", "5000", "PASS"]
 
@@ -210,7 +210,7 @@ def test_no_config_no_samples_converts_non_tab_input_to_tab_by_default(tmp_path)
 def test_delimiter_override_converts_output(tmp_path):
     src = input_basic(tmp_path)
     out = tmp_path / "out.csv"
-    transform.run_export(src, None, None, out, None, output_delimiter=",")
+    pipeline.run_export(src, None, None, out, None, output_delimiter=",")
     assert hash_file(out) != hash_file(src)  # no longer byte-identical, by design
     assert table_io.get_input_header(out, delimiter=",") == [
         "sample_id",
@@ -225,7 +225,7 @@ def test_delimiter_override_converts_output(tmp_path):
 
 def test_delimiter_override_composes_with_config_and_samples(tmp_path):
     out = tmp_path / "out.csv"
-    transform.run_export(
+    pipeline.run_export(
         input_basic(tmp_path),
         config_qc_range(tmp_path),
         samples_subset(tmp_path),
@@ -240,7 +240,7 @@ def test_delimiter_override_composes_with_config_and_samples(tmp_path):
 def test_undetectable_delimiter_raises(tmp_path):
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
-        transform.run_export(input_single_column(tmp_path), None, None, out, None)
+        pipeline.run_export(input_single_column(tmp_path), None, None, out, None)
     assert not out.exists()
 
 
@@ -249,7 +249,7 @@ def test_ragged_short_row_no_op_path_never_inspects_rows(tmp_path):
     # row elsewhere in the file doesn't raise -- it's simply never read.
     src = input_ragged_short(tmp_path)
     out = tmp_path / "out.tsv"
-    transform.run_export(src, None, None, out, None)
+    pipeline.run_export(src, None, None, out, None)
     assert not out.exists()
 
 
@@ -263,7 +263,7 @@ def test_ragged_short_row_becomes_missing_value_not_a_crash(tmp_path):
         '      - {operator: "=", value: ok}\n'
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_ragged_short(tmp_path), config, None, out, None)
+    pipeline.run_export(input_ragged_short(tmp_path), config, None, out, None)
     rows = list(table_io.iter_rows(out))
     passing_samples = {row[0] for row in rows}
     # SAMPLE_004's row is missing its trailing "notes" field entirely; that
@@ -276,7 +276,7 @@ def test_ragged_long_row_raises_before_output_created(tmp_path):
     config.write_text("columns:\n  - input_column: sample_id\n")
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
-        transform.run_export(input_ragged_long(tmp_path), config, None, out, None)
+        pipeline.run_export(input_ragged_long(tmp_path), config, None, out, None)
     assert not out.exists()
 
 
@@ -298,7 +298,7 @@ def test_failed_run_leaves_an_earlier_export_at_that_path_untouched(tmp_path):
     )
 
     with pytest.raises(InputTableError):
-        transform.run_export(bad_input, config, None, out, None)
+        pipeline.run_export(bad_input, config, None, out, None)
 
     assert out.read_text() == "an earlier, good export\n"
     assert not (tmp_path / "out.tsv.tmp").exists()
@@ -306,7 +306,7 @@ def test_failed_run_leaves_an_earlier_export_at_that_path_untouched(tmp_path):
 
 def test_successful_run_leaves_no_staging_file_behind(tmp_path):
     out = tmp_path / "out.tsv"
-    transform.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
+    pipeline.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
     assert out.exists()
     assert not (tmp_path / "out.tsv.tmp").exists()
 
@@ -344,9 +344,7 @@ def test_peak_memory_does_not_scale_with_row_count(tmp_path):
     def peak_for(rows):
         input_tsv, config = _wide_pass_through_scenario(tmp_path, rows)
         tracemalloc.start()
-        transform.run_export(
-            input_tsv, config, None, tmp_path / f"out_{rows}.tsv", None
-        )
+        pipeline.run_export(input_tsv, config, None, tmp_path / f"out_{rows}.tsv", None)
         _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
         return peak
@@ -364,7 +362,7 @@ def test_no_config_no_samples_logs_nothing_to_do_not_passed_qc(tmp_path, caplog)
     # the summary line shouldn't claim QC happened.
     out = tmp_path / "out.tsv"
     with caplog.at_level("INFO"):
-        transform.run_export(input_basic(tmp_path), None, None, out, None)
+        pipeline.run_export(input_basic(tmp_path), None, None, out, None)
     messages = [r.message for r in caplog.records]
     assert any("nothing to do" in m for m in messages)
     assert not any("passed QC" in m for m in messages)
@@ -375,7 +373,7 @@ def test_samples_only_no_config_logs_no_qc_not_passed_qc(tmp_path, caplog):
     # Sample-list filtering with no --config also never runs QC.
     out = tmp_path / "out.tsv"
     with caplog.at_level("INFO"):
-        transform.run_export(
+        pipeline.run_export(
             input_basic(tmp_path), None, samples_subset(tmp_path), out, None
         )
     messages = [r.message for r in caplog.records]
@@ -387,7 +385,7 @@ def test_samples_only_no_config_logs_no_qc_not_passed_qc(tmp_path, caplog):
 def test_config_given_still_logs_passed_qc(tmp_path, caplog):
     out = tmp_path / "out.tsv"
     with caplog.at_level("INFO"):
-        transform.run_export(
+        pipeline.run_export(
             input_basic(tmp_path), config_qc_range(tmp_path), None, out, None
         )
     messages = [r.message for r in caplog.records]
@@ -400,14 +398,14 @@ def test_no_config_writes_no_qc_report_even_if_path_given(tmp_path):
     # so --qc-report shouldn't produce a file at all, not even empty.
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_basic(tmp_path), None, None, out, qc_report)
+    pipeline.run_export(input_basic(tmp_path), None, None, out, qc_report)
     assert not qc_report.exists()
 
 
 def test_samples_only_no_config_writes_no_qc_report_even_if_path_given(tmp_path):
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_basic(tmp_path), None, samples_subset(tmp_path), out, qc_report
     )
     assert not qc_report.exists()
@@ -416,7 +414,7 @@ def test_samples_only_no_config_writes_no_qc_report_even_if_path_given(tmp_path)
 def test_config_given_still_writes_qc_report(tmp_path):
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_basic(tmp_path), config_qc_range(tmp_path), None, out, qc_report
     )
     assert qc_report.exists()
@@ -428,7 +426,7 @@ def test_config_with_no_qc_rules_still_writes_header_only_report(tmp_path):
     # file should exist (header-only), not be skipped.
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_basic(tmp_path), config_basic(tmp_path), None, out, qc_report
     )
     assert qc_report.exists()

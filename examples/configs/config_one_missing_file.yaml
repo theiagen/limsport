@@ -1,0 +1,18 @@
+# Demonstrates the partial-failure path: SAMPLE_B's metadata file doesn't exist
+# (the sort of thing an upstream task that half-failed leaves behind), so its
+# `python3 -c` command exits non-zero. That fails SAMPLE_B's row QC and puts the
+# reason in the QC report -- A, C and D are still parsed, QC'd and written.
+#
+# Contrast config_multi_format_bad_command.yaml, where the command is broken for
+# *every* sample: that aborts, because an output with no parsed rows in it is
+# never what you wanted.
+columns:
+    - input_column: sample_id
+
+    - input_column: metadata_json
+      file_parsing:
+          - output_column: mean_depth
+            command: |
+                python3 -c "import json; print(json.load(open('$FILE'))['run']['metrics']['mean_depth'])"
+            qc:
+                - { operator: ">=", value: 10 }

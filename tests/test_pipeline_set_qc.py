@@ -1,10 +1,10 @@
 """End-to-end tests for `set_qc` (run-level QC rules) through
-transform.run_export -- config-shape validation lives in
+pipeline.run_export -- config-shape validation lives in
 test_config_set_qc.py."""
 
 import pytest
 
-from limsport import table_io, transform
+from limsport import pipeline, table_io
 from limsport.exceptions import InputTableError
 
 
@@ -37,7 +37,7 @@ def test_set_qc_pass_keeps_every_sample_in_output(tmp_path):
     input_tsv, config = _ntc_scenario(tmp_path, threshold=1000)  # NTC's 500 passes
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
 
     rows = list(table_io.iter_rows(out))
     assert [row[0] for row in rows] == ["NTC1", "SAMPLE_A", "SAMPLE_B"]
@@ -48,7 +48,7 @@ def test_set_qc_failure_zeroes_out_the_whole_run(tmp_path):
     input_tsv, config = _ntc_scenario(tmp_path, threshold=100)  # NTC's 500 fails
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
 
     # every sample dropped, not just the NTC
     assert list(table_io.iter_rows(out)) == []
@@ -58,7 +58,7 @@ def test_set_qc_failure_reports_full_detail_for_the_offending_sample(tmp_path):
     input_tsv, config = _ntc_scenario(tmp_path, threshold=100)
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
 
     report_rows = {row[0]: row for row in table_io.iter_rows(qc_report)}
     _sample, column, _output_column, operator, expected, actual, reason = report_rows[
@@ -75,7 +75,7 @@ def test_set_qc_failure_reports_blank_collateral_row_for_other_samples(tmp_path)
     input_tsv, config = _ntc_scenario(tmp_path, threshold=100)
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
 
     report_rows = {row[0]: row for row in table_io.iter_rows(qc_report)}
     for sample in ("SAMPLE_A", "SAMPLE_B"):
@@ -110,7 +110,7 @@ def test_set_qc_matching_zero_samples_raises_before_output_created(tmp_path):
     )
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError, match="NTC read count"):
-        transform.run_export(input_tsv, config, None, out, None)
+        pipeline.run_export(input_tsv, config, None, out, None)
     assert not out.exists()
 
 
@@ -132,7 +132,7 @@ def test_set_qc_check_input_column_not_in_header_raises_before_output_created(tm
     )
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError, match="reads"):
-        transform.run_export(input_tsv, config, None, out, None)
+        pipeline.run_export(input_tsv, config, None, out, None)
     assert not out.exists()
 
 
@@ -155,7 +155,7 @@ def test_set_qc_check_input_column_need_not_be_in_output_columns_allow_list(tmp_
         '          - {operator: "<=", value: 1000}\n'
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None)
+    pipeline.run_export(input_tsv, config, None, out, None)
     rows = list(
         table_io.iter_rows(out, delimiter="\t")
     )  # single output column: can't auto-detect
@@ -167,7 +167,7 @@ def test_set_qc_samples_matcher_identifies_by_exact_name(tmp_path):
         tmp_path, threshold=100, match_block='      samples: ["NTC1"]\n'
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None)
+    pipeline.run_export(input_tsv, config, None, out, None)
     assert list(table_io.iter_rows(out)) == []  # NTC1's 500 still exceeds 100
 
 
@@ -180,7 +180,7 @@ def test_set_qc_samples_matcher_with_one_missing_name_raises(tmp_path):
     )
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError, match=r"NTC read count.*\['NTC2'\]"):
-        transform.run_export(input_tsv, config, None, out, None)
+        pipeline.run_export(input_tsv, config, None, out, None)
     assert not out.exists()
 
 
@@ -190,7 +190,7 @@ def test_set_qc_samples_matcher_with_every_name_missing_raises(tmp_path):
     )
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError, match=r"\['NTC404', 'NTC500'\]"):
-        transform.run_export(input_tsv, config, None, out, None)
+        pipeline.run_export(input_tsv, config, None, out, None)
     assert not out.exists()
 
 
@@ -199,7 +199,7 @@ def test_set_qc_sample_regex_matcher(tmp_path):
         tmp_path, threshold=1000, match_block='      sample_regex: "^NTC\\\\d+$"\n'
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None)
+    pipeline.run_export(input_tsv, config, None, out, None)
     rows = list(table_io.iter_rows(out))
     assert [row[0] for row in rows] == [
         "NTC1",
@@ -244,7 +244,7 @@ def test_set_qc_rule_with_multiple_checks_all_pass(tmp_path):
     )  # NTC's 1 passes
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
 
     rows = list(table_io.iter_rows(out))
     assert [row[0] for row in rows] == ["NTC1", "SAMPLE_A"]
@@ -261,7 +261,7 @@ def test_set_qc_rule_fails_the_whole_run_if_any_one_of_its_checks_fails(
     input_tsv, config = _multi_column_ntc_config(tmp_path, contam_threshold=0)
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
 
     assert list(table_io.iter_rows(out)) == []
     ntc_rows = [row for row in table_io.iter_rows(qc_report) if row[0] == "NTC1"]
@@ -304,7 +304,7 @@ def test_set_qc_multiple_rules_failing_together_name_all_of_them_in_collateral_r
     )
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
 
     assert list(table_io.iter_rows(out)) == []
     # NTC1 fails both rules directly -- two full-detail rows
@@ -334,7 +334,7 @@ def test_set_qc_does_not_affect_a_config_that_does_not_use_it(tmp_path):
         '      - {operator: ">=", value: 1000}\n'
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None)
+    pipeline.run_export(input_tsv, config, None, out, None)
     rows = list(table_io.iter_rows(out))
     assert [row[0] for row in rows] == ["S1"]
 
@@ -363,7 +363,7 @@ def test_set_qc_with_columns_omitted_passes_every_input_column_through_unchanged
         '          - {operator: "<=", value: 1000}\n'
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None)
+    pipeline.run_export(input_tsv, config, None, out, None)
     rows = list(table_io.iter_rows(out))
     assert rows == [
         ["NTC1", "500", "blank control"],
@@ -389,7 +389,7 @@ def test_set_qc_with_columns_omitted_still_fails_the_whole_run_on_a_set_qc_failu
     )
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
     assert list(table_io.iter_rows(out)) == []
     report_rows = {row[0]: row for row in table_io.iter_rows(qc_report)}
     assert report_rows["NTC1"][3] == "<="  # operator
@@ -418,7 +418,7 @@ def test_set_qc_is_empty_lets_a_negative_control_pass_on_a_blank_result(tmp_path
     )
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
     rows = list(table_io.iter_rows(out))
     assert [row[0] for row in rows] == ["NTC1", "SAMPLE_A"]
     assert list(table_io.iter_rows(qc_report)) == []
@@ -446,7 +446,7 @@ def test_set_qc_is_empty_fails_the_run_when_a_negative_control_has_contamination
     )
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(input_tsv, config, None, out, qc_report)
+    pipeline.run_export(input_tsv, config, None, out, qc_report)
     assert list(table_io.iter_rows(out)) == []
     report_rows = {row[0]: row for row in table_io.iter_rows(qc_report)}
     assert report_rows["NTC1"][3] == "is_empty"  # operator itself is still shown
@@ -488,7 +488,7 @@ def test_set_qc_failure_stops_running_file_parsing_for_the_remaining_rows(tmp_pa
     )
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_tsv, config, None, out, qc_report, allow_file_parsing=True
     )
 
@@ -542,7 +542,7 @@ def test_set_qc_failure_on_the_last_row_still_runs_no_file_parsing(tmp_path):
     )
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
-    transform.run_export(
+    pipeline.run_export(
         input_tsv, config, None, out, qc_report, allow_file_parsing=True
     )
 
@@ -583,9 +583,7 @@ def test_set_qc_zero_match_runs_no_file_parsing_before_raising(tmp_path):
     )
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError, match="matched no samples"):
-        transform.run_export(
-            input_tsv, config, None, out, None, allow_file_parsing=True
-        )
+        pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
     assert not calls.exists() or calls.read_text() == ""
     assert not out.exists()
 
@@ -597,7 +595,7 @@ def test_set_qc_pass_with_file_parsing_still_expands_every_row_once(tmp_path):
         tmp_path, ntc_reads=500
     )
     out = tmp_path / "out.tsv"
-    transform.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
+    pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
 
     rows = list(table_io.iter_rows(out))
     assert len(rows) == 21  # 20 samples + the NTC
