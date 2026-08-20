@@ -1,3 +1,5 @@
+import tracemalloc
+
 import pytest
 from factories import (
     config_basic,
@@ -276,6 +278,85 @@ def test_ragged_long_row_raises_before_output_created(tmp_path):
     with pytest.raises(InputTableError):
         transform.run_export(input_ragged_long(tmp_path), config, None, out, None)
     assert not out.exists()
+
+
+def test_failed_run_leaves_an_earlier_export_at_that_path_untouched(tmp_path):
+    # Rows stream to a staging file, so a run that dies partway must not have
+    # clobbered whatever was already at output_path -- only a run that finishes
+    # replaces it.
+    config = tmp_path / "config.yaml"
+    config.write_text("columns:\n  - input_column: sample_id\n")
+    out = tmp_path / "out.tsv"
+    out.write_text("an earlier, good export\n")
+
+    # enough good rows to be staged before the ragged one aborts the run
+    bad_input = tmp_path / "ragged_late.tsv"
+    bad_input.write_text(
+        "sample_id\treads\n"
+        + "".join(f"SAMPLE_{i:03d}\t100\n" for i in range(50))
+        + "SAMPLE_BAD\t1\t2\t3\n"
+    )
+
+    with pytest.raises(InputTableError):
+        transform.run_export(bad_input, config, None, out, None)
+
+    assert out.read_text() == "an earlier, good export\n"
+    assert not (tmp_path / "out.tsv.tmp").exists()
+
+
+def test_successful_run_leaves_no_staging_file_behind(tmp_path):
+    out = tmp_path / "out.tsv"
+    transform.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
+    assert out.exists()
+    assert not (tmp_path / "out.tsv.tmp").exists()
+
+
+def _wide_pass_through_scenario(tmp_path, rows):
+    """A wide input plus a set_qc-only config, so every column passes through and
+    every row takes the pass-through path. Returns (input, config)."""
+    header = ["sample_id"] + [f"c{i}" for i in range(1, 100)]
+    input_tsv = tmp_path / f"wide_{rows}.tsv"
+    with input_tsv.open("w") as f:
+        f.write("\t".join(header) + "\n")
+        for r in range(rows):
+            f.write(
+                "\t".join([f"S{r:06d}"] + [f"v{r}_{c}" for c in range(1, 100)]) + "\n"
+            )
+    config = tmp_path / "set_qc_only.yaml"
+    config.write_text(
+        "set_qc:\n"
+        '  - rule_name: "every sample has a c1"\n'
+        "    match_samples:\n"
+        '      sample_pattern: "S"\n'
+        "    checks:\n"
+        "      - input_column: c1\n"
+        "        qc:\n"
+        "          - {operator: is_not_empty}\n"
+    )
+    return input_tsv, config
+
+
+def test_peak_memory_does_not_scale_with_row_count(tmp_path):
+    # Rows stream to a staging file instead of accumulating, so 10x the rows must
+    # not mean ~10x the memory. Only the sample-name list grows, which is tiny next
+    # to the cells -- measured at ~1.5x for 10x the rows, versus ~9x if anything
+    # ever starts buffering whole rows again.
+    def peak_for(rows):
+        input_tsv, config = _wide_pass_through_scenario(tmp_path, rows)
+        tracemalloc.start()
+        transform.run_export(
+            input_tsv, config, None, tmp_path / f"out_{rows}.tsv", None
+        )
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return peak
+
+    small = peak_for(200)
+    large = peak_for(2000)
+    assert large < small * 4, (
+        f"peak memory grew {large / small:.1f}x for 10x the rows "
+        f"({small} -> {large} bytes); rows may be accumulating in memory again"
+    )
 
 
 def test_no_config_no_samples_logs_nothing_to_do_not_passed_qc(tmp_path, caplog):

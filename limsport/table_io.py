@@ -6,10 +6,12 @@ External methods:
     - get_input_header()
     - iter_rows()
     - write_tsv()
+    - open_row_writer()
 """
 
 import csv
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from .exceptions import InputTableError
@@ -114,3 +116,28 @@ def write_tsv(
         )
         writer.writerow(header)
         writer.writerows(rows)
+
+
+@contextmanager
+def open_row_writer(path: Path, header: list[str], delimiter: str = "\t"):
+    """
+    Opens `path` for writing, writes the header, and yields a writer for the rows.
+
+    Use this instead of write_tsv() when the rows aren't all known up front, so they
+    never have to be held in memory at once. The csv settings are identical to
+    write_tsv(), so the two produce byte-identical files for the same rows.
+
+    Args:
+        path: the file to write, overwriting anything already there.
+        header: the column names to write as the first row.
+        delimiter: the delimiter to join cells with; defaults to a tab.
+
+    Yields:
+        An object whose .writerow(list[str]) appends one data row.
+    """
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(
+            f, delimiter=delimiter, lineterminator="\n", quoting=csv.QUOTE_MINIMAL
+        )
+        writer.writerow(header)
+        yield writer

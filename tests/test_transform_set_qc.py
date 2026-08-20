@@ -452,3 +452,48 @@ def test_set_qc_is_empty_fails_the_run_when_a_negative_control_has_contamination
     assert report_rows["NTC1"][3] == "is_empty"  # operator itself is still shown
     assert report_rows["NTC1"][4] == ""  # expected is blank -- is_empty takes no value
     assert report_rows["NTC1"][6] == "value 'Escherichia coli' is not empty"
+
+
+def test_set_qc_failure_stops_running_file_parsing_for_the_remaining_rows(tmp_path):
+    # Once a set_qc rule fails, the run can only produce a header, so no later row
+    # should be expanded -- which for file_parsing means no more subprocesses.
+    data = tmp_path / "data.txt"
+    data.write_text("42\n")
+    calls = tmp_path / "calls.log"
+
+    # NTC1 is the first row and violates the rule immediately
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text(
+        "sample_id\tdata_path\treads\n"
+        f"NTC1\t{data}\t9999\n"
+        + "".join(f"SAMPLE_{i:03d}\t{data}\t10\n" for i in range(20))
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "columns:\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: data_path\n"
+        "    file_parsing:\n"
+        "      - output_column: extracted\n"
+        "        command: |\n"
+        f'          echo call >> {calls}; cat "$FILE"\n'
+        "set_qc:\n"
+        '  - rule_name: "NTC reads are low"\n'
+        "    match_samples:\n"
+        '      sample_pattern: "NTC"\n'
+        "    checks:\n"
+        "      - input_column: reads\n"
+        "        qc:\n"
+        '          - {operator: "<=", value: 1000}\n'
+    )
+    out = tmp_path / "out.tsv"
+    qc_report = tmp_path / "qc_report.tsv"
+    transform.run_export(
+        input_tsv, config, None, out, qc_report, allow_file_parsing=True
+    )
+
+    # the whole run failed, so no rows and no file_parsing work at all
+    assert list(table_io.iter_rows(out)) == []
+    assert not calls.exists() or calls.read_text() == ""
+    # every sample is still accounted for: NTC1 in detail, the rest collateral
+    assert len(list(table_io.iter_rows(qc_report))) == 21
