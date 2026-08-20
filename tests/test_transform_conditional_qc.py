@@ -23,12 +23,12 @@ def _conditional_qc_scenario(tmp_path, default_block=""):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: taxon\n"
-        "  - name: assembly_length\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: taxon\n"
+        "  - input_column: assembly_length\n"
         "    qc:\n"
-        "      match: taxon\n"
-        "      rules:\n"
+        "      match_column: taxon\n"
+        "      cases:\n"
         '        "Escherichia coli":\n'
         '          - {operator: ">=", value: 4600000}\n'
         '          - {operator: "<=", value: 5900000}\n'
@@ -99,11 +99,11 @@ def test_conditional_qc_match_column_not_in_header_raises_before_output_created(
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: assembly_length\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: assembly_length\n"
         "    qc:\n"
-        "      match: taxon\n"  # not a column in the input header
-        "      rules:\n"
+        "      match_column: taxon\n"  # not a column in the input header
+        "      cases:\n"
         '        "x":\n          - {operator: ">=", value: 1}\n'
     )
     out = tmp_path / "out.tsv"
@@ -128,15 +128,15 @@ def _file_parsing_conditional_qc_scenario(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: taxon\n"
-        "  - name: data_path\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: taxon\n"
+        "  - input_column: data_path\n"
         "    file_parsing:\n"
-        "      - name: extracted\n"
+        "      - output_column: extracted\n"
         '        command: cat "$FILE"\n'
         "        qc:\n"
-        "          match: taxon\n"
-        "          rules:\n"
+        "          match_column: taxon\n"
+        "          cases:\n"
         '            "Escherichia coli":\n'
         '              - {operator: ">=", value: 4600000}\n'
         '            "Klebsiella pneumoniae":\n'

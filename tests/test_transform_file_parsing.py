@@ -51,10 +51,10 @@ def test_file_parsing_command_failure_aborts_whole_export(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: data_path\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: data_path\n"
         "    file_parsing:\n"
-        "      - name: extracted\n"
+        "      - output_column: extracted\n"
         "        command: exit 1\n"
     )
     out = tmp_path / "out.tsv"
@@ -76,8 +76,8 @@ def test_file_parsing_not_invoked_for_samples_filtered_out(tmp_path, monkeypatch
     samples.write_text("SAMPLE_001\n")  # SAMPLE_002 deliberately not requested
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n  - name: sample_id\n  - name: data_path\n    file_parsing:\n"
-        "      - name: extracted\n        command: cat\n"
+        "columns:\n  - input_column: sample_id\n  - input_column: data_path\n    file_parsing:\n"
+        "      - output_column: extracted\n        command: cat\n"
     )
 
     calls = []
@@ -108,11 +108,11 @@ def test_file_parsing_runs_independently_per_column_no_caching(tmp_path, monkeyp
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: path_a\n"
-        "    file_parsing:\n      - name: a_out\n        command: cat\n"
-        "  - name: path_b\n"
-        "    file_parsing:\n      - name: b_out\n        command: cat\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: path_a\n"
+        "    file_parsing:\n      - output_column: a_out\n        command: cat\n"
+        "  - input_column: path_b\n"
+        "    file_parsing:\n      - output_column: b_out\n        command: cat\n"
     )
 
     calls = []
@@ -142,18 +142,18 @@ def _multi_output_scenario(tmp_path, coverage_pct="99.98"):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: coverage_tsv\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: coverage_tsv\n"
         "    file_parsing:\n"
-        "      - name: mean_depth\n"
+        "      - output_column: mean_depth\n"
         '        command: awk -F"\\t" \'{print $2}\' "$FILE"\n'
         "        qc:\n"
         '          - {operator: ">=", value: 30}\n'
-        "      - name: coverage_pct\n"
+        "      - output_column: coverage_pct\n"
         '        command: awk -F"\\t" \'{print $3}\' "$FILE"\n'
         "        qc:\n"
         '          - {operator: ">=", value: 95}\n'
-        "      - name: mean_mapq\n"
+        "      - output_column: mean_mapq\n"
         '        command: awk -F"\\t" \'{print $4}\' "$FILE"\n'
     )
     return input_tsv, config
@@ -202,7 +202,9 @@ def test_allow_file_parsing_flag_is_harmless_when_config_has_no_file_parsing(tmp
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text("sample_id\tread_count\nSAMPLE_001\t5000\n")
     config = tmp_path / "config.yaml"
-    config.write_text("columns:\n  - name: sample_id\n  - name: read_count\n")
+    config.write_text(
+        "columns:\n  - input_column: sample_id\n  - input_column: read_count\n"
+    )
 
     out_with_flag = tmp_path / "with_flag.tsv"
     out_without_flag = tmp_path / "without_flag.tsv"

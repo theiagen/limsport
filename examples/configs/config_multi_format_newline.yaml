@@ -2,9 +2,9 @@
 # (after bash's own trailing-newline stripping), which cannot be written
 # into a single TSV cell. Aborts the whole export, same as a failing command.
 columns:
-  - name: sample_id
-  - name: metadata_json
+  - input_column: sample_id
+  - input_column: metadata_json
     file_parsing:
-      - name: mean_depth
+      - output_column: mean_depth
         command: |
           printf 'first line\nsecond line\n'

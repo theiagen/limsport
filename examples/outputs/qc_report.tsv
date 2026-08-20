@@ -1,4 +1,4 @@
-sample	column	output_column	operator	expected	actual	reason
+sample	input_column	output_column	operator	expected	actual	reason
 461023	est_coverage_clean	coverage	>=	30	NA	non-numeric value 'NA' cannot be compared with >= 30
 03-98DDCS	fastq_scan_num_reads_clean_pairs	read_pairs	>=	250000		missing value
 CL2021-00283104	n50_value	n50	>	15000	10000	10000.0 > 15000 is False

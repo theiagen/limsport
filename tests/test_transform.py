@@ -21,8 +21,8 @@ def config_qc_approx(tmp_path):
     path = tmp_path / "config_qc_approx.yaml"
     path.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: read_count\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: read_count\n"
         "    qc:\n"
         '      - {operator: "~=", value: 5000, tolerance_percent: 10}\n'
     )
@@ -31,7 +31,9 @@ def config_qc_approx(tmp_path):
 
 def config_dupe_reference(tmp_path):
     path = tmp_path / "config_dupe_reference.yaml"
-    path.write_text("columns:\n  - name: sample_id\n  - name: read_count\n")
+    path.write_text(
+        "columns:\n  - input_column: sample_id\n  - input_column: read_count\n"
+    )
     return path
 
 
@@ -60,7 +62,7 @@ def test_samples_only_filters_rows_preserves_columns(tmp_path):
     assert rows[0] == ["SAMPLE_001", "5000", "5000", "PASS"]
 
 
-def test_config_reorders_renames_and_drops_columns(tmp_path):
+def test_config_reorders_output_columns_and_drops_columns(tmp_path):
     out = tmp_path / "out.tsv"
     transform.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
     header = table_io.get_input_header(out)
@@ -80,11 +82,11 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: status\n"
-        "  - name: sample_id\n"
-        "  - name: notes\n"
-        "  - name: read_count\n"
-        "    rename: total_reads\n"
+        "  - input_column: status\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: notes\n"
+        "  - input_column: read_count\n"
+        "    output_column: total_reads\n"
     )
     out = tmp_path / "out.tsv"
     transform.run_export(input_basic(tmp_path), config, None, out, None)
@@ -253,8 +255,8 @@ def test_ragged_short_row_becomes_missing_value_not_a_crash(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: notes\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: notes\n"
         "    qc:\n"
         '      - {operator: "=", value: ok}\n'
     )
@@ -269,7 +271,7 @@ def test_ragged_short_row_becomes_missing_value_not_a_crash(tmp_path):
 
 def test_ragged_long_row_raises_before_output_created(tmp_path):
     config = tmp_path / "config.yaml"
-    config.write_text("columns:\n  - name: sample_id\n")
+    config.write_text("columns:\n  - input_column: sample_id\n")
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
         transform.run_export(input_ragged_long(tmp_path), config, None, out, None)

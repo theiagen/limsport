@@ -82,19 +82,21 @@ def config_basic(tmp_path):
     path = tmp_path / "config_basic.yaml"
     path.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: read_count\n"
-        "    rename: total_reads\n"
-        "  - name: status\n"
-        "    rename: Status\n"
-        "  - name: notes\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: read_count\n"
+        "    output_column: total_reads\n"
+        "  - input_column: status\n"
+        "    output_column: Status\n"
+        "  - input_column: notes\n"
     )
     return path
 
 
 def config_unknown_column(tmp_path):
     path = tmp_path / "config_unknown_column.yaml"
-    path.write_text("columns:\n  - name: sample_id\n  - name: does_not_exist\n")
+    path.write_text(
+        "columns:\n  - input_column: sample_id\n  - input_column: does_not_exist\n"
+    )
     return path
 
 
@@ -102,12 +104,12 @@ def config_qc_range(tmp_path):
     path = tmp_path / "config_qc_range.yaml"
     path.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: read_count\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: read_count\n"
         "    qc:\n"
         '      - {operator: ">=", value: 1000}\n'
         '      - {operator: "<=", value: 1000000}\n'
-        "  - name: status\n"
+        "  - input_column: status\n"
         "    qc:\n"
         '      - {operator: "=", value: PASS}\n'
     )
@@ -136,10 +138,10 @@ def file_parsing_scenario(tmp_path, *, data_content, command, qc_yaml=""):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: data_path\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: data_path\n"
         "    file_parsing:\n"
-        "      - name: extracted\n"
+        "      - output_column: extracted\n"
         f"        command: {command}\n"
         f"{qc_yaml}"
     )

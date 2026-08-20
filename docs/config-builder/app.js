@@ -5,7 +5,7 @@ import {
   NUMERIC_RE,
   newColumn,
   newCondition,
-  newRule,
+  newCase,
   newFileParsingOutput,
   newSetQCRule,
   newSetQCCheck,
@@ -270,7 +270,7 @@ function buildQCEditor(qc) {
   kindSelect.addEventListener("change", () => {
     qc.kind = kindSelect.value;
     if (qc.kind === "list" && qc.conditions.length === 0) qc.conditions.push(newCondition());
-    if (qc.kind === "conditional" && qc.rules.length === 0) qc.rules.push(newRule());
+    if (qc.kind === "conditional" && qc.cases.length === 0) qc.cases.push(newCase());
     renderBody();
     refreshPreview();
   });
@@ -286,24 +286,24 @@ function buildConditionalQCEditor(qc) {
   const matchInput = el("input", {
     type: "text",
     placeholder: "column name whose value picks the rule, e.g. predicted_taxon",
-    value: qc.match,
+    value: qc.matchColumn,
   });
   matchInput.addEventListener("input", () => {
-    qc.match = matchInput.value;
+    qc.matchColumn = matchInput.value;
     refreshPreview();
   });
 
-  const rulesContainer = el("div", { class: "rules" });
+  const casesContainer = el("div", { class: "rules" });
 
-  function renderRule(rule) {
+  function renderCase(qcCase) {
     const keyInput = el("input", {
       type: "text",
       class: "rule-key",
       placeholder: 'value to match, e.g. "Escherichia coli"',
-      value: rule.key,
+      value: qcCase.key,
     });
     keyInput.addEventListener("input", () => {
-      rule.key = keyInput.value;
+      qcCase.key = keyInput.value;
       refreshPreview();
     });
 
@@ -313,33 +313,33 @@ function buildConditionalQCEditor(qc) {
       title: "Remove rule",
       text: "✕",
       onclick: () => {
-        const idx = qc.rules.indexOf(rule);
-        if (idx >= 0) qc.rules.splice(idx, 1);
-        ruleBlock.remove();
+        const idx = qc.cases.indexOf(qcCase);
+        if (idx >= 0) qc.cases.splice(idx, 1);
+        caseBlock.remove();
         refreshPreview();
       },
     });
 
     const header = el("div", { class: "rule-header" }, [keyInput, removeBtn]);
-    const conditionsEditor = buildConditionsEditor(rule.conditions);
-    const ruleBlock = el("div", { class: "rule-block" }, [header, conditionsEditor]);
-    return ruleBlock;
+    const conditionsEditor = buildConditionsEditor(qcCase.conditions);
+    const caseBlock = el("div", { class: "rule-block" }, [header, conditionsEditor]);
+    return caseBlock;
   }
 
-  for (const rule of qc.rules) rulesContainer.appendChild(renderRule(rule));
+  for (const qcCase of qc.cases) casesContainer.appendChild(renderCase(qcCase));
 
-  const addRuleBtn = el("button", {
+  const addCaseBtn = el("button", {
     type: "button",
     class: "btn-add",
     text: "+ Add rule",
     onclick: () => {
-      const rule = newRule();
-      qc.rules.push(rule);
-      rulesContainer.insertBefore(renderRule(rule), addRuleBtn);
+      const qcCase = newCase();
+      qc.cases.push(qcCase);
+      casesContainer.insertBefore(renderCase(qcCase), addCaseBtn);
       refreshPreview();
     },
   });
-  rulesContainer.appendChild(addRuleBtn);
+  casesContainer.appendChild(addCaseBtn);
 
   const defaultToggle = el("label", { class: "checkbox-field" });
   const defaultCheckbox = el("input", { type: "checkbox" });
@@ -369,7 +369,7 @@ function buildConditionalQCEditor(qc) {
 
   container.append(
     labeledField("Match column", matchInput),
-    rulesContainer,
+    casesContainer,
     hint,
     defaultToggle,
     defaultBody
@@ -388,12 +388,12 @@ function buildFileParsingEditor(column) {
   function renderOutput(fp) {
     const summarySpan = el("span", { class: "output-summary" });
     function updateSummary() {
-      summarySpan.textContent = fp.name.trim() || "( )";
+      summarySpan.textContent = fp.outputColumn.trim() || "( )";
     }
 
-    const nameInput = el("input", { type: "text", placeholder: "output column name, e.g. mean_depth", value: fp.name });
+    const nameInput = el("input", { type: "text", placeholder: "output column name, e.g. mean_depth", value: fp.outputColumn });
     nameInput.addEventListener("input", () => {
-      fp.name = nameInput.value;
+      fp.outputColumn = nameInput.value;
       updateSummary();
       refreshPreview();
     });
@@ -542,10 +542,10 @@ function buildSetQCChecksEditor(rule) {
       type: "text",
       class: "rule-key",
       placeholder: "column to check, e.g. reads",
-      value: check.column,
+      value: check.inputColumn,
     });
     columnInput.addEventListener("input", () => {
-      check.column = columnInput.value;
+      check.inputColumn = columnInput.value;
       refreshPreview();
     });
 
@@ -555,8 +555,8 @@ function buildSetQCChecksEditor(rule) {
       title: "Remove this column check",
       text: "✕",
       onclick: () => {
-        const idx = rule.columns.indexOf(check);
-        if (idx >= 0) rule.columns.splice(idx, 1);
+        const idx = rule.checks.indexOf(check);
+        if (idx >= 0) rule.checks.splice(idx, 1);
         block.remove();
         refreshPreview();
       },
@@ -568,7 +568,7 @@ function buildSetQCChecksEditor(rule) {
     return block;
   }
 
-  for (const check of rule.columns) container.appendChild(renderCheck(check));
+  for (const check of rule.checks) container.appendChild(renderCheck(check));
 
   const addBtn = el("button", {
     type: "button",
@@ -576,7 +576,7 @@ function buildSetQCChecksEditor(rule) {
     text: "+ Add another column to check",
     onclick: () => {
       const check = newSetQCCheck();
-      rule.columns.push(check);
+      rule.checks.push(check);
       container.insertBefore(renderCheck(check), addBtn);
       refreshPreview();
     },
@@ -589,17 +589,17 @@ function buildSetQCChecksEditor(rule) {
 function buildSetQCRuleCard(rule) {
   const summarySpan = el("span", { class: "column-summary" });
   function updateSummary() {
-    summarySpan.textContent = rule.name.trim() || "( )";
+    summarySpan.textContent = rule.ruleName.trim() || "( )";
   }
 
-  const nameInput = el("input", { type: "text", placeholder: "e.g. NTC read count", value: rule.name });
+  const nameInput = el("input", { type: "text", placeholder: "e.g. NTC read count", value: rule.ruleName });
   nameInput.addEventListener("input", () => {
-    rule.name = nameInput.value;
+    rule.ruleName = nameInput.value;
     updateSummary();
     refreshPreview();
   });
 
-  const matchEditor = buildSetQCMatchEditor(rule.match);
+  const matchEditor = buildSetQCMatchEditor(rule.matchSamples);
   const checksEditor = buildSetQCChecksEditor(rule);
   const checksSection = el("div", { class: "section" }, [el("h4", { text: "Columns to check" }), checksEditor]);
 
@@ -659,27 +659,27 @@ function addSetQCRule(rule) {
 function buildColumnCard(col) {
   const summarySpan = el("span", { class: "column-summary" });
   function updateSummary() {
-    const label = col.name.trim() || "( )";
+    const label = col.inputColumn.trim() || "( )";
     const bits = [];
     if (col.isFileParsing) bits.push("file parsing");
-    else if (col.rename.trim()) bits.push(`→ ${col.rename.trim()}`);
+    else if (col.outputColumn.trim()) bits.push(`→ ${col.outputColumn.trim()}`);
     summarySpan.textContent = bits.length ? `${label} (${bits.join(", ")})` : label;
   }
 
-  const nameInput = el("input", { type: "text", placeholder: "column name as it appears in your input table", value: col.name });
+  const nameInput = el("input", { type: "text", placeholder: "column name as it appears in your input table", value: col.inputColumn });
   nameInput.addEventListener("input", () => {
-    col.name = nameInput.value;
+    col.inputColumn = nameInput.value;
     updateSummary();
     refreshPreview();
   });
 
-  const renameInput = el("input", { type: "text", placeholder: "optional new name for the output", value: col.rename });
-  renameInput.addEventListener("input", () => {
-    col.rename = renameInput.value;
+  const outputColumnInput = el("input", { type: "text", placeholder: "optional new name for the output", value: col.outputColumn });
+  outputColumnInput.addEventListener("input", () => {
+    col.outputColumn = outputColumnInput.value;
     updateSummary();
     refreshPreview();
   });
-  const renameField = labeledField("Output column name (optional)", renameInput);
+  const outputColumnField = labeledField("Output column name (optional)", outputColumnInput);
 
   const fileParsingCheckbox = el("input", { type: "checkbox" });
   fileParsingCheckbox.checked = col.isFileParsing;
@@ -695,7 +695,7 @@ function buildColumnCard(col) {
   const fileParsingSection = el("div", { class: "section" }, [el("h4", { text: "File parsing outputs" }), fileParsingEditor]);
 
   function syncMode() {
-    renameField.classList.toggle("hidden", col.isFileParsing);
+    outputColumnField.classList.toggle("hidden", col.isFileParsing);
     qcSection.classList.toggle("hidden", col.isFileParsing);
     fileParsingSection.classList.toggle("hidden", !col.isFileParsing);
     updateSummary();
@@ -723,7 +723,7 @@ function buildColumnCard(col) {
 
   const body = el("div", { class: "column-body" }, [
     labeledField("Source column name", nameInput),
-    renameField,
+    outputColumnField,
     fileParsingToggle,
     qcSection,
     fileParsingSection,

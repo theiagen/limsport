@@ -45,19 +45,19 @@ export function newCondition() {
   };
 }
 
-export function newRule() {
+export function newCase() {
   return { id: nextId(), key: "", conditions: [newCondition()] };
 }
 
 export function newQC() {
   // kind: "none" | "list" | "conditional"
-  return { kind: "none", conditions: [], match: "", rules: [], useDefault: false, default: [] };
+  return { kind: "none", conditions: [], matchColumn: "", cases: [], useDefault: false, default: [] };
 }
 
 export function newFileParsingOutput() {
   return {
     id: nextId(),
-    name: "",
+    outputColumn: "",
     command: "",
     timeoutSeconds: "",
     qc: newQC(),
@@ -67,9 +67,9 @@ export function newFileParsingOutput() {
 export function newColumn() {
   return {
     id: nextId(),
-    name: "",
+    inputColumn: "",
     isFileParsing: false,
-    rename: "",
+    outputColumn: "",
     qc: newQC(),
     fileParsing: [newFileParsingOutput()],
   };
@@ -82,18 +82,19 @@ export function newSetQCMatch() {
 }
 
 export function newSetQCCheck() {
-  return { id: nextId(), column: "", conditions: [newCondition()] };
+  return { id: nextId(), inputColumn: "", conditions: [newCondition()] };
 }
 
 export function newSetQCRule() {
-  // columns: one or more {column, qc} checks, all read from the same
+  // columns: one or more {input_column, qc} checks (emitted as `checks:`),
+  // all read from the same
   // matched sample(s) -- lets one rule check e.g. both read count and
   // contamination percent without repeating `match` across separate rules.
   return {
     id: nextId(),
-    name: "",
-    match: newSetQCMatch(),
-    columns: [newSetQCCheck()],
+    ruleName: "",
+    matchSamples: newSetQCMatch(),
+    checks: [newSetQCCheck()],
   };
 }
 
@@ -169,7 +170,7 @@ function buildConditionList(conditions, label, errors) {
     .filter(Boolean);
 }
 
-/** Returns a plain `qc` value (array or {match, rules, default}), or undefined if there's no QC. */
+/** Returns a plain `qc` value (array or {match_column, cases, default}), or undefined if there's no QC. */
 function buildQC(qc, label, errors) {
   if (!qc || qc.kind === "none") return undefined;
 
@@ -179,25 +180,25 @@ function buildQC(qc, label, errors) {
   }
 
   // conditional
-  const match = (qc.match ?? "").trim();
-  if (!match) errors.push(`${label}: conditional qc requires a "match" column name`);
-  if (!qc.rules.length) errors.push(`${label}: conditional qc requires at least one rule`);
+  const matchColumn = (qc.matchColumn ?? "").trim();
+  if (!matchColumn) errors.push(`${label}: conditional qc requires a "match_column" name`);
+  if (!qc.cases.length) errors.push(`${label}: conditional qc requires at least one case`);
 
-  const rules = {};
-  const ruleKeys = [];
-  qc.rules.forEach((rule, i) => {
-    const key = (rule.key ?? "").trim();
-    const ruleLabel = `${label} rule "${key || `#${i + 1}`}"`;
-    if (!key) errors.push(`${ruleLabel}: rule key is required`);
-    ruleKeys.push(key);
-    const conditions = buildConditionList(rule.conditions, ruleLabel, errors);
-    if (!conditions.length) errors.push(`${ruleLabel}: needs at least one condition`);
-    if (key) rules[key] = conditions;
+  const cases = {};
+  const caseKeys = [];
+  qc.cases.forEach((qcCase, i) => {
+    const key = (qcCase.key ?? "").trim();
+    const caseLabel = `${label} case "${key || `#${i + 1}`}"`;
+    if (!key) errors.push(`${caseLabel}: case key is required`);
+    caseKeys.push(key);
+    const conditions = buildConditionList(qcCase.conditions, caseLabel, errors);
+    if (!conditions.length) errors.push(`${caseLabel}: needs at least one condition`);
+    if (key) cases[key] = conditions;
   });
-  const dupeKeys = findDuplicates(ruleKeys.filter(Boolean));
-  if (dupeKeys.length) errors.push(`${label}: duplicate rule key(s): ${dupeKeys.join(", ")}`);
+  const dupeKeys = findDuplicates(caseKeys.filter(Boolean));
+  if (dupeKeys.length) errors.push(`${label}: duplicate case key(s): ${dupeKeys.join(", ")}`);
 
-  const result = { match, rules };
+  const result = { match_column: matchColumn, cases };
   if (qc.useDefault) {
     const def = buildConditionList(qc.default, `${label} default`, errors);
     if (def.length) result.default = def;
@@ -238,33 +239,33 @@ function buildSetQCMatch(match, label, errors) {
   return { samples };
 }
 
-/** Returns a plain `column`/`qc` check within a set_qc rule, or null if it has unrecoverable errors. */
+/** Returns a plain `input_column`/`qc` check within a set_qc rule, or null if it has unrecoverable errors. */
 function buildSetQCCheck(check, label, errors) {
-  const checkLabel = `${label} > column "${check.column.trim() || "( )"}"`;
-  if (!check.column.trim()) errors.push(`${checkLabel}: column is required`);
+  const checkLabel = `${label} > column "${check.inputColumn.trim() || "( )"}"`;
+  if (!check.inputColumn.trim()) errors.push(`${checkLabel}: column is required`);
   const conditions = buildConditionList(check.conditions, checkLabel, errors);
   if (!conditions.length) errors.push(`${checkLabel}: needs at least one condition`);
 
-  if (!check.column.trim() || !conditions.length) return null;
-  return { column: check.column.trim(), qc: conditions };
+  if (!check.inputColumn.trim() || !conditions.length) return null;
+  return { input_column: check.inputColumn.trim(), qc: conditions };
 }
 
 /** Returns a plain `set_qc` rule, or null if it has unrecoverable errors. */
 function buildSetQCRule(rule, idx, errors) {
-  const label = rule.name.trim() || `set_qc rule #${idx + 1}`;
-  if (!rule.name.trim()) errors.push(`${label}: name is required`);
+  const label = rule.ruleName.trim() || `set_qc rule #${idx + 1}`;
+  if (!rule.ruleName.trim()) errors.push(`${label}: name is required`);
 
-  const match = buildSetQCMatch(rule.match, label, errors);
-  const checks = rule.columns.map((c) => buildSetQCCheck(c, label, errors)).filter(Boolean);
-  if (!rule.columns.length) errors.push(`${label}: needs at least one column to check`);
+  const match = buildSetQCMatch(rule.matchSamples, label, errors);
+  const checks = rule.checks.map((c) => buildSetQCCheck(c, label, errors)).filter(Boolean);
+  if (!rule.checks.length) errors.push(`${label}: needs at least one column to check`);
 
-  const columnDupes = findDuplicates(rule.columns.map((c) => c.column.trim()).filter(Boolean));
+  const columnDupes = findDuplicates(rule.checks.map((c) => c.inputColumn.trim()).filter(Boolean));
   if (columnDupes.length) errors.push(`${label}: duplicate column(s) within this rule: ${columnDupes.join(", ")}`);
 
-  if (!rule.name.trim() || match === null || checks.length !== rule.columns.length || !checks.length) {
+  if (!rule.ruleName.trim() || match === null || checks.length !== rule.checks.length || !checks.length) {
     return null;
   }
-  return { name: rule.name.trim(), match, columns: checks };
+  return { rule_name: rule.ruleName.trim(), match_samples: match, checks };
 }
 
 /**
@@ -286,8 +287,8 @@ export function buildConfig(columns, setQCRules = []) {
   }
 
   const plainColumns = columns.map((col, idx) => {
-    const label = col.name.trim() || `Column #${idx + 1}`;
-    if (!col.name.trim()) errors.push(`${label}: name is required`);
+    const label = col.inputColumn.trim() || `Column #${idx + 1}`;
+    if (!col.inputColumn.trim()) errors.push(`${label}: name is required`);
 
     if (col.isFileParsing) {
       if (!col.fileParsing.length) {
@@ -295,14 +296,14 @@ export function buildConfig(columns, setQCRules = []) {
       }
       const outputNames = [];
       const outputs = col.fileParsing.map((fp, fpIdx) => {
-        const fpLabel = `${label} > output "${fp.name.trim() || `#${fpIdx + 1}`}"`;
-        const name = fp.name.trim();
+        const fpLabel = `${label} > output "${fp.outputColumn.trim() || `#${fpIdx + 1}`}"`;
+        const name = fp.outputColumn.trim();
         if (!name) errors.push(`${fpLabel}: output name is required`);
         if (!fp.command.trim()) errors.push(`${fpLabel}: command is required`);
         outputNames.push(name);
         if (name) outputProvenance.push({ name, source: fpLabel });
 
-        const out = { name, command: fp.command };
+        const out = { output_column: name, command: fp.command };
         const rawTimeout = (fp.timeoutSeconds ?? "").toString().trim();
         if (rawTimeout) {
           const timeout = Number(rawTimeout);
@@ -318,19 +319,19 @@ export function buildConfig(columns, setQCRules = []) {
       });
       const dupes = findDuplicates(outputNames.filter(Boolean));
       if (dupes.length) errors.push(`${label}: duplicate file_parsing output name(s): ${dupes.join(", ")}`);
-      return { name: col.name.trim(), file_parsing: outputs };
+      return { input_column: col.inputColumn.trim(), file_parsing: outputs };
     }
 
-    const entry = { name: col.name.trim() };
-    if (col.rename.trim()) entry.rename = col.rename.trim();
+    const entry = { input_column: col.inputColumn.trim() };
+    if (col.outputColumn.trim()) entry.output_column = col.outputColumn.trim();
     const qc = buildQC(col.qc, label, errors);
     if (qc !== undefined) entry.qc = qc;
-    const outputName = (entry.rename || entry.name).trim();
+    const outputName = (entry.output_column || entry.input_column).trim();
     if (outputName) outputProvenance.push({ name: outputName, source: label });
     return entry;
   });
 
-  const nameDupes = findDuplicates(columns.map((c) => c.name.trim()).filter(Boolean));
+  const nameDupes = findDuplicates(columns.map((c) => c.inputColumn.trim()).filter(Boolean));
   if (nameDupes.length) errors.push(`Duplicate column name(s): ${nameDupes.join(", ")}`);
 
   // Group every produced name by its sources (column label, or "column >
@@ -350,7 +351,7 @@ export function buildConfig(columns, setQCRules = []) {
   }
 
   const plainSetQC = setQCRules.map((rule, idx) => buildSetQCRule(rule, idx, errors)).filter(Boolean);
-  const setQCNameDupes = findDuplicates(setQCRules.map((r) => r.name.trim()).filter(Boolean));
+  const setQCNameDupes = findDuplicates(setQCRules.map((r) => r.ruleName.trim()).filter(Boolean));
   if (setQCNameDupes.length) errors.push(`Duplicate set_qc rule name(s): ${setQCNameDupes.join(", ")}`);
 
   const plain = { columns: plainColumns };
@@ -415,9 +416,9 @@ function renderQC(qc, kInd) {
   if (Array.isArray(qc)) {
     return `${kInd}qc:\n${renderConditionList(qc, contentInd)}`;
   }
-  const lines = [`${kInd}qc:`, `${contentInd}match: ${yamlScalar(qc.match)}`, `${contentInd}rules:`];
+  const lines = [`${kInd}qc:`, `${contentInd}match_column: ${yamlScalar(qc.match_column)}`, `${contentInd}cases:`];
   const rulesInd = `${contentInd}  `;
-  for (const [key, conditions] of Object.entries(qc.rules)) {
+  for (const [key, conditions] of Object.entries(qc.cases)) {
     lines.push(`${rulesInd}${yamlKey(key)}:`);
     lines.push(renderConditionList(conditions, `${rulesInd}  `));
   }
@@ -437,7 +438,7 @@ function renderCommandBlock(command, kInd) {
 
 function renderFileParsingOutput(fp, dashInd) {
   const kInd = `${dashInd}  `;
-  const lines = [`${dashInd}- name: ${yamlScalar(fp.name)}`];
+  const lines = [`${dashInd}- output_column: ${yamlScalar(fp.output_column)}`];
   lines.push(renderCommandBlock(fp.command, kInd));
   if (fp.timeout_seconds !== undefined) {
     lines.push(`${kInd}timeout_seconds: ${yamlScalar(fp.timeout_seconds)}`);
@@ -448,8 +449,8 @@ function renderFileParsingOutput(fp, dashInd) {
 
 function renderColumn(col, dashInd) {
   const kInd = `${dashInd}  `;
-  const lines = [`${dashInd}- name: ${yamlScalar(col.name)}`];
-  if (col.rename) lines.push(`${kInd}rename: ${yamlScalar(col.rename)}`);
+  const lines = [`${dashInd}- input_column: ${yamlScalar(col.input_column)}`];
+  if (col.output_column) lines.push(`${kInd}output_column: ${yamlScalar(col.output_column)}`);
   if (col.qc !== undefined) lines.push(renderQC(col.qc, kInd));
   if (col.file_parsing) {
     lines.push(`${kInd}file_parsing:`);
@@ -464,28 +465,28 @@ function renderColumn(col, dashInd) {
 function renderSetQCMatch(match, kInd) {
   const contentInd = `${kInd}  `;
   if (match.sample_pattern !== undefined) {
-    return `${kInd}match:\n${contentInd}sample_pattern: ${yamlKey(match.sample_pattern)}`;
+    return `${kInd}match_samples:\n${contentInd}sample_pattern: ${yamlKey(match.sample_pattern)}`;
   }
   if (match.sample_regex !== undefined) {
-    return `${kInd}match:\n${contentInd}sample_regex: ${yamlKey(match.sample_regex)}`;
+    return `${kInd}match_samples:\n${contentInd}sample_regex: ${yamlKey(match.sample_regex)}`;
   }
   const samples = match.samples.map((s) => yamlKey(s)).join(", ");
-  return `${kInd}match:\n${contentInd}samples: [${samples}]`;
+  return `${kInd}match_samples:\n${contentInd}samples: [${samples}]`;
 }
 
 function renderSetQCCheck(check, dashInd) {
   const kInd = `${dashInd}  `;
-  const lines = [`${dashInd}- column: ${yamlScalar(check.column)}`, `${kInd}qc:`];
+  const lines = [`${dashInd}- input_column: ${yamlScalar(check.input_column)}`, `${kInd}qc:`];
   lines.push(renderConditionList(check.qc, `${kInd}  `));
   return lines.join("\n");
 }
 
 function renderSetQCRule(rule, dashInd) {
   const kInd = `${dashInd}  `;
-  const lines = [`${dashInd}- name: ${yamlKey(rule.name)}`];
-  lines.push(renderSetQCMatch(rule.match, kInd));
-  lines.push(`${kInd}columns:`);
-  rule.columns.forEach((check) => lines.push(renderSetQCCheck(check, `${kInd}  `)));
+  const lines = [`${dashInd}- rule_name: ${yamlKey(rule.rule_name)}`];
+  lines.push(renderSetQCMatch(rule.match_samples, kInd));
+  lines.push(`${kInd}checks:`);
+  rule.checks.forEach((check) => lines.push(renderSetQCCheck(check, `${kInd}  `)));
   return lines.join("\n");
 }
 

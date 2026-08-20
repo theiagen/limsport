@@ -3,9 +3,9 @@
 # "mean_depth"). The resulting Python KeyError is a non-zero exit, which
 # aborts the whole export just like any other file_parsing command failure.
 columns:
-  - name: sample_id
-  - name: metadata_json
+  - input_column: sample_id
+  - input_column: metadata_json
     file_parsing:
-      - name: mean_depth
+      - output_column: mean_depth
         command: |
           python3 -c "import json; print(json.load(open('$FILE'))['run']['metrics']['depth'])"

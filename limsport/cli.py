@@ -1,4 +1,11 @@
-"""argparse entry point for the `limsport` command"""
+"""
+argparse entry point for the `limsport` command
+
+External methods:
+    - existing_file()
+    - build_parser()
+    - main()
+"""
 
 import argparse
 import logging
@@ -14,13 +21,13 @@ def existing_file(value: str) -> Path:
     Confirms that an input file must already exist
 
     Args:
-      value: the path string given on the command line.
+        value: the path string given on the command line.
 
     Returns:
-      The value as a Path.
+        The value as a Path.
 
     Raises:
-      argparse.ArgumentTypeError: if the path does not exist or is not a file.
+        argparse.ArgumentTypeError: if the path does not exist or is not a file.
     """
     path = Path(value)
     if not path.is_file():
@@ -33,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     Builds the argparse parser for the LIMSport CLI.
 
     Returns:
-      The parser with every LIMSport option registered.
+        The parser with every LIMSport option registered.
     """
     parser = argparse.ArgumentParser(
         prog="limsport",
@@ -90,11 +97,11 @@ def main(argv: list[str] | None = None) -> int:
     Sets up logging, parses the arguments, and runs the export.
 
     Args:
-      argv: the argument list to parse, or None to read them from sys.argv.
+        argv: the argument list to parse, or None to read them from sys.argv.
 
     Returns:
-      The process exit code -- 0 on success, 1 if the export raised a
-      LIMSportError or an OSError.
+        The process exit code -- 0 on success, 1 if the export raised a
+        LIMSportError or an OSError.
     """
     logging.basicConfig(
         level=logging.INFO,

@@ -85,37 +85,37 @@ test("full example multi-format adjunct: single-output, multi-output, and a thir
 
 test("validation: duplicate column names are rejected", () => {
   const a = newColumn();
-  a.name = "sample_id";
+  a.inputColumn = "sample_id";
   const b = newColumn();
-  b.name = "sample_id";
+  b.inputColumn = "sample_id";
   const { errors } = buildConfig([a, b]);
   assert.ok(errors.some((e) => e.includes("Duplicate column name")));
 });
 
 test("validation: duplicate output names (rename vs. plain name) are rejected", () => {
   const a = newColumn();
-  a.name = "sample_id";
+  a.inputColumn = "sample_id";
   const b = newColumn();
-  b.name = "other_id";
-  b.rename = "sample_id";
+  b.inputColumn = "other_id";
+  b.outputColumn = "sample_id";
   const { errors } = buildConfig([a, b]);
   assert.ok(errors.some((e) => e.includes("Duplicate output column name")));
 });
 
 test("validation: duplicate file_parsing output names across two different columns are rejected, naming both sources", () => {
   const a = newColumn();
-  a.name = "file_a";
+  a.inputColumn = "file_a";
   a.isFileParsing = true;
   const outA = newFileParsingOutput();
-  outA.name = "value";
+  outA.outputColumn = "value";
   outA.command = 'cat "$FILE"';
   a.fileParsing = [outA];
 
   const b = newColumn();
-  b.name = "file_b";
+  b.inputColumn = "file_b";
   b.isFileParsing = true;
   const outB = newFileParsingOutput();
-  outB.name = "value";
+  outB.outputColumn = "value";
   outB.command = 'cat "$FILE"';
   b.fileParsing = [outB];
 
@@ -128,7 +128,7 @@ test("validation: duplicate file_parsing output names across two different colum
 
 test("validation: non-EQ operator with a non-numeric value is rejected", () => {
   const col = newColumn();
-  col.name = "status";
+  col.inputColumn = "status";
   col.qc = { kind: "list", conditions: [condition(">=", "PASS")] };
   const { errors } = buildConfig([col]);
   assert.ok(errors.some((e) => e.includes("requires a numeric value")));
@@ -136,7 +136,7 @@ test("validation: non-EQ operator with a non-numeric value is rejected", () => {
 
 test("validation: '~=' without tolerance_percent is rejected", () => {
   const col = newColumn();
-  col.name = "length";
+  col.inputColumn = "length";
   const cond = newCondition();
   cond.operator = "~=";
   cond.value = "1000000";
@@ -147,28 +147,29 @@ test("validation: '~=' without tolerance_percent is rejected", () => {
 
 test("validation: tolerance_percent on a non-'~=' operator is rejected", () => {
   const col = newColumn();
-  col.name = "length";
+  col.inputColumn = "length";
   col.qc = { kind: "list", conditions: [condition(">=", 1000, 5)] };
   const { errors } = buildConfig([col]);
   assert.ok(errors.some((e) => e.includes("tolerance_percent is only valid with operator")));
 });
 
 test("validation: a column that is both renamed and file_parsing-enabled cannot happen via the wizard's own state shape (mutual exclusivity is structural)", () => {
-  // The wizard toggles `isFileParsing` and only renders/collects rename+qc
-  // OR file_parsing, never both -- buildConfig() reflects that by simply
-  // never emitting `rename`/`qc` alongside `file_parsing` regardless of
-  // leftover state, matching config.py's model_validator.
+  // The wizard toggles `isFileParsing` and only renders/collects its
+  // rename+qc state OR file_parsing, never both -- buildConfig() reflects
+  // that by simply never emitting `output_column`/`qc` alongside
+  // `file_parsing` regardless of leftover state, matching config.py's
+  // model_validator.
   const col = newColumn();
-  col.name = "metadata_json";
-  col.rename = "should_be_ignored";
+  col.inputColumn = "metadata_json";
+  col.outputColumn = "should_be_ignored";
   col.isFileParsing = true;
   const output = newFileParsingOutput();
-  output.name = "value";
+  output.outputColumn = "value";
   output.command = "cat \"$FILE\"";
   col.fileParsing = [output];
   const { plain, errors } = buildConfig([col]);
   assert.deepEqual(errors, []);
-  assert.equal(plain.columns[0].rename, undefined);
+  assert.equal(plain.columns[0].output_column, undefined);
   assert.equal(plain.columns[0].qc, undefined);
 });
 
@@ -180,9 +181,9 @@ test("validation: an empty column name is rejected", () => {
 
 test("validation: a genuinely invalid config (duplicate names) is also rejected by the real load_config()", () => {
   const a = newColumn();
-  a.name = "sample_id";
+  a.inputColumn = "sample_id";
   const b = newColumn();
-  b.name = "sample_id";
+  b.inputColumn = "sample_id";
   // Bypass client-side validation on purpose to prove load_config() itself
   // would catch this if the client-side check were ever removed/buggy.
   const { plain } = buildConfig([a, b]);
@@ -197,7 +198,7 @@ test("validation: a genuinely invalid config (duplicate names) is also rejected 
 
 test("validation: 'contains'/'does_not_contain' with a non-numeric value round - trip through the real load_config()", () => {
   const col = newColumn();
-  col.name = "organism";
+  col.inputColumn = "organism";
   col.qc = {
     kind: "list",
     conditions: [condition("contains", "Escherichia"), condition("does_not_contain", "contaminant")],
@@ -223,7 +224,7 @@ test("validation: 'contains'/'does_not_contain' with a non-numeric value round -
 
 test("validation: 'contains' does not require a numeric value (unlike other non-EQ operators)", () => {
   const col = newColumn();
-  col.name = "organism";
+  col.inputColumn = "organism";
   col.qc = { kind: "list", conditions: [condition("contains", "Escherichia")] };
   const { errors } = buildConfig([col]);
   assert.deepEqual(errors, []);
@@ -231,11 +232,11 @@ test("validation: 'contains' does not require a numeric value (unlike other non-
 
 test("validation: 'is_empty'/'is_not_empty' take no value, and round-trip through the real load_config()", () => {
   const col = newColumn();
-  col.name = "detected_organism";
+  col.inputColumn = "detected_organism";
   const isEmpty = newCondition();
   isEmpty.operator = "is_empty";
   const col2 = newColumn();
-  col2.name = "notes";
+  col2.inputColumn = "notes";
   const isNotEmpty = newCondition();
   isNotEmpty.operator = "is_not_empty";
   col.qc = { kind: "list", conditions: [isEmpty] };
@@ -261,7 +262,7 @@ test("validation: 'is_empty'/'is_not_empty' take no value, and round-trip throug
 
 test("validation: a leftover value on 'is_empty' is dropped entirely, not rejected or passed through", () => {
   const col = newColumn();
-  col.name = "detected_organism";
+  col.inputColumn = "detected_organism";
   const cond = newCondition();
   cond.operator = "is_empty";
   cond.value = "Escherichia"; // leftover state from a previous operator
@@ -284,7 +285,7 @@ test("validation: a leftover value on 'is_empty' is dropped entirely, not reject
 
 test("validation: case_insensitive: true round-trips through the real load_config(), and is omitted by default", () => {
   const col = newColumn();
-  col.name = "organism";
+  col.inputColumn = "organism";
   const caseInsensitive = newCondition();
   caseInsensitive.operator = "contains";
   caseInsensitive.value = "Escherichia";
@@ -306,7 +307,7 @@ test("validation: case_insensitive: true round-trips through the real load_confi
 
   // default (case_insensitive left false) shouldn't appear in the emitted YAML at all
   const defaultCol = newColumn();
-  defaultCol.name = "status";
+  defaultCol.inputColumn = "status";
   defaultCol.qc = { kind: "list", conditions: [condition("=", "PASS")] };
   const { plain: defaultPlain, errors: defaultErrors } = buildConfig([defaultCol]);
   assert.deepEqual(defaultErrors, []);
@@ -315,7 +316,7 @@ test("validation: case_insensitive: true round-trips through the real load_confi
 
 test("validation: case_insensitive: true on a numeric-valued condition is rejected", () => {
   const col = newColumn();
-  col.name = "read_count";
+  col.inputColumn = "read_count";
   const cond = newCondition();
   cond.operator = ">=";
   cond.value = "1000";
@@ -327,7 +328,7 @@ test("validation: case_insensitive: true on a numeric-valued condition is reject
 
 test("validation: '=' with a numeric-looking value defaults to a number, even with case_insensitive requested", () => {
   const col = newColumn();
-  col.name = "status";
+  col.inputColumn = "status";
   const cond = newCondition();
   cond.operator = "=";
   cond.value = "1000";
@@ -339,7 +340,7 @@ test("validation: '=' with a numeric-looking value defaults to a number, even wi
 
 test("validation: '=' with forceString treats a numeric-looking value as a string, and allows case_insensitive", () => {
   const col = newColumn();
-  col.name = "status";
+  col.inputColumn = "status";
   const cond = newCondition();
   cond.operator = "=";
   cond.value = "1000";
@@ -366,7 +367,7 @@ test("validation: '=' with forceString treats a numeric-looking value as a strin
 
 test("serialization: string-operator values are always quoted, even when plain alphanumeric, and load_config() preserves them exactly", () => {
   const col = newColumn();
-  col.name = "status";
+  col.inputColumn = "status";
   col.qc = {
     kind: "list",
     conditions: [condition("=", "PASS"), condition("=", "value1"), condition("=", "high-risk"), condition("=", "N/A")],
@@ -413,7 +414,7 @@ function assertValidSetQC(columns, setQCRules, testName) {
 
 test("set_qc: omitted entirely from the YAML when no rules are configured", () => {
   const col = newColumn();
-  col.name = "sample_id";
+  col.inputColumn = "sample_id";
   const { plain, errors } = buildConfig([col], []);
   assert.deepEqual(errors, []);
   assert.equal(plain.set_qc, undefined);
@@ -428,16 +429,15 @@ test("validation: neither columns nor set_qc rules configured is rejected, with 
 
 test("columns: [] is never rendered -- omitted when there are no columns, even with set_qc configured", () => {
   const rule = newSetQCRule();
-  rule.name = "NTC read count";
-  rule.match.kind = "pattern";
-  rule.match.samplePattern = "NTC";
+  rule.ruleName = "NTC read count";
+  rule.matchSamples.kind = "pattern";
+  rule.matchSamples.samplePattern = "NTC";
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
 
   const { plain, errors } = buildConfig([], [rule]);
   assert.deepEqual(errors, []);
   const yaml = serializeYAML(plain);
-  // /^columns:/m, not /columns:/ -- a set_qc rule's own (per-rule) `columns:`
-  // key is expected and fine; only the top-level config `columns:` key
+  // /^columns:/m, not /columns:/ -- only the top-level config `columns:` key
   // should be absent.
   assert.doesNotMatch(yaml, /^columns:/m);
   assert.match(yaml, /^set_qc:/m);
@@ -453,143 +453,143 @@ test("columns: [] is never rendered -- omitted when there are no columns, even w
 
 test("validation: adding a set_qc rule with zero columns clears the \"add at least one\" warning", () => {
   const rule = newSetQCRule();
-  rule.name = "NTC read count";
-  rule.match.kind = "pattern";
-  rule.match.samplePattern = "NTC";
+  rule.ruleName = "NTC read count";
+  rule.matchSamples.kind = "pattern";
+  rule.matchSamples.samplePattern = "NTC";
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
   const { errors } = buildConfig([], [rule]);
   assert.ok(!errors.some((e) => e.includes("Add at least one column or set-level QC rule")));
 });
 
-// Builds a set_qc rule's single {column, qc} check, matching the shape
-// newSetQCRule() produces by default (one entry in `columns`).
+// Builds a set_qc rule's single {input_column, qc} check, matching the shape
+// newSetQCRule() produces by default (one entry in `checks`).
 function setCheck(rule, { column, operator, value }) {
-  rule.columns[0].column = column;
+  rule.checks[0].inputColumn = column;
   const cond = newCondition();
   cond.operator = operator;
   cond.value = value;
-  rule.columns[0].conditions = [cond];
+  rule.checks[0].conditions = [cond];
 }
 
 test("set_qc: sample_pattern matcher round-trips through the real load_config()", () => {
   const col = newColumn();
-  col.name = "sample_id";
+  col.inputColumn = "sample_id";
   const col2 = newColumn();
-  col2.name = "reads";
+  col2.inputColumn = "reads";
 
   const rule = newSetQCRule();
-  rule.name = "NTC read count";
-  rule.match.kind = "pattern";
-  rule.match.samplePattern = "NTC";
+  rule.ruleName = "NTC read count";
+  rule.matchSamples.kind = "pattern";
+  rule.matchSamples.samplePattern = "NTC";
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
 
   const { dumped } = assertValidSetQC([col, col2], [rule], "sample_pattern");
-  assert.equal(dumped.set_qc[0].name, "NTC read count");
-  assert.equal(dumped.set_qc[0].columns[0].column, "reads");
-  assert.deepEqual(dumped.set_qc[0].match, { sample_pattern: "NTC", sample_regex: null, samples: null });
-  assert.equal(dumped.set_qc[0].columns[0].qc[0].value, 1000);
+  assert.equal(dumped.set_qc[0].rule_name, "NTC read count");
+  assert.equal(dumped.set_qc[0].checks[0].input_column, "reads");
+  assert.deepEqual(dumped.set_qc[0].match_samples, { sample_pattern: "NTC", sample_regex: null, samples: null });
+  assert.equal(dumped.set_qc[0].checks[0].qc[0].value, 1000);
 });
 
 test("set_qc: sample_regex matcher round-trips through the real load_config()", () => {
   const col = newColumn();
-  col.name = "sample_id";
+  col.inputColumn = "sample_id";
   const col2 = newColumn();
-  col2.name = "reads";
+  col2.inputColumn = "reads";
 
   const rule = newSetQCRule();
-  rule.name = "NTC read count";
-  rule.match.kind = "regex";
-  rule.match.sampleRegex = "^NTC-?\\d*$";
+  rule.ruleName = "NTC read count";
+  rule.matchSamples.kind = "regex";
+  rule.matchSamples.sampleRegex = "^NTC-?\\d*$";
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
 
   const { dumped } = assertValidSetQC([col, col2], [rule], "sample_regex");
-  assert.equal(dumped.set_qc[0].match.sample_regex, "^NTC-?\\d*$");
+  assert.equal(dumped.set_qc[0].match_samples.sample_regex, "^NTC-?\\d*$");
 });
 
 test("set_qc: samples matcher accepts a comma-separated list and round-trips through the real load_config()", () => {
   const col = newColumn();
-  col.name = "sample_id";
+  col.inputColumn = "sample_id";
   const col2 = newColumn();
-  col2.name = "reads";
+  col2.inputColumn = "reads";
 
   const rule = newSetQCRule();
-  rule.name = "NTC read count";
-  rule.match.kind = "samples";
-  rule.match.samples = "NTC1, NTC2,  NTC3 ";
+  rule.ruleName = "NTC read count";
+  rule.matchSamples.kind = "samples";
+  rule.matchSamples.samples = "NTC1, NTC2,  NTC3 ";
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
 
   const { dumped } = assertValidSetQC([col, col2], [rule], "samples");
-  assert.deepEqual(dumped.set_qc[0].match.samples, ["NTC1", "NTC2", "NTC3"]);
+  assert.deepEqual(dumped.set_qc[0].match_samples.samples, ["NTC1", "NTC2", "NTC3"]);
 });
 
 test("set_qc: a check's qc can use contains/does_not_contain, same as column qc", () => {
   const col = newColumn();
-  col.name = "sample_id";
+  col.inputColumn = "sample_id";
   const col2 = newColumn();
-  col2.name = "organism";
+  col2.inputColumn = "organism";
 
   const rule = newSetQCRule();
-  rule.name = "positive control organism";
-  rule.match.kind = "samples";
-  rule.match.samples = "PC1";
+  rule.ruleName = "positive control organism";
+  rule.matchSamples.kind = "samples";
+  rule.matchSamples.samples = "PC1";
   setCheck(rule, { column: "organism", operator: "contains", value: "Escherichia" });
 
   const { dumped } = assertValidSetQC([col, col2], [rule], "contains in set_qc");
-  assert.equal(dumped.set_qc[0].columns[0].qc[0].operator, "contains");
-  assert.equal(dumped.set_qc[0].columns[0].qc[0].value, "Escherichia");
+  assert.equal(dumped.set_qc[0].checks[0].qc[0].operator, "contains");
+  assert.equal(dumped.set_qc[0].checks[0].qc[0].value, "Escherichia");
 });
 
 test("set_qc: a rule can check multiple columns under one match, all read from the same matched sample(s)", () => {
   const col = newColumn();
-  col.name = "sample_id";
+  col.inputColumn = "sample_id";
   const col2 = newColumn();
-  col2.name = "reads";
+  col2.inputColumn = "reads";
   const col3 = newColumn();
-  col3.name = "contam_pct";
+  col3.inputColumn = "contam_pct";
 
   const rule = newSetQCRule();
-  rule.name = "NTC checks";
-  rule.match.kind = "pattern";
-  rule.match.samplePattern = "NTC";
+  rule.ruleName = "NTC checks";
+  rule.matchSamples.kind = "pattern";
+  rule.matchSamples.samplePattern = "NTC";
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
   const check2 = newSetQCCheck();
-  check2.column = "contam_pct";
+  check2.inputColumn = "contam_pct";
   const cond2 = newCondition();
   cond2.operator = "<=";
   cond2.value = "5";
   check2.conditions = [cond2];
-  rule.columns.push(check2);
+  rule.checks.push(check2);
 
   const { dumped } = assertValidSetQC([col, col2, col3], [rule], "multi-column rule");
   assert.deepEqual(
-    dumped.set_qc[0].columns.map((c) => c.column),
+    dumped.set_qc[0].checks.map((c) => c.input_column),
     ["reads", "contam_pct"]
   );
-  assert.equal(dumped.set_qc[0].columns[1].qc[0].value, 5);
+  assert.equal(dumped.set_qc[0].checks[1].qc[0].value, 5);
 });
 
 test("set_qc: rule name and match strings are always quoted in the generated YAML", () => {
   const col = newColumn();
-  col.name = "sample_id";
+  col.inputColumn = "sample_id";
   const col2 = newColumn();
-  col2.name = "reads";
+  col2.inputColumn = "reads";
 
   const rule = newSetQCRule();
-  rule.name = "NTC read count"; // contains a space
-  rule.match.kind = "pattern";
-  rule.match.samplePattern = "NTC"; // plain alphanumeric, still quoted
+  rule.ruleName = "NTC read count"; // contains a space
+  rule.matchSamples.kind = "pattern";
+  rule.matchSamples.samplePattern = "NTC"; // plain alphanumeric, still quoted
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
 
   const { yaml } = assertValidSetQC([col, col2], [rule], "quoting");
-  assert.match(yaml, /- name: "NTC read count"/);
+  assert.match(yaml, /- rule_name: "NTC read count"/);
   assert.match(yaml, /sample_pattern: "NTC"/);
 });
 
 test("validation: set_qc rule missing a matcher is rejected", () => {
   const rule = newSetQCRule();
-  rule.name = "x";
-  rule.match.kind = "pattern";
-  rule.match.samplePattern = ""; // blank
+  rule.ruleName = "x";
+  rule.matchSamples.kind = "pattern";
+  rule.matchSamples.samplePattern = ""; // blank
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
   const { errors } = buildConfig([newColumn()], [rule]);
   assert.ok(errors.some((e) => e.includes("sample_pattern is required")));
@@ -597,9 +597,9 @@ test("validation: set_qc rule missing a matcher is rejected", () => {
 
 test("validation: set_qc rule with a blank samples list is rejected", () => {
   const rule = newSetQCRule();
-  rule.name = "x";
-  rule.match.kind = "samples";
-  rule.match.samples = "  ,  ,";
+  rule.ruleName = "x";
+  rule.matchSamples.kind = "samples";
+  rule.matchSamples.samples = "  ,  ,";
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
   const { errors } = buildConfig([newColumn()], [rule]);
   assert.ok(errors.some((e) => e.includes("at least one sample name is required")));
@@ -607,8 +607,8 @@ test("validation: set_qc rule with a blank samples list is rejected", () => {
 
 test("validation: set_qc rule requires a name, at least one column check, and at least one condition per check", () => {
   const rule = newSetQCRule();
-  rule.match.samplePattern = "NTC";
-  rule.columns[0].conditions = [];
+  rule.matchSamples.samplePattern = "NTC";
+  rule.checks[0].conditions = [];
   const { errors } = buildConfig([newColumn()], [rule]);
   assert.ok(errors.some((e) => e.includes("name is required")));
   assert.ok(errors.some((e) => e.includes("column is required")));
@@ -617,25 +617,25 @@ test("validation: set_qc rule requires a name, at least one column check, and at
 
 test("validation: an empty columns list on a set_qc rule is rejected", () => {
   const rule = newSetQCRule();
-  rule.name = "x";
-  rule.match.samplePattern = "NTC";
-  rule.columns = [];
+  rule.ruleName = "x";
+  rule.matchSamples.samplePattern = "NTC";
+  rule.checks = [];
   const { errors } = buildConfig([newColumn()], [rule]);
   assert.ok(errors.some((e) => e.includes("needs at least one column to check")));
 });
 
 test("validation: duplicate columns within one set_qc rule are rejected", () => {
   const rule = newSetQCRule();
-  rule.name = "x";
-  rule.match.samplePattern = "NTC";
+  rule.ruleName = "x";
+  rule.matchSamples.samplePattern = "NTC";
   setCheck(rule, { column: "reads", operator: "<=", value: "1000" });
   const check2 = newSetQCCheck();
-  check2.column = "reads";
+  check2.inputColumn = "reads";
   const cond2 = newCondition();
   cond2.operator = ">=";
   cond2.value = "0";
   check2.conditions = [cond2];
-  rule.columns.push(check2);
+  rule.checks.push(check2);
 
   const { errors } = buildConfig([newColumn()], [rule]);
   assert.ok(errors.some((e) => e.includes("duplicate column(s) within this rule: reads")));
@@ -643,12 +643,12 @@ test("validation: duplicate columns within one set_qc rule are rejected", () => 
 
 test("validation: duplicate set_qc rule names are rejected", () => {
   const rule1 = newSetQCRule();
-  rule1.name = "dup";
-  rule1.match.samplePattern = "NTC";
+  rule1.ruleName = "dup";
+  rule1.matchSamples.samplePattern = "NTC";
   setCheck(rule1, { column: "reads", operator: "<=", value: "1000" });
   const rule2 = newSetQCRule();
-  rule2.name = "dup";
-  rule2.match.samplePattern = "NTC";
+  rule2.ruleName = "dup";
+  rule2.matchSamples.samplePattern = "NTC";
   setCheck(rule2, { column: "contam_pct", operator: "<=", value: "0" });
   const { errors } = buildConfig([newColumn()], [rule1, rule2]);
   assert.ok(errors.some((e) => e.includes('Duplicate set_qc rule name(s): dup')));
@@ -656,11 +656,11 @@ test("validation: duplicate set_qc rule names are rejected", () => {
 
 test("validation: an invalid sample_regex is still caught by the real load_config(), even though the client doesn't check regex syntax", () => {
   const col = newColumn();
-  col.name = "sample_id";
+  col.inputColumn = "sample_id";
   const rule = newSetQCRule();
-  rule.name = "x";
-  rule.match.kind = "regex";
-  rule.match.sampleRegex = "(unclosed";
+  rule.ruleName = "x";
+  rule.matchSamples.kind = "regex";
+  rule.matchSamples.sampleRegex = "(unclosed";
   setCheck(rule, { column: "sample_id", operator: ">=", value: "1" });
 
   const { plain, errors } = buildConfig([col], [rule]);

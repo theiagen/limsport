@@ -2,13 +2,13 @@
 # rule, so every input column passes through unchanged (same as running
 # with no --config at all), while set_qc still gates the whole run.
 set_qc:
-  - name: "NTC has no organism flagged and low raw read count"
-    match:
+  - rule_name: "NTC has no organism flagged and low raw read count"
+    match_samples:
       sample_pattern: "NTC"
-    columns:
-      - column: screening_notes
+    checks:
+      - input_column: screening_notes
         qc:
           - {operator: is_empty}
-      - column: raw_read_count
+      - input_column: raw_read_count
         qc:
           - {operator: "<=", value: 1000}

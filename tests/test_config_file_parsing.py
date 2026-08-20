@@ -12,10 +12,10 @@ def test_file_parsing_accepts_single_output_with_command_and_optional_timeout():
         {
             "columns": [
                 {
-                    "name": "reference_file",
+                    "input_column": "reference_file",
                     "file_parsing": [
                         {
-                            "name": "reference_file",
+                            "output_column": "reference_file",
                             "command": "bcftools view",
                             "timeout_seconds": 30,
                         }
@@ -37,11 +37,11 @@ def test_file_parsing_accepts_multiple_outputs_each_with_their_own_command():
         {
             "columns": [
                 {
-                    "name": "coverage_tsv",
+                    "input_column": "coverage_tsv",
                     "file_parsing": [
-                        {"name": "mean_depth", "command": "awk '{print $7}'"},
+                        {"output_column": "mean_depth", "command": "awk '{print $7}'"},
                         {
-                            "name": "coverage_pct",
+                            "output_column": "coverage_pct",
                             "command": "awk '{print $6}'",
                             "timeout_seconds": 10,
                         },
@@ -53,26 +53,31 @@ def test_file_parsing_accepts_multiple_outputs_each_with_their_own_command():
     assert config.columns is not None
     file_parsing = config.columns[0].file_parsing
     assert file_parsing is not None
-    assert [o.name for o in file_parsing] == ["mean_depth", "coverage_pct"]
+    assert [o.output_column for o in file_parsing] == ["mean_depth", "coverage_pct"]
     assert file_parsing[1].timeout_seconds == 10
-    assert config.columns[0].generated_output_names == ["mean_depth", "coverage_pct"]
+    assert config.columns[0].generated_output_column_names == [
+        "mean_depth",
+        "coverage_pct",
+    ]
 
 
 def test_file_parsing_rejects_empty_list():
     with pytest.raises(ValidationError):
-        ExportConfig.model_validate({"columns": [{"name": "a", "file_parsing": []}]})
+        ExportConfig.model_validate(
+            {"columns": [{"input_column": "a", "file_parsing": []}]}
+        )
 
 
-def test_file_parsing_rejects_duplicate_generated_output_names_within_a_column():
+def test_file_parsing_rejects_duplicate_generated_output_column_names_within_a_column():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
                 "columns": [
                     {
-                        "name": "a",
+                        "input_column": "a",
                         "file_parsing": [
-                            {"name": "dup", "command": "cat"},
-                            {"name": "dup", "command": "echo hi"},
+                            {"output_column": "dup", "command": "cat"},
+                            {"output_column": "dup", "command": "echo hi"},
                         ],
                     }
                 ]
@@ -80,33 +85,35 @@ def test_file_parsing_rejects_duplicate_generated_output_names_within_a_column()
         )
 
 
-def test_file_parsing_rejects_output_name_collision_across_columns():
+def test_file_parsing_rejects_output_column_name_collision_across_columns():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
                 "columns": [
                     {
-                        "name": "a",
-                        "file_parsing": [{"name": "shared", "command": "cat"}],
+                        "input_column": "a",
+                        "file_parsing": [{"output_column": "shared", "command": "cat"}],
                     },
                     {
-                        "name": "b",
-                        "file_parsing": [{"name": "shared", "command": "echo hi"}],
+                        "input_column": "b",
+                        "file_parsing": [
+                            {"output_column": "shared", "command": "echo hi"}
+                        ],
                     },
                 ]
             }
         )
 
 
-def test_file_parsing_rejects_rename_on_a_file_parsing_column():
+def test_file_parsing_rejects_output_column_on_a_file_parsing_column():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
                 "columns": [
                     {
-                        "name": "a",
-                        "rename": "b",
-                        "file_parsing": [{"name": "out", "command": "cat"}],
+                        "input_column": "a",
+                        "output_column": "b",
+                        "file_parsing": [{"output_column": "out", "command": "cat"}],
                     }
                 ]
             }
@@ -119,9 +126,9 @@ def test_file_parsing_rejects_column_level_qc_on_a_file_parsing_column():
             {
                 "columns": [
                     {
-                        "name": "a",
+                        "input_column": "a",
                         "qc": [{"operator": ">=", "value": 1}],
-                        "file_parsing": [{"name": "out", "command": "cat"}],
+                        "file_parsing": [{"output_column": "out", "command": "cat"}],
                     }
                 ]
             }
@@ -134,7 +141,12 @@ def _single_output_config(**output_kwargs):
     output_kwargs -- shared by the single-output validation tests below,
     which otherwise differ only in that one output's fields."""
     return {
-        "columns": [{"name": "a", "file_parsing": [{"name": "out", **output_kwargs}]}]
+        "columns": [
+            {
+                "input_column": "a",
+                "file_parsing": [{"output_column": "out", **output_kwargs}],
+            }
+        ]
     }
 
 

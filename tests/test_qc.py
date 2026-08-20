@@ -19,14 +19,16 @@ def _plain_qc(column: ColumnConfig) -> list[QCCondition]:
 def _condition(operator, value):
     return _plain_qc(
         ColumnConfig.model_validate(
-            {"name": "x", "qc": [{"operator": operator, "value": value}]}
+            {"input_column": "x", "qc": [{"operator": operator, "value": value}]}
         )
     )[0]
 
 
 def _no_value_condition(operator):
     return _plain_qc(
-        ColumnConfig.model_validate({"name": "x", "qc": [{"operator": operator}]})
+        ColumnConfig.model_validate(
+            {"input_column": "x", "qc": [{"operator": operator}]}
+        )
     )[0]
 
 
@@ -34,7 +36,7 @@ def _string_condition(operator, value, case_insensitive=False):
     return _plain_qc(
         ColumnConfig.model_validate(
             {
-                "name": "x",
+                "input_column": "x",
                 "qc": [
                     {
                         "operator": operator,
@@ -51,7 +53,7 @@ def _approx_condition(value, tolerance_percent):
     return _plain_qc(
         ColumnConfig.model_validate(
             {
-                "name": "x",
+                "input_column": "x",
                 "qc": [
                     {
                         "operator": "~=",
@@ -97,7 +99,7 @@ def test_numeric_operators(operator, value, cell, expected):
 def test_range_semantics_below_within_above():
     column = ColumnConfig.model_validate(
         {
-            "name": "read_count",
+            "input_column": "read_count",
             "qc": [
                 {"operator": ">=", "value": 1000},
                 {"operator": "<=", "value": 1000000},
@@ -108,7 +110,9 @@ def test_range_semantics_below_within_above():
     conditions = _plain_qc(column)
 
     def _qc_input(value):
-        return QCInput(column.name, column.output_name, value, conditions)
+        return QCInput(
+            column.input_column, column.output_column_name, value, conditions
+        )
 
     assert evaluate_qc_input(_qc_input("500"), "S1") is not None  # below range: fails
     assert evaluate_qc_input(_qc_input("5000"), "S1") is None  # within range: passes
@@ -328,7 +332,7 @@ def test_evaluate_qc_input_reports_source_column_and_output_column_separately():
     qc_input = QCInput("coverage_tsv", "mean_depth", "500", [condition])
     failure = evaluate_qc_input(qc_input, "S1")
     assert failure is not None
-    assert failure.column == "coverage_tsv"
+    assert failure.input_column == "coverage_tsv"
     assert failure.output_column == "mean_depth"
 
 
@@ -341,7 +345,7 @@ def test_evaluate_row_aggregates_failures_across_qc_inputs():
     ]
     outcome = evaluate_row(qc_inputs, "S1")
     assert outcome.passed is False
-    assert {f.column for f in outcome.failures} == {"read_count", "status"}
+    assert {f.input_column for f in outcome.failures} == {"read_count", "status"}
 
 
 def test_evaluate_row_all_pass():
@@ -387,7 +391,7 @@ def test_evaluate_row_reports_unmatched_conditional_qc_input_as_a_failure():
     outcome = evaluate_row([_unmatched_qc_input()], "S1")
     assert outcome.passed is False
     failure = outcome.failures[0]
-    assert failure.column == "assembly_length"
+    assert failure.input_column == "assembly_length"
     assert failure.actual == "5000000"
     assert failure.reason == "no matching rule"
     assert failure.operator is None
@@ -403,4 +407,4 @@ def test_evaluate_row_unmatched_conditional_qc_input_does_not_suppress_others():
     outcome = evaluate_row(qc_inputs, "S1")
     assert outcome.passed is False
     assert len(outcome.failures) == 1
-    assert outcome.failures[0].column == "assembly_length"
+    assert outcome.failures[0].input_column == "assembly_length"

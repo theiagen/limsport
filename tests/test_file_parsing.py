@@ -10,7 +10,9 @@ from limsport.exceptions import FileParsingError
 
 def _outputs(command, timeout_seconds=None, name="out"):
     return [
-        FileParsingOutput(name=name, command=command, timeout_seconds=timeout_seconds)
+        FileParsingOutput(
+            output_column=name, command=command, timeout_seconds=timeout_seconds
+        )
     ]
 
 
@@ -121,9 +123,9 @@ def test_run_multiple_outputs_each_run_their_own_command_against_the_same_file(
     path = tmp_path / "data.tsv"
     path.write_text("a\tb\tc\n")
     outputs = [
-        FileParsingOutput(name="first", command='cut -f1 "$FILE"'),
-        FileParsingOutput(name="second", command='cut -f2 "$FILE"'),
-        FileParsingOutput(name="third", command='cut -f3 "$FILE"'),
+        FileParsingOutput(output_column="first", command='cut -f1 "$FILE"'),
+        FileParsingOutput(output_column="second", command='cut -f2 "$FILE"'),
+        FileParsingOutput(output_column="third", command='cut -f3 "$FILE"'),
     ]
     result = file_parsing.run(outputs, str(path))
     assert result == ["a", "b", "c"]
@@ -164,8 +166,8 @@ def test_run_multiple_outputs_localizes_gs_path_only_once(monkeypatch):
     )
 
     outputs = [
-        FileParsingOutput(name="first", command="echo first"),
-        FileParsingOutput(name="second", command="echo second"),
+        FileParsingOutput(output_column="first", command="echo first"),
+        FileParsingOutput(output_column="second", command="echo second"),
     ]
     result = file_parsing.run(outputs, "gs://bucket/data.tsv")
     assert result == ["value", "value"]
@@ -176,9 +178,9 @@ def test_run_multiple_outputs_a_failing_command_aborts_the_rest(tmp_path):
     path = tmp_path / "data.txt"
     path.write_text("irrelevant\n")
     outputs = [
-        FileParsingOutput(name="first", command="echo ok"),
-        FileParsingOutput(name="second", command="exit 1"),
-        FileParsingOutput(name="third", command="echo never_runs"),
+        FileParsingOutput(output_column="first", command="echo ok"),
+        FileParsingOutput(output_column="second", command="exit 1"),
+        FileParsingOutput(output_column="third", command="echo never_runs"),
     ]
     with pytest.raises(FileParsingError, match="exit 1"):
         file_parsing.run(outputs, str(path))
@@ -188,8 +190,8 @@ def test_run_multiple_outputs_each_use_their_own_timeout(tmp_path):
     path = tmp_path / "data.txt"
     path.write_text("irrelevant\n")
     outputs = [
-        FileParsingOutput(name="fast", command="echo ok"),
-        FileParsingOutput(name="slow", command="sleep 5", timeout_seconds=0.1),
+        FileParsingOutput(output_column="fast", command="echo ok"),
+        FileParsingOutput(output_column="slow", command="sleep 5", timeout_seconds=0.1),
     ]
     with pytest.raises(FileParsingError, match="timed out"):
         file_parsing.run(outputs, str(path))
@@ -219,8 +221,8 @@ def test_run_multiple_outputs_cleans_up_temp_dir_once_even_on_partial_failure(
     _mock_gcs_bash(monkeypatch, "data\n", bash_run)
 
     outputs = [
-        FileParsingOutput(name="first", command="echo ok"),
-        FileParsingOutput(name="second", command="exit boom"),
+        FileParsingOutput(output_column="first", command="echo ok"),
+        FileParsingOutput(output_column="second", command="exit boom"),
     ]
     with pytest.raises(FileParsingError, match="boom"):
         file_parsing.run(outputs, "gs://bucket/data.txt")

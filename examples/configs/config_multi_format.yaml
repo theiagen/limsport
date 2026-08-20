@@ -16,39 +16,39 @@
 # field separators, grep patterns) that a plain YAML scalar would otherwise
 # misparse as the start of a mapping key.
 columns:
-  - name: sample_id
+    - input_column: sample_id
 
-  - name: metadata_json
-    file_parsing:
-      # JSON, extracted with `python3 -c` (as opposed to a shell one-liner)
-      - name: mean_depth
-        command: |
-          python3 -c "import json; print(json.load(open('$FILE'))['run']['metrics']['mean_depth'])"
-        qc:
-          - {operator: ">=", value: 30}
+    - input_column: metadata_json
+      file_parsing:
+          # JSON, extracted with `python3 -c` (as opposed to a shell one-liner)
+          - output_column: mean_depth
+            command: |
+                python3 -c "import json; print(json.load(open('$FILE'))['run']['metrics']['mean_depth'])"
+            qc:
+                - { operator: ">=", value: 30 }
 
-  - name: coverage_tsv
-    file_parsing:
-      # A *different* TSV schema than the outer table (mimics `samtools
-      # coverage` output) -- two outputs pull two different columns out of
-      # the same chr1 row, each with its own awk command and its own QC.
-      - name: chr1_meandepth
-        command: |
-          awk -F'\t' '$1 == "chr1" {print $7}' "$FILE"
-        qc:
-          - {operator: ">=", value: 30}
-      - name: chr1_coverage_pct
-        command: |
-          awk -F'\t' '$1 == "chr1" {print $6}' "$FILE"
-        qc:
-          - {operator: ">=", value: 95}
+    - input_column: coverage_tsv
+      file_parsing:
+          # A *different* TSV schema than the outer table (mimics `samtools
+          # coverage` output) -- two outputs pull two different columns out of
+          # the same chr1 row, each with its own awk command and its own QC.
+          - output_column: chr1_meandepth
+            command: |
+                awk -F'\t' '$1 == "chr1" {print $7}' "$FILE"
+            qc:
+                - { operator: ">=", value: 30 }
+          - output_column: chr1_coverage_pct
+            command: |
+                awk -F'\t' '$1 == "chr1" {print $6}' "$FILE"
+            qc:
+                - { operator: ">=", value: 95 }
 
-  - name: qc_report
-    file_parsing:
-      # A deliberately invented, non-standard "::"-delimited report format
-      # with section markers -- grep finds the line, cut/tr pull the value.
-      - name: error_rate
-        command: |
-          grep '^error_rate ::' "$FILE" | cut -d: -f3 | tr -d ' '
-        qc:
-          - {operator: "<", value: 0.01}
+    - input_column: qc_report
+      file_parsing:
+          # A deliberately invented, non-standard "::"-delimited report format
+          # with section markers -- grep finds the line, cut/tr pull the value.
+          - output_column: error_rate
+            command: |
+                grep '^error_rate ::' "$FILE" | cut -d: -f3 | tr -d ' '
+            qc:
+                - { operator: "<", value: 0.01 }

@@ -5,10 +5,10 @@
 columns: []
 
 set_qc:
-  - name: "NTC has no organism flagged"
-    match:
+  - rule_name: "NTC has no organism flagged"
+    match_samples:
       sample_pattern: "NTC"
-    columns:
-      - column: screening_notes
+    checks:
+      - input_column: screening_notes
         qc:
           - {operator: is_empty}

@@ -30,21 +30,21 @@
 # separate because those formats don't correspond to anything in a real
 # TheiaProk_Illumina_PE table.
 columns:
-  - name: "entity:theiaprok_illumina_pe_v4-2-0_id"
-    rename: sample_id
+  - input_column: "entity:theiaprok_illumina_pe_v4-2-0_id"
+    output_column: sample_id
 
-  - name: assembler                # pass-through: kept, never QC'd
+  - input_column: assembler                # pass-through: kept, never QC'd
 
-  - name: sequencing_platform
-    rename: platform               # renamed, kept, never QC'd
+  - input_column: sequencing_platform
+    output_column: platform               # renamed, kept, never QC'd
 
-  - name: gambit_predicted_taxon
-    rename: predicted_taxon        # pass-through: also the match key for the conditional qc below
+  - input_column: gambit_predicted_taxon
+    output_column: predicted_taxon        # pass-through: also the match key for the conditional qc below
 
-  - name: assembly_length
+  - input_column: assembly_length
     qc:
-      match: gambit_predicted_taxon
-      rules:
+      match_column: gambit_predicted_taxon
+      cases:
         "Escherichia coli":
           - {operator: ">=", value: 4600000}
           - {operator: "<=", value: 5900000}
@@ -55,51 +55,51 @@ columns:
           - {operator: ">=", value: 5500000}
           - {operator: "<=", value: 7100000}
 
-  - name: n50_value
-    rename: n50
+  - input_column: n50_value
+    output_column: n50
     qc:
       - {operator: ">", value: 15000}
 
-  - name: number_contigs
-    rename: contig_count
+  - input_column: number_contigs
+    output_column: contig_count
     qc:
       # A plain (non-conditional) range: both conditions must pass (ANDed).
       - {operator: ">=", value: 10}
       - {operator: "<=", value: 300}
 
-  - name: combined_mean_q_clean
-    rename: mean_quality
+  - input_column: combined_mean_q_clean
+    output_column: mean_quality
     qc:
       - {operator: "~=", value: 36, tolerance_percent: 5}
 
-  - name: est_coverage_clean
-    rename: coverage
+  - input_column: est_coverage_clean
+    output_column: coverage
     qc:
       - {operator: ">=", value: 30}
 
-  - name: fastq_scan_num_reads_clean_pairs
-    rename: read_pairs
+  - input_column: fastq_scan_num_reads_clean_pairs
+    output_column: read_pairs
     qc:
       - {operator: ">=", value: 250000}
 
-  - name: qc_status
+  - input_column: qc_status
     qc:
       - {operator: "=", value: PASS, case_insensitive: true}
 
-  - name: screening_notes
+  - input_column: screening_notes
     # No qc: here on purpose -- gated by set_qc below instead. A blank
     # cell is normally an automatic QC failure ("missing value"), which
     # would wrongly fail the negative control's expected-blank result if
     # this column had a fixed qc: rule applied to every row.
 
-  - name: notes                    # pass-through commentary, never QC'd directly
+  - input_column: notes                    # pass-through commentary, never QC'd directly
 
-  - name: raw_read_count
+  - input_column: raw_read_count
     # No qc: here either -- the negative control's raw read count is
     # gated by set_qc below. A single fixed threshold can't apply to both
     # a negative control (expected to be low) and a real sample.
 
-  - name: quast_report
+  - input_column: quast_report
     file_parsing:
       # Cross-validates the native assembly_length/n50 columns above
       # against the same numbers pulled straight out of QUAST's own
@@ -107,52 +107,52 @@ columns:
       # (real gs:// paths for the real samples, local files for the
       # synthetic NTC1/PC1), localized once and parsed with three
       # independent awk commands.
-      - name: quast_n50
+      - output_column: quast_n50
         command: |
           awk -F'\t' '$1 == "N50" {print $2}' "$FILE"
         qc:
-          match: gambit_predicted_taxon
-          rules:
+          match_column: gambit_predicted_taxon
+          cases:
             "Escherichia coli":
               - {operator: ">=", value: 50000}
             "Klebsiella pneumoniae":
               - {operator: ">=", value: 80000}
             "Pseudomonas aeruginosa":
               - {operator: ">=", value: 100000}
-      - name: quast_gc_pct
+      - output_column: quast_gc_pct
         command: |
           awk -F'\t' '$1 == "GC (%)" {print $2}' "$FILE"
-      - name: quast_total_length
+      - output_column: quast_total_length
         command: |
           awk -F'\t' '$1 == "Total length" {print $2}' "$FILE"
 
 set_qc:
-  - name: "NTC has no organism flagged and low raw read count"
-    match:
+  - rule_name: "NTC has no organism flagged and low raw read count"
+    match_samples:
       sample_pattern: "NTC"
-    columns:
-      - column: screening_notes
+    checks:
+      - input_column: screening_notes
         qc:
           - {operator: is_empty}
-      - column: raw_read_count
+      - input_column: raw_read_count
         qc:
           - {operator: "<=", value: 1000}
 
-  - name: "Positive control organism identity confirmed"
-    match:
+  - rule_name: "Positive control organism identity confirmed"
+    match_samples:
       sample_regex: "^PC-?\\d*$"
-    columns:
-      - column: screening_notes
+    checks:
+      - input_column: screening_notes
         qc:
           - {operator: contains, value: "Escherichia coli", case_insensitive: true}
-      - column: notes
+      - input_column: notes
         qc:
           - {operator: is_not_empty}
 
-  - name: "No cross-contamination flagged in real samples"
-    match:
+  - rule_name: "No cross-contamination flagged in real samples"
+    match_samples:
       samples: ["19050801924", "461023", "CL2021-00283104"]
-    columns:
-      - column: screening_notes
+    checks:
+      - input_column: screening_notes
         qc:
           - {operator: does_not_contain, value: "contaminant", case_insensitive: true}

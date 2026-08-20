@@ -19,14 +19,14 @@ def _ntc_scenario(tmp_path, *, threshold, match_block='      sample_pattern: "NT
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: reads\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: reads\n"
         "set_qc:\n"
-        '  - name: "NTC read count"\n'
-        "    match:\n"
+        '  - rule_name: "NTC read count"\n'
+        "    match_samples:\n"
         f"{match_block}"
-        "    columns:\n"
-        "      - column: reads\n"
+        "    checks:\n"
+        "      - input_column: reads\n"
         "        qc:\n"
         f'          - {{operator: "<=", value: {threshold}}}\n'
     )
@@ -97,14 +97,14 @@ def test_set_qc_matching_zero_samples_raises_before_output_created(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: reads\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: reads\n"
         "set_qc:\n"
-        '  - name: "NTC read count"\n'
-        "    match:\n"
+        '  - rule_name: "NTC read count"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'  # no sample in the input matches
-        "    columns:\n"
-        "      - column: reads\n"
+        "    checks:\n"
+        "      - input_column: reads\n"
         "        qc:\n"
         '          - {operator: "<=", value: 1000}\n'
     )
@@ -114,19 +114,19 @@ def test_set_qc_matching_zero_samples_raises_before_output_created(tmp_path):
     assert not out.exists()
 
 
-def test_set_qc_column_not_in_header_raises_before_output_created(tmp_path):
+def test_set_qc_check_input_column_not_in_header_raises_before_output_created(tmp_path):
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text("sample_id\tother_col\nNTC1\tx\n")
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
+        "  - input_column: sample_id\n"
         "set_qc:\n"
-        '  - name: "NTC read count"\n'
-        "    match:\n"
+        '  - rule_name: "NTC read count"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: reads\n"  # not a column in the input header
+        "    checks:\n"
+        "      - input_column: reads\n"  # not a column in the input header
         "        qc:\n"
         '          - {operator: "<=", value: 1000}\n'
     )
@@ -136,7 +136,7 @@ def test_set_qc_column_not_in_header_raises_before_output_created(tmp_path):
     assert not out.exists()
 
 
-def test_set_qc_column_need_not_be_in_output_columns_allow_list(tmp_path):
+def test_set_qc_check_input_column_need_not_be_in_output_columns_allow_list(tmp_path):
     # a check's `column` only needs to exist in the input header, same as
     # ConditionalQC.match -- it doesn't have to be kept in the output.
     input_tsv = tmp_path / "input.tsv"
@@ -144,13 +144,13 @@ def test_set_qc_column_need_not_be_in_output_columns_allow_list(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"  # "reads" deliberately not listed
+        "  - input_column: sample_id\n"  # "reads" deliberately not listed
         "set_qc:\n"
-        '  - name: "NTC read count"\n'
-        "    match:\n"
+        '  - rule_name: "NTC read count"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: reads\n"
+        "    checks:\n"
+        "      - input_column: reads\n"
         "        qc:\n"
         '          - {operator: "<=", value: 1000}\n'
     )
@@ -210,9 +210,9 @@ def test_set_qc_sample_regex_matcher(tmp_path):
 
 def _multi_column_ntc_config(tmp_path, *, contam_threshold):
     """One set_qc rule with TWO column checks under the same match -- the
-    scenario multiple `columns` entries exist for: no need to repeat
-    `match:` across separate rules just to check more than one column on
-    the same matched sample(s)."""
+    scenario multiple `checks` entries exist for: no need to repeat
+    `match_samples:` across separate rules just to check more than one
+    column on the same matched sample(s)."""
     input_tsv = tmp_path / "input.tsv"
     input_tsv.write_text(
         "sample_id\treads\tcontam_pct\nNTC1\t500\t1\nSAMPLE_A\t50000\t2\n"
@@ -220,25 +220,25 @@ def _multi_column_ntc_config(tmp_path, *, contam_threshold):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: reads\n"
-        "  - name: contam_pct\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: reads\n"
+        "  - input_column: contam_pct\n"
         "set_qc:\n"
-        '  - name: "NTC checks"\n'
-        "    match:\n"
+        '  - rule_name: "NTC checks"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: reads\n"
+        "    checks:\n"
+        "      - input_column: reads\n"
         "        qc:\n"
         '          - {operator: "<=", value: 1000}\n'
-        "      - column: contam_pct\n"
+        "      - input_column: contam_pct\n"
         "        qc:\n"
         f'          - {{operator: "<=", value: {contam_threshold}}}\n'
     )
     return input_tsv, config
 
 
-def test_set_qc_rule_with_multiple_column_checks_all_pass(tmp_path):
+def test_set_qc_rule_with_multiple_checks_all_pass(tmp_path):
     input_tsv, config = _multi_column_ntc_config(
         tmp_path, contam_threshold=5
     )  # NTC's 1 passes
@@ -251,7 +251,7 @@ def test_set_qc_rule_with_multiple_column_checks_all_pass(tmp_path):
     assert list(table_io.iter_rows(qc_report)) == []
 
 
-def test_set_qc_rule_fails_the_whole_run_if_any_one_of_its_column_checks_fails(
+def test_set_qc_rule_fails_the_whole_run_if_any_one_of_its_checks_fails(
     tmp_path,
 ):
     # reads (500 <= 1000) passes but contam_pct (1 <= 0) fails -- one failing
@@ -283,22 +283,22 @@ def test_set_qc_multiple_rules_failing_together_name_all_of_them_in_collateral_r
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: reads\n"
-        "  - name: contam_pct\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: reads\n"
+        "  - input_column: contam_pct\n"
         "set_qc:\n"
-        '  - name: "NTC read count"\n'
-        "    match:\n"
+        '  - rule_name: "NTC read count"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: reads\n"
+        "    checks:\n"
+        "      - input_column: reads\n"
         "        qc:\n"
         '          - {operator: "<=", value: 1000}\n'
-        '  - name: "NTC contamination"\n'
-        "    match:\n"
+        '  - rule_name: "NTC contamination"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: contam_pct\n"
+        "    checks:\n"
+        "      - input_column: contam_pct\n"
         "        qc:\n"
         '          - {operator: "<=", value: 0}\n'
     )
@@ -328,8 +328,8 @@ def test_set_qc_does_not_affect_a_config_that_does_not_use_it(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
         "columns:\n"
-        "  - name: sample_id\n"
-        "  - name: read_count\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: read_count\n"
         "    qc:\n"
         '      - {operator: ">=", value: 1000}\n'
     )
@@ -354,11 +354,11 @@ def test_set_qc_with_columns_omitted_passes_every_input_column_through_unchanged
     config = tmp_path / "config.yaml"
     config.write_text(
         "set_qc:\n"
-        '  - name: "NTC read count"\n'
-        "    match:\n"
+        '  - rule_name: "NTC read count"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: reads\n"
+        "    checks:\n"
+        "      - input_column: reads\n"
         "        qc:\n"
         '          - {operator: "<=", value: 1000}\n'
     )
@@ -379,11 +379,11 @@ def test_set_qc_with_columns_omitted_still_fails_the_whole_run_on_a_set_qc_failu
     config = tmp_path / "config.yaml"
     config.write_text(
         "set_qc:\n"
-        '  - name: "NTC read count"\n'
-        "    match:\n"
+        '  - rule_name: "NTC read count"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: reads\n"
+        "    checks:\n"
+        "      - input_column: reads\n"
         "        qc:\n"
         '          - {operator: "<=", value: 1000}\n'  # NTC's 5000 fails
     )
@@ -408,11 +408,11 @@ def test_set_qc_is_empty_lets_a_negative_control_pass_on_a_blank_result(tmp_path
     config = tmp_path / "config.yaml"
     config.write_text(
         "set_qc:\n"
-        '  - name: "NTC has no detected organism"\n'
-        "    match:\n"
+        '  - rule_name: "NTC has no detected organism"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: detected_organism\n"
+        "    checks:\n"
+        "      - input_column: detected_organism\n"
         "        qc:\n"
         "          - {operator: is_empty}\n"
     )
@@ -436,11 +436,11 @@ def test_set_qc_is_empty_fails_the_run_when_a_negative_control_has_contamination
     config = tmp_path / "config.yaml"
     config.write_text(
         "set_qc:\n"
-        '  - name: "NTC has no detected organism"\n'
-        "    match:\n"
+        '  - rule_name: "NTC has no detected organism"\n'
+        "    match_samples:\n"
         '      sample_pattern: "NTC"\n'
-        "    columns:\n"
-        "      - column: detected_organism\n"
+        "    checks:\n"
+        "      - input_column: detected_organism\n"
         "        qc:\n"
         "          - {operator: is_empty}\n"
     )

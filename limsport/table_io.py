@@ -1,4 +1,12 @@
-"""TSV reading/writing, including delimiter auto-detection"""
+"""
+TSV reading/writing, including delimiter auto-detection
+
+External methods:
+    - detect_delimiter()
+    - get_input_header()
+    - iter_rows()
+    - write_tsv()
+"""
 
 import csv
 from collections.abc import Iterable, Iterator
@@ -10,16 +18,17 @@ _CANDIDATE_DELIMITERS = "\t,;|"
 
 
 def detect_delimiter(path: Path) -> str:
-    """Detect the delimiter from the header: tab, comma, semicolon, or pipe.
+    """
+    Detects the delimiter from the header: tab, comma, semicolon, or pipe.
 
     Args:
-      path: the input table to sniff the first line of.
+        path: the input table to check the first line of.
 
     Returns:
-      The single delimiter character.
+        The single delimiter character.
 
     Raises:
-      InputTableError: if the file is empty, or none can be identified confidently.
+        InputTableError: if the file is empty, or none can be identified confidently.
     """
     with path.open(newline="", encoding="utf-8") as f:
         header_line = f.readline()
@@ -29,24 +38,24 @@ def detect_delimiter(path: Path) -> str:
         dialect = csv.Sniffer().sniff(header_line, delimiters=_CANDIDATE_DELIMITERS)
     except csv.Error as e:
         raise InputTableError(
-            f"{path}: could not auto-detect a delimiter ({e}); "
-            "the file may have only one column, or use an unsupported delimiter"
+            f"{path}: could not auto-detect a delimiter ({e}); the file may have only one column, or use an unsupported delimiter"
         ) from e
     return dialect.delimiter
 
 
 def get_input_header(path: Path, delimiter: str | None = None) -> list[str]:
-    """Return the file's header row.
+    """
+    Returns the file's header row.
 
     Args:
-      path: the input table to read.
-      delimiter: the delimiter to split on, or None to auto-detect it.
+        path: the input table to read.
+        delimiter: the delimiter to split on, or None to auto-detect it.
 
     Returns:
-      The header's column names, in file order.
+        The header's column names, in file order.
 
     Raises:
-      InputTableError: if `delimiter` is None and one cannot be detected.
+        InputTableError: if `delimiter` is None and one cannot be detected.
     """
     delimiter = delimiter or detect_delimiter(path)
     with path.open(newline="", encoding="utf-8") as f:
@@ -54,19 +63,20 @@ def get_input_header(path: Path, delimiter: str | None = None) -> list[str]:
 
 
 def iter_rows(path: Path, delimiter: str | None = None) -> Iterator[list[str]]:
-    """Yield each data row as a list of raw string cells.
+    """
+    Yields each data row as a list of raw string cells.
 
     Args:
-      path: the input table to read; its header is skipped.
-      delimiter: the delimiter to split on, or None to auto-detect it.
+        path: the input table to read; its header is skipped.
+        delimiter: the delimiter to split on, or None to auto-detect it.
 
     Yields:
-      One data row's raw string cells, padded with empty strings when the row
-      has less fields than the header.
+        One data row's raw string cells, padded with empty strings when the row
+        has less fields than the header.
 
     Raises:
-      InputTableError: if a row has more fields than the header, or if
-        `delimiter` is None and one cannot be detected.
+        InputTableError: if a row has more fields than the header, or if
+          `delimiter` is None and one cannot be detected.
     """
     delimiter = delimiter or detect_delimiter(
         path
@@ -77,6 +87,7 @@ def iter_rows(path: Path, delimiter: str | None = None) -> Iterator[list[str]]:
         width = len(next(reader))  # skip header
         for row in reader:
             if len(row) < width:
+                # pad row if it's not the right length (potentially stripped whitespace?)
                 row = row + [""] * (width - len(row))
             elif len(row) > width:
                 raise InputTableError(
@@ -88,13 +99,14 @@ def iter_rows(path: Path, delimiter: str | None = None) -> Iterator[list[str]]:
 def write_tsv(
     path: Path, header: list[str], rows: Iterable[list[str]], delimiter: str = "\t"
 ) -> None:
-    """Write TSV to output
+    """
+    Writes TSV to output
 
     Args:
-      path: the file to write, overwriting anything already there.
-      header: the column names to write as the first row.
-      rows: the data rows to write, in order.
-      delimiter: the delimiter to join cells with; defaults to a tab.
+        path: the file to write, overwriting anything already there.
+        header: the column names to write as the first row.
+        rows: the data rows to write, in order.
+        delimiter: the delimiter to join cells with; defaults to a tab.
     """
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(

@@ -105,7 +105,7 @@ limsport \
 `output_ntc_contaminated.tsv` ends up header-only (0 of 10 requested samples pass); `qc_report_ntc_contaminated.tsv` has `NTC1`'s full-detail failure plus one collateral row per other sample:
 
 ```
-sample        column          output_column   operator  expected  actual  reason
+sample        input_column    output_column   operator  expected  actual  reason
 NTC1          raw_read_count  raw_read_count  <=        1000      5000    5000.0 <= 1000 is False
 19050801924                                                                run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
 ```

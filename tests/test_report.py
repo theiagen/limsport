@@ -5,7 +5,7 @@ from limsport.qc import QCFailure
 
 def _failure(
     sample="S1",
-    column="read_count",
+    input_column="read_count",
     output_column=None,
     operator=QCOperator.GE,
     expected=1000,
@@ -14,8 +14,8 @@ def _failure(
 ):
     return QCFailure(
         sample=sample,
-        column=column,
-        output_column=output_column if output_column is not None else column,
+        input_column=input_column,
+        output_column=output_column if output_column is not None else input_column,
         operator=operator,
         expected=expected,
         actual=actual,
@@ -25,7 +25,7 @@ def _failure(
 
 _HEADER = [
     "sample",
-    "column",
+    "input_column",
     "output_column",
     "operator",
     "expected",
@@ -69,7 +69,7 @@ def test_write_qc_report_blanks_operator_and_expected_when_none(tmp_path):
     # write out as empty cells rather than "None".
     path = tmp_path / "report.tsv"
     failure = _failure(
-        column="assembly_length",
+        input_column="assembly_length",
         operator=None,
         expected=None,
         actual="5000000",
@@ -112,7 +112,7 @@ def test_log_qc_failures_emits_warning_per_failure(caplog):
     assert any("S2" in m and "status" in m for m in messages)
 
 
-def test_log_qc_failures_mentions_output_name_only_when_renamed(caplog):
+def test_log_qc_failures_mentions_output_column_name_only_when_renamed(caplog):
     with caplog.at_level("WARNING"):
         report.log_qc_failures(
             [

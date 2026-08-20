@@ -52,10 +52,10 @@ A config with neither `columns` nor `set_qc` is treated as malformatted and fail
 # a basic configuration example that renames a column
 
 columns:
-  - name: sample_id # kept as-is: no rename, no qc
+  - input_column: sample_id # kept as-is: no rename, no qc
 
-  - name: lot_number # kept and renamed, but never QC'd
-    rename: lot
+  - input_column: lot_number # kept and renamed, but never QC'd
+    output_column: lot
 ```
 
 ### Config QC
@@ -86,21 +86,21 @@ Cells that are not able to be cast as a number fail QC (`"non-numeric value 'NA'
 # fixed threshold qc examples
 
 columns:
-  - name: read_count
-    rename: total_reads # renamed in the output
+  - input_column: read_count
+    output_column: total_reads # renamed in the output
     qc: # all of these conditions must pass for the row to be included in the output
       - {operator: ">=", value: 1000}
       - {operator: "<=", value: 1000000} # each item is treated as an "AND"
 
-  - name: status
+  - input_column: status
     qc:
       - {operator: "=", value: PASS} # case-sensitive string matching
 
-  - name: length
+  - input_column: length
     qc:
       - {operator: "~=", value: 1000000, tolerance_percent: 5} # within 5% of value
 
-  - name: organism
+  - input_column: organism
     qc:
       - {operator: "contains", value: "Escherichia", case_insensitive: true} # substring match, case-insensitivity turned on
 ```
@@ -115,13 +115,13 @@ A conditional QC shape picks which threshold list applies to a row from *another
 # conditional qc example
 
 columns:
-  - name: gambit_predicted_taxon
-    rename: predicted_taxon
+  - input_column: gambit_predicted_taxon
+    output_column: predicted_taxon
 
-  - name: assembly_length
+  - input_column: assembly_length
     qc:
-      match: gambit_predicted_taxon # another column's original name
-      rules:
+      match_column: gambit_predicted_taxon # another column's original name
+      cases:
         "Escherichia coli":
           - {operator: ">=", value: 4600000}
           - {operator: "<=", value: 5900000}
@@ -132,9 +132,9 @@ columns:
         - {operator: ">=", value: 1500000}
 ```
 
-- `match` must be a column that exists in the input header. It doesn't need to be in the output `columns:` list.
-- `rules` maps an exact, **case-sensitive** value of `match` to the `QCCondition` list to run for that row
-- A row whose `match` value isn't a key in `rules` uses `default` if one is configured. Without a default, the row will fail QC with the message: `no qc rule matches gambit_predicted_taxon='Vibrio cholerae' for column 'assembly_length', and no default is configured`
+- `match_column` must be a column that exists in the input header. It doesn't need to be in the output `columns:` list.
+- `cases` maps an exact, **case-sensitive** value of `match_column` to the `QCCondition` list to run for that row
+- A row whose `match_column` value isn't a key in `cases` uses `default` if one is configured. Without a default, the row will fail QC with the message: `no qc rule matches gambit_predicted_taxon='Vibrio cholerae' for column 'assembly_length', and no default is configured`
 
 #### Set-level QC
 
@@ -148,24 +148,24 @@ Every `qc` block is checked and then applied on a per-row basis. `set_qc` result
 # a columns section is not required when set_qc is configured; this example is a valid yaml
 
 set_qc:
-  - name: "NTC has no detected organism and low reads"
-    match:
+  - rule_name: "NTC has no detected organism and low reads"
+    match_samples:
       sample_pattern: "NTC" # substring match against the sample name (row[0])
-    columns:
-      - column: reads
+    checks:
+      - input_column: reads
         qc:
           - {operator: "<=", value: 1000}
-      - column: detected_organism
+      - input_column: detected_organism
         qc:
           - {operator: is_empty}
 ```
 
-- `name` is the name of the rule used in logs and the qc report. The rule name must be unique.
-- `match` identifies which sample(s) a rule applies to. There are three options available:
+- `rule_name` is the name of the rule used in logs and the qc report. The rule name must be unique.
+- `match_samples` identifies which sample(s) a rule applies to. There are three options available:
     - `sample_pattern`: uses a case-**sensitive** substring match against the sample name
     - `sample_regex`: uses `re.search` against the sample name
     - `samples`: an explicit, exact list of sample names
-- `columns` lists one or more `{column, qc}` checks, all evaluated against all matched samples.
+- `checks` lists one or more `{input_column, qc}` checks, all evaluated against all matched samples.
 
 **Every** matched sample must pass **every** check for the rule to pass. If any matched sample fails any check, the whole run is considered a QC fail.
 
@@ -177,27 +177,27 @@ A column marked with `file_parsing` treats the row's value as a file path.
 
 `file_parsing` contains a list of one or more named outputs, each with its own command run against that file. The result of the command will become the output column's value.
 
-A column with `file_parsing` is incompatible with `rename` and `qc` on the same level. Invalid configuration errors will occur. All QC and output naming must occur within the `file_parsing` list.
+A column with `file_parsing` is incompatible with `output_column` and `qc` on the same level. Invalid configuration errors will occur. All QC and output naming must occur within the `file_parsing` list.
 
 ```yaml
 # file parsing example
 
 columns:
-  - name: coverage_report
+  - input_column: coverage_report
     file_parsing:
-      - name: mean_depth
+      - output_column: mean_depth
         command: |
           awk -F'\t' '$1 == "chr1" {print $7}' "$FILE"
         qc:
           - {operator: ">=", value: 30}
 
-      - name: coverage_pct
+      - output_column: coverage_pct
         command: |
           awk -F'\t' '$1 == "chr1" {print $6}' "$FILE"
         qc:
           - {operator: ">=", value: 95}
 
-      - name: mean_mapq
+      - output_column: mean_mapq
         command: |
           awk -F'\t' '$1 == "chr1" {print $9}' "$FILE"
         timeout_seconds: 10       # each output can set its own timeout
@@ -220,8 +220,8 @@ A QC report (default: `qc_report.tsv`) contains one row per failing sample/outpu
 | column | explanation |
 | -- | -- |
 | `sample` | the sample name |
-| `column` | the input's original column name |
-| `output_column` | the renamed column, the same value if there was no rename, or the specific `file_parsing` output name |
+| `input_column` | the input's original column name |
+| `output_column` | the config's `output_column`, the same value as the input column if none was set, or the specific `file_parsing` output name |
 | `operator` | the conditional used in the qc statement |
 | `expected` | the value in the qc statement |
 | `actual` | the actual row value |
