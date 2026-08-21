@@ -173,6 +173,72 @@ test("validation: a column that is both renamed and file_parsing-enabled cannot 
   assert.equal(plain.columns[0].qc, undefined);
 });
 
+test("validation: a column excluded from output cannot also emit output_column via the wizard's own state shape (mutual exclusivity is structural)", () => {
+  // Same structural exclusivity as the file_parsing case above: the wizard
+  // hides the rename field whenever "exclude from output" is checked, so a
+  // stale rename typed before checking it is simply never read here.
+  const sampleId = newColumn();
+  sampleId.inputColumn = "sample_id";
+  const col = newColumn();
+  col.inputColumn = "read_length";
+  col.outputColumn = "should_be_ignored";
+  col.output = false;
+  col.qc = { kind: "list", conditions: [condition(">=", 1000)] };
+  const { plain, errors } = buildConfig([sampleId, col]);
+  assert.deepEqual(errors, []);
+  assert.equal(plain.columns[1].output_column, undefined);
+  assert.equal(plain.columns[1].output, false);
+  assert.ok(plain.columns[1].qc, "qc should still be emitted for an output-excluded column");
+});
+
+test("validation: a column excluded from output round-trips through the real load_config(), QC'd but absent from the output header", () => {
+  const sampleId = newColumn();
+  sampleId.inputColumn = "sample_id";
+  const hidden = newColumn();
+  hidden.inputColumn = "read_length";
+  hidden.output = false;
+  hidden.qc = { kind: "list", conditions: [condition(">=", 1000)] };
+
+  const { plain, errors } = buildConfig([sampleId, hidden]);
+  assert.deepEqual(errors, []);
+  const yaml = serializeYAML(plain);
+  assert.match(yaml, /output: false/);
+
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "output-hidden.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
+  const dumped = JSON.parse(result.stdout);
+  const hiddenColumn = dumped.columns.find((c) => c.input_column === "read_length");
+  assert.equal(hiddenColumn.output, false);
+  assert.ok(hiddenColumn.qc.length, "hidden column should still carry its qc conditions");
+});
+
+test("validation: every column excluded from output is rejected client-side, matching config.py", () => {
+  const col = newColumn();
+  col.inputColumn = "read_length";
+  col.output = false;
+  const { errors } = buildConfig([col]);
+  assert.ok(errors.some((e) => e.includes("must not be excluded from the output")));
+});
+
+test("validation: a config with every column hidden is also rejected by the real load_config()", () => {
+  const col = newColumn();
+  col.inputColumn = "read_length";
+  col.output = false;
+  // Bypass client-side validation on purpose, same as the duplicate-name
+  // case above, to prove load_config() itself is the real gate.
+  const { plain } = buildConfig([col]);
+  const yaml = serializeYAML(plain);
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, "all-hidden.yaml");
+  writeFileSync(p, yaml);
+  const result = loadAndDump(p);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /output=True/);
+});
+
 test("validation: an empty column name is rejected", () => {
   const col = newColumn();
   const { errors } = buildConfig([col]);

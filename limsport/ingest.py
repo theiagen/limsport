@@ -132,6 +132,7 @@ def _build_qc_inputs(
                     output.output_column,
                     raw_cell,  # the report filename is what failed
                     qc.ParsingFailed(str(e)),
+                    output=column.output,
                 )
                 for output in column.file_parsing
             ]
@@ -151,6 +152,7 @@ def _build_qc_inputs(
                     parsing_instructions.output_column,
                     command_result,
                     conditions,
+                    output=column.output,
                 )
             )
         return qc_inputs
@@ -159,7 +161,13 @@ def _build_qc_inputs(
         column.qc, match_values, f"column {column.input_column!r}"
     )
     return [
-        qc.QCInput(column.input_column, column.output_column_name, raw_cell, conditions)
+        qc.QCInput(
+            column.input_column,
+            column.output_column_name,
+            raw_cell,
+            conditions,
+            output=column.output,
+        )
     ]
 
 
@@ -293,7 +301,7 @@ def read_input(
         if not row_outcome.passed:
             # row failed qc, keep it out of the output
             continue
-        writer.writerow([qc_input.value for qc_input in qc_inputs])
+        writer.writerow([qc_input.value for qc_input in qc_inputs if qc_input.output])
         summary.written_rows += 1
 
     return summary

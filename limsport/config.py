@@ -304,6 +304,8 @@ class ColumnConfig(_StrictModel):
     Attributes:
         - input_column: the name of the input column
         - output_column: the name of the output column
+        - output: whether this column's value is written to the output; False keeps
+          it readable for `qc` without it ever reaching the output table
         - qc: the QC to perform on the column content; either a plain list[QCCondition]
           or the ConditionalQC form
         - file_parsing: if this column requires file parsing
@@ -311,6 +313,7 @@ class ColumnConfig(_StrictModel):
 
     input_column: str
     output_column: str | None = None
+    output: bool = True
     qc: list[QCCondition] | ConditionalQC = Field(default_factory=list)
     file_parsing: list[FileParsingOutput] | None = None
 
@@ -363,6 +366,32 @@ class ColumnConfig(_StrictModel):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _output_false_excludes_output_column_and_file_parsing(self) -> "ColumnConfig":
+        """
+        A column excluded from the output (output=False) can't also name an
+        output_column or use file_parsing.
+
+        Returns:
+            `self` unchanged
+
+        Raises:
+            ValueError: if a column with output=False also sets `output_column` or
+              `file_parsing`.
+        """
+        if not self.output:
+            if self.output_column is not None:
+                raise ValueError(
+                    "output_column is not valid when output is False; "
+                    "the column never reaches the output, so it has no output name"
+                )
+            if self.file_parsing is not None:
+                raise ValueError(
+                    "file_parsing is not valid when output is False; "
+                    "file_parsing already names its own output column(s)"
+                )
+        return self
+
     @property
     def output_column_name(self) -> str:
         """
@@ -396,8 +425,10 @@ class ColumnConfig(_StrictModel):
 
         Returns:
             One name per file_parsing output, or just `output_column_name` for a column
-            that doesn't use file_parsing.
+            that doesn't use file_parsing. Empty when `output` is False.
         """
+        if not self.output:
+            return []
         if self.file_parsing is not None:
             return [o.output_column for o in self.file_parsing]
         return [self.output_column_name]
@@ -584,8 +615,8 @@ class ExportConfig(_StrictModel):
             `self` unchanged
 
         Raises:
-            ValueError: if the config configures nothing, or two columns claim the same
-              output name.
+            ValueError: if the config configures nothing, every column is excluded from
+              the output, or two columns claim the same output name.
         """
         if self.columns is None:
             if not self.set_qc:
@@ -597,6 +628,13 @@ class ExportConfig(_StrictModel):
         if not self.columns:
             raise ValueError(
                 "config 'columns' must not be empty; omit it entirely if you don't want to perform any column operations"
+            )
+
+        if not any(c.output for c in self.columns):
+            raise ValueError(
+                "config 'columns' must include at least one column with output=True "
+                "(an all-hidden list would produce an output table with no columns); "
+                "omit 'columns' entirely if you only want set_qc"
             )
 
         _reject_duplicates(

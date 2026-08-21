@@ -121,6 +121,53 @@ def test_qc_range_drops_expected_samples(tmp_path):
     assert passing_samples == {"SAMPLE_001"}
 
 
+def config_qc_range_output_hidden(tmp_path):
+    path = tmp_path / "config_qc_range_output_hidden.yaml"
+    path.write_text(
+        "columns:\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: read_count\n"
+        "    output: false\n"
+        "    qc:\n"
+        '      - {operator: ">=", value: 1000}\n'
+        '      - {operator: "<=", value: 1000000}\n'
+        "  - input_column: status\n"
+        '    qc:\n      - {operator: "=", value: PASS}\n'
+    )
+    return path
+
+
+def test_output_false_column_qcs_rows_but_is_excluded_from_output(tmp_path):
+    out = tmp_path / "out.tsv"
+    pipeline.run_export(
+        input_basic(tmp_path), config_qc_range_output_hidden(tmp_path), None, out, None
+    )
+    header = table_io.get_input_header(out)
+    assert header == ["sample_id", "status"]
+    rows = list(table_io.iter_rows(out))
+    passing_samples = {row[0] for row in rows}
+    # read_count still gates rows even though it's dropped from the output:
+    # same passing set as test_qc_range_drops_expected_samples above.
+    assert passing_samples == {"SAMPLE_001"}
+
+
+def test_output_false_column_failure_still_reported(tmp_path):
+    out = tmp_path / "out.tsv"
+    qc_report = tmp_path / "qc_report.tsv"
+    pipeline.run_export(
+        input_basic(tmp_path),
+        config_qc_range_output_hidden(tmp_path),
+        None,
+        out,
+        qc_report,
+    )
+    report_rows = list(table_io.iter_rows(qc_report))
+    # SAMPLE_002's read_count (500) fails the hidden column's own qc, and
+    # that failure is still named and reported even though read_count
+    # never reaches the output table.
+    assert any(row[0] == "SAMPLE_002" and row[1] == "read_count" for row in report_rows)
+
+
 def test_qc_approx_tolerance_drops_expected_samples(tmp_path):
     out = tmp_path / "out.tsv"
     pipeline.run_export(

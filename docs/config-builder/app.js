@@ -662,6 +662,7 @@ function buildColumnCard(col) {
     const label = col.inputColumn.trim() || "( )";
     const bits = [];
     if (col.isFileParsing) bits.push("file parsing");
+    else if (col.output === false) bits.push("QC only, excluded from output");
     else if (col.outputColumn.trim()) bits.push(`→ ${col.outputColumn.trim()}`);
     summarySpan.textContent = bits.length ? `${label} (${bits.join(", ")})` : label;
   }
@@ -681,6 +682,13 @@ function buildColumnCard(col) {
   });
   const outputColumnField = labeledField("Output column name (optional)", outputColumnInput);
 
+  const excludeFromOutputCheckbox = el("input", { type: "checkbox" });
+  excludeFromOutputCheckbox.checked = col.output === false;
+  const excludeFromOutputToggle = el("label", { class: "checkbox-field" }, [
+    excludeFromOutputCheckbox,
+    document.createTextNode("QC this column, but exclude it from the output entirely"),
+  ]);
+
   const fileParsingCheckbox = el("input", { type: "checkbox" });
   fileParsingCheckbox.checked = col.isFileParsing;
   const fileParsingToggle = el("label", { class: "checkbox-field" }, [
@@ -695,12 +703,23 @@ function buildColumnCard(col) {
   const fileParsingSection = el("div", { class: "section" }, [el("h4", { text: "File parsing outputs" }), fileParsingEditor]);
 
   function syncMode() {
-    outputColumnField.classList.toggle("hidden", col.isFileParsing);
+    // output: false and file_parsing are mutually exclusive (same rule as
+    // output_column/qc vs. file_parsing, config.py's model_validator),
+    // so the exclude-from-output checkbox lives entirely inside the
+    // "not file parsing" mode alongside the rename field it disables.
+    outputColumnField.classList.toggle("hidden", col.isFileParsing || col.output === false);
+    excludeFromOutputToggle.classList.toggle("hidden", col.isFileParsing);
     qcSection.classList.toggle("hidden", col.isFileParsing);
     fileParsingSection.classList.toggle("hidden", !col.isFileParsing);
     updateSummary();
   }
   syncMode();
+
+  excludeFromOutputCheckbox.addEventListener("change", () => {
+    col.output = excludeFromOutputCheckbox.checked ? false : true;
+    syncMode();
+    refreshPreview();
+  });
 
   fileParsingCheckbox.addEventListener("change", () => {
     col.isFileParsing = fileParsingCheckbox.checked;
@@ -724,6 +743,7 @@ function buildColumnCard(col) {
   const body = el("div", { class: "column-body" }, [
     labeledField("Source column name", nameInput),
     outputColumnField,
+    excludeFromOutputToggle,
     fileParsingToggle,
     qcSection,
     fileParsingSection,

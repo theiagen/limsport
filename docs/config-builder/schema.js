@@ -70,6 +70,7 @@ export function newColumn() {
     inputColumn: "",
     isFileParsing: false,
     outputColumn: "",
+    output: true,
     qc: newQC(),
     fileParsing: [newFileParsingOutput()],
   };
@@ -323,16 +324,33 @@ export function buildConfig(columns, setQCRules = []) {
     }
 
     const entry = { input_column: col.inputColumn.trim() };
-    if (col.outputColumn.trim()) entry.output_column = col.outputColumn.trim();
+    // output: false and output_column are mutually exclusive (a hidden
+    // column has no output name), the same structural exclusivity as
+    // output_column/qc vs. file_parsing above -- the wizard hides
+    // outputColumnField whenever this checkbox is on, so a stale rename
+    // typed before hiding it is simply never read here.
+    if (col.output === false) {
+      entry.output = false;
+    } else if (col.outputColumn.trim()) {
+      entry.output_column = col.outputColumn.trim();
+    }
     const qc = buildQC(col.qc, label, errors);
     if (qc !== undefined) entry.qc = qc;
-    const outputName = (entry.output_column || entry.input_column).trim();
-    if (outputName) outputProvenance.push({ name: outputName, source: label });
+    if (col.output !== false) {
+      const outputName = (entry.output_column || entry.input_column).trim();
+      if (outputName) outputProvenance.push({ name: outputName, source: label });
+    }
     return entry;
   });
 
   const nameDupes = findDuplicates(columns.map((c) => c.inputColumn.trim()).filter(Boolean));
   if (nameDupes.length) errors.push(`Duplicate column name(s): ${nameDupes.join(", ")}`);
+
+  if (columns.length && columns.every((c) => c.output === false)) {
+    errors.push(
+      "At least one column must not be excluded from the output (every column is currently excluded, which would produce an output table with no columns)."
+    );
+  }
 
   // Group every produced name by its sources (column label, or "column >
   // output" for file_parsing) so a collision -- whether within one
@@ -451,6 +469,7 @@ function renderColumn(col, dashInd) {
   const kInd = `${dashInd}  `;
   const lines = [`${dashInd}- input_column: ${yamlScalar(col.input_column)}`];
   if (col.output_column) lines.push(`${kInd}output_column: ${yamlScalar(col.output_column)}`);
+  if (col.output === false) lines.push(`${kInd}output: false`);
   if (col.qc !== undefined) lines.push(renderQC(col.qc, kInd));
   if (col.file_parsing) {
     lines.push(`${kInd}file_parsing:`);

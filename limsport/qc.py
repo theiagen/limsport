@@ -155,12 +155,14 @@ class QCInput(NamedTuple):
         value: the content of the row at column
         qc: a list of QC operations to perform, or an UncheckableOutput saying why
           this output could not be checked at all.
+        output: whether this value will be written to the output file
     """
 
     input_column: str
     output_column: str
     value: str
     qc: list[QCCondition] | UncheckableOutput
+    output: bool = True
 
     def to_failure(
         self, sample: str, reason: str, condition: QCCondition | None = None

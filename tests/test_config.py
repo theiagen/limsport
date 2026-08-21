@@ -89,6 +89,67 @@ def test_omitted_columns_is_allowed_when_set_qc_is_configured(tmp_path):
     assert len(config.set_qc) == 1
 
 
+def test_output_false_excludes_column_from_generated_output_names():
+    config = ExportConfig.model_validate(
+        {
+            "columns": [
+                {"input_column": "sample_id"},
+                {
+                    "input_column": "read_length",
+                    "output": False,
+                    "qc": [{"operator": ">=", "value": 1000}],
+                },
+            ]
+        }
+    )
+    assert config.columns is not None
+    hidden = config.columns[1]
+    assert hidden.generated_output_column_names == []
+
+
+def test_output_false_with_output_column_is_rejected():
+    with pytest.raises(ValidationError, match="output_column is not valid"):
+        ExportConfig.model_validate(
+            {
+                "columns": [
+                    {
+                        "input_column": "read_length",
+                        "output": False,
+                        "output_column": "length",
+                    }
+                ]
+            }
+        )
+
+
+def test_output_false_with_file_parsing_is_rejected():
+    with pytest.raises(ValidationError, match="file_parsing is not valid"):
+        ExportConfig.model_validate(
+            {
+                "columns": [
+                    {
+                        "input_column": "data_path",
+                        "output": False,
+                        "file_parsing": [
+                            {"output_column": "extracted", "command": "cat {}"}
+                        ],
+                    }
+                ]
+            }
+        )
+
+
+def test_rejects_columns_all_hidden_from_output():
+    with pytest.raises(ValidationError, match="at least one column with output=True"):
+        ExportConfig.model_validate(
+            {
+                "columns": [
+                    {"input_column": "read_length", "output": False},
+                ]
+            }
+        )
+
+
 def test_rejects_duplicate_column_names():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
