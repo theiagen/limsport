@@ -1,0 +1,1218 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="LIMSport reads a TSV of samples, applies an optional YAML config to rename/select columns and run QC on each row, and writes a LIMS-importable TSV.">
+      
+      
+        <meta name="author" content="Theiagen Genomics">
+      
+      
+        <link rel="canonical" href="https://theiagen.github.io/limsport/null/">
+      
+      
+      
+        <link rel="next" href="./config/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="./theme/logos/Theiagen-Symbol-Standard-01.png">
+      <meta name="generator" content="zensical-0.0.56">
+    
+    
+      
+        <title>LIMSport - LIMSport</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="./assets/stylesheets/classic/main.39e53929.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="./assets/stylesheets/classic/palette.7dc9a0ad.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,500,500i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="./theme/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL(".",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="light" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#limsport" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+          <aside class="md-banner md-banner--warning">
+            <div class="md-banner__inner md-grid md-typeset">
+              
+  You're not viewing the latest version release.
+  <a href="../.">
+    <strong>Click here to go to the latest version release.</strong>
+  </a>
+
+            </div>
+            <script>var el=document.querySelector("[data-md-component=outdated]"),base=new URL("."),outdated=__md_get("__outdated",sessionStorage,base);!0===outdated&&el&&(el.hidden=!1)</script>
+          </aside>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="https://www.theiagen.com" title="LIMSport" class="md-header__button md-logo" aria-label="LIMSport" data-md-component="logo">
+      
+  <img src="./theme/logos/Theiagen-Logo-White.png" alt="LIMSport">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            LIMSport
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              LIMSport
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="light" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to Dark Mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to Dark Mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to Light Mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to Light Mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m3.55 19.09 1.41 1.41 1.8-1.79-1.42-1.42M12 6c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6c0-3.32-2.69-6-6-6m8 7h3v-2h-3m-2.76 7.71 1.8 1.79 1.41-1.41-1.79-1.8M20.45 5l-1.41-1.4-1.8 1.79 1.42 1.42M13 1h-2v3h2M6.76 5.39 4.96 3.6 3.55 5l1.79 1.81zM1 13h3v-2H1m12 9h-2v3h2"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/theiagen/limsport" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="" class="md-tabs__link">
+        
+  
+  LIMSport
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="./config/" class="md-tabs__link">
+        
+  
+  ConfigBuilder
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="https://www.theiagen.com" title="LIMSport" class="md-nav__button md-logo" aria-label="LIMSport" data-md-component="logo">
+      
+  <img src="./theme/logos/Theiagen-Logo-White.png" alt="LIMSport">
+
+    </a>
+    LIMSport
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/theiagen/limsport" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+        <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  LIMSport
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  LIMSport
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Installation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Quick start
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI reference
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-config-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The config file
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The config file">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#config-qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Config QC
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config QC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qc-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        QC operators
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conditional-qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Conditional <code>qc</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#set-level-qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Set-level QC
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file_parsing-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>file_parsing</code> configuration
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-a-file-wont-parse" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a file won't parse
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-qc-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The QC report
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#delimiter-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Delimiter handling
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Delimiter handling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#repo-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Repo Layout
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  ConfigBuilder
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Installation
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Quick start
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CLI reference
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-config-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The config file
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The config file">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#config-qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Config QC
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config QC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#qc-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        QC operators
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conditional-qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Conditional <code>qc</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#set-level-qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Set-level QC
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file_parsing-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>file_parsing</code> configuration
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-a-file-wont-parse" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a file won't parse
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-qc-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The QC report
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#delimiter-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Delimiter handling
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Delimiter handling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#repo-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Repo Layout
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/theiagen/limsport/edit/main/docs/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+    
+      
+    
+    <a href="https://github.com/theiagen/limsport/raw/main/docs/index.md" title="View source of this page" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
+    </a>
+  
+
+
+<h1 id="limsport">LIMSport<a class="headerlink" href="#limsport" title="Permanent link">&para;</a></h1>
+<p><code>limsport</code> reads a TSV of samples, applies an optional YAML config to rename/select columns and run QC on each row, and writes a LIMS-importable TSV.</p>
+<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
+<p>Install with pip:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip install -e .
+</span></code></pre></div>
+<p>LIMSport requires Python 3.10+.</p>
+<h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>limsport --input samples.tsv --output samples.lims.tsv
+</span></code></pre></div>
+<p>If neither <code>--config</code> nor <code>--samples</code> are provided, nothing happens. To transform and/or QC the data, add a configuration file:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>limsport --input samples.tsv --config config.yaml --output samples.lims.tsv --qc-report qc_report.tsv
+</span></code></pre></div>
+<p>See <code>examples/</code> for a demo.</p>
+<h2 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>flag</th>
+<th>required</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--input</code>, <code>-i</code></td>
+<td>yes</td>
+<td>input TSV (delimiters auto-detected)</td>
+</tr>
+<tr>
+<td><code>--output</code>, <code>-o</code></td>
+<td>no</td>
+<td>output path (default: <code>limsport.tsv</code>)</td>
+</tr>
+<tr>
+<td><code>--config</code>, <code>-c</code></td>
+<td>no</td>
+<td>YAML configuration</td>
+</tr>
+<tr>
+<td><code>--samples</code>, <code>-s</code></td>
+<td>no</td>
+<td>a file of sample names (one per line) to include; if omitted, every sample is included</td>
+</tr>
+<tr>
+<td><code>--qc-report</code>, <code>-r</code></td>
+<td>no</td>
+<td>QC failure report TSV path (default: <code>qc_report.tsv</code>)</td>
+</tr>
+<tr>
+<td><code>--delimiter</code>, <code>-d</code></td>
+<td>no</td>
+<td>output delimiter (default: tab)</td>
+</tr>
+<tr>
+<td><code>--allow-file-parsing</code></td>
+<td>no</td>
+<td>required if the config uses <code>file_parsing</code> (see below)</td>
+</tr>
+<tr>
+<td><code>--max-file-parsing-failures</code></td>
+<td>no</td>
+<td>abort once more than N rows fail <code>file_parsing</code> (default: no limit)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-config-file">The config file<a class="headerlink" href="#the-config-file" title="Permanent link">&para;</a></h2>
+<p>A config is a YAML file with two primary keys: <code>columns</code> and <code>set_qc</code>.</p>
+<p><code>columns</code> lists every column to keep in the output, ordered to match how they appear in the config. <code>columns</code> can be omitted entirely if a <a href="#set-level-qc"><code>set_qc</code></a> list exists. <code>columns: []</code> will be rejected.</p>
+<p><code>set_qc</code> lists a series of rules where if one fails, all samples fail the run.</p>
+<p>A config with neither <code>columns</code> nor <code>set_qc</code> is treated as malformatted and fails.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># a basic configuration example that renames a column</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sample_id</span><span class="w"> </span><span class="c1"># kept as-is: no rename, no qc</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lot_number</span><span class="w"> </span><span class="c1"># kept and renamed, but never QC'd</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">      </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lot</span>
+</span></code></pre></div>
+<h3 id="config-qc">Config QC<a class="headerlink" href="#config-qc" title="Permanent link">&para;</a></h3>
+<p>A sample failing a <code>qc</code> rule gets dropped from the output and reported in the log and qc_report file.</p>
+<p>Configs are considered malformatted when either (a) config columns that are not present in the input table, or (b) contain ambiguous column names. Malformatted configs cause the program to exit.</p>
+<h4 id="qc-operators">QC operators<a class="headerlink" href="#qc-operators" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>operator</th>
+<th>meaning</th>
+<th>value type</th>
+<th>notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&gt;</code>, <code>&gt;=</code>, <code>&lt;=</code>, <code>&lt;</code></td>
+<td>ordinary numeric comparison</td>
+<td>number</td>
+<td></td>
+</tr>
+<tr>
+<td><code>=</code></td>
+<td>equality</td>
+<td>number or string</td>
+<td>string comparison is case-sensitive unless <code>case_insensitive: true</code> is set</td>
+</tr>
+<tr>
+<td><code>~=</code></td>
+<td>within <code>tolerance_percent</code>% of <code>value</code>, either direction</td>
+<td>number</td>
+<td>requires a companion <code>tolerance_percent</code> field</td>
+</tr>
+<tr>
+<td><code>contains</code></td>
+<td><code>value</code> is a substring of the cell</td>
+<td>string</td>
+<td>case-sensitive unless <code>case_insensitive: true</code> is set</td>
+</tr>
+<tr>
+<td><code>does_not_contain</code></td>
+<td><code>value</code> is not a substring of the cell</td>
+<td>string</td>
+<td>case-sensitive unless <code>case_insensitive: true</code> is set</td>
+</tr>
+<tr>
+<td><code>is_empty</code></td>
+<td>the cell is blank or whitespace-only</td>
+<td><em>(none)</em></td>
+<td>takes no <code>value</code></td>
+</tr>
+<tr>
+<td><code>is_not_empty</code></td>
+<td>the cell has real content</td>
+<td><em>(none)</em></td>
+<td>takes no <code>value</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>case_insensitive</code> (default <code>false</code>) is only valid on <code>=</code>, <code>contains</code>, and <code>does_not_contain</code> — it's a config error to set it alongside a numeric <code>value</code> or a numeric-only operator.</p>
+<p>Empty or whitespace-only cells fail due to <code>"missing_value"</code> for every operator <strong>except</strong> <code>is_empty</code>/<code>is_not_empty</code>.</p>
+<p>Cells that are not able to be cast as a number fail QC (<code>"non-numeric value 'NA' cannot be compared with &gt;= 1000"</code>).</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># fixed threshold qc examples</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read_count</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">total_reads</span><span class="w"> </span><span class="c1"># renamed in the output</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">      </span><span class="nt">qc</span><span class="p">:</span><span class="w"> </span><span class="c1"># all of these conditions must pass for the row to be included in the output</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">1000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&lt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">1000000</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"> </span><span class="c1"># each item is treated as an "AND"</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">      </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">PASS</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"> </span><span class="c1"># case-sensitive string matching</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">length</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">      </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"~="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">1000000</span><span class="p p-Indicator">,</span><span class="nt"> tolerance_percent</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="w"> </span><span class="p p-Indicator">}</span><span class="w"> </span><span class="c1"># within 5% of value</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>
+</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">organism</span>
+</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">      </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span>
+</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="nt">                operator</span><span class="p">:</span><span class="w"> </span><span class="s">"contains"</span><span class="p p-Indicator">,</span>
+</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="nt">                value</span><span class="p">:</span><span class="w"> </span><span class="s">"Escherichia"</span><span class="p p-Indicator">,</span>
+</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a><span class="nt">                case_insensitive</span><span class="p">:</span><span class="w"> </span><span class="nv">true</span><span class="p p-Indicator">,</span>
+</span><span id="__span-4-24"><a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="w">            </span><span class="p p-Indicator">}</span><span class="w"> </span><span class="c1"># substring match, case-insensitivity turned on</span>
+</span></code></pre></div>
+<h4 id="conditional-qc">Conditional <code>qc</code><a class="headerlink" href="#conditional-qc" title="Permanent link">&para;</a></h4>
+<p><code>qc</code> accepts two shapes. The plain list shown above is fixed -- every row is checked against the same thresholds.</p>
+<p>A conditional QC shape picks which threshold list applies to a row from <em>another column's value in that same row</em>, e.g. different genome size bounds per predicted organism instead of one bound that has to fit every organism in the batch:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># conditional qc example</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gambit_predicted_taxon</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">      </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">predicted_taxon</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">assembly_length</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">      </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">          </span><span class="nt">match_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gambit_predicted_taxon</span><span class="w"> </span><span class="c1"># another column's original name</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">          </span><span class="nt">cases</span><span class="p">:</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">              </span><span class="s">"Escherichia</span><span class="nv"> </span><span class="s">coli"</span><span class="p p-Indicator">:</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">                  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">4600000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">                  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&lt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">5900000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">              </span><span class="s">"Klebsiella</span><span class="nv"> </span><span class="s">pneumoniae"</span><span class="p p-Indicator">:</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">                  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">5200000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">                  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&lt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">5900000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">          </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="c1"># optional; without a default, samples w/o a match will fail</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">1500000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<ul>
+<li><code>match_column</code> must be a column that exists in the input header. It doesn't need to be in the output <code>columns:</code> list.</li>
+<li><code>cases</code> maps an exact, <strong>case-sensitive</strong> value of <code>match_column</code> to the <code>QCCondition</code> list to run for that row</li>
+<li>A row whose <code>match_column</code> value isn't a key in <code>cases</code> uses <code>default</code> if one is configured. Without a default, the row will fail QC with the message: <code>no qc rule matches gambit_predicted_taxon='Vibrio cholerae' for column 'assembly_length', and no default is configured</code></li>
+</ul>
+<h4 id="set-level-qc">Set-level QC<a class="headerlink" href="#set-level-qc" title="Permanent link">&para;</a></h4>
+<p>Every <code>qc</code> block is checked and then applied on a per-row basis. <code>set_qc</code> results are applied on the entire run.</p>
+<p><code>set_qc</code> checks specific sample(s) (e.g. a negative control) for specified metrics, and if any of its checks fail, <strong>the entire run fails</strong>.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># set_qc example</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># a columns section is not required when set_qc is configured; this example is a valid yaml</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="nt">set_qc</span><span class="p">:</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">rule_name</span><span class="p">:</span><span class="w"> </span><span class="s">"NTC</span><span class="nv"> </span><span class="s">has</span><span class="nv"> </span><span class="s">no</span><span class="nv"> </span><span class="s">detected</span><span class="nv"> </span><span class="s">organism</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">low</span><span class="nv"> </span><span class="s">reads"</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">      </span><span class="nt">match_samples</span><span class="p">:</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">          </span><span class="nt">sample_pattern</span><span class="p">:</span><span class="w"> </span><span class="s">"NTC"</span><span class="w"> </span><span class="c1"># substring match against the sample name (row[0])</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">      </span><span class="nt">checks</span><span class="p">:</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">reads</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">            </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&lt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">1000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">detected_organism</span>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="w">            </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="nv">is_empty</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<ul>
+<li><code>rule_name</code> is the name of the rule used in logs and the qc report. The rule name must be unique.</li>
+<li><code>match_samples</code> identifies which sample(s) a rule applies to. There are three options available:<ul>
+<li><code>sample_pattern</code>: uses a case-<strong>sensitive</strong> substring match against the sample name</li>
+<li><code>sample_regex</code>: uses <code>re.search</code> against the sample name</li>
+<li><code>samples</code>: an explicit, exact list of sample names</li>
+</ul>
+</li>
+<li><code>checks</code> lists one or more <code>{input_column, qc}</code> checks, all evaluated against all matched samples.</li>
+</ul>
+<p><strong>Every</strong> matched sample must pass <strong>every</strong> check for the rule to pass. If any matched sample fails any check, the whole run is considered a QC fail.</p>
+<p>A rule that identifies zero samples in the run is itself a hard error (there's no sample to attach a QC failure to), not a QC failure -- the run aborts before any output is written. For <code>samples:</code> specifically, this applies <strong>per name</strong>: every sample name listed must exist in the run, not just at least one of them, so a typo'd or missing name (e.g. a dropped negative control) can't silently go unchecked.</p>
+<h3 id="file_parsing-configuration"><code>file_parsing</code> configuration<a class="headerlink" href="#file_parsing-configuration" title="Permanent link">&para;</a></h3>
+<p>A column marked with <code>file_parsing</code> treats the row's value as a file path.</p>
+<p><code>file_parsing</code> contains a list of one or more named outputs, each with its own command run against that file. The result of the command will become the output column's value.</p>
+<p>A column with <code>file_parsing</code> is incompatible with <code>output_column</code> and <code>qc</code> on the same level. Invalid configuration errors will occur. All QC and output naming must occur within the <code>file_parsing</code> list.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># file parsing example</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coverage_report</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">      </span><span class="nt">file_parsing</span><span class="p">:</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mean_depth</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $7}' "$FILE"</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">            </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">30</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coverage_pct</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $6}' "$FILE"</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">            </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">95</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mean_mapq</span>
+</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $9}' "$FILE"</span>
+</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">            </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w"> </span><span class="c1"># each output can set its own timeout</span>
+</span></code></pre></div>
+<p>The command is run via <code>bash -c</code>. Anything in your local environment can be used.</p>
+<p>You can access the file in the command with a bash variable: <code>"$FILE"</code>.</p>
+<p>Files in GCP are downloaded only once with <code>gcloud storage cp</code> into a temporary directory. The downloaded file is deleted after all command(s) are run.</p>
+<p>Each output result <strong>must</strong> be a single line, internal newline characters will cause failures.</p>
+<p>To activate file parsing, you <strong>must</strong> permit the behavior with the <code>--allow-file-parsing</code> option. It's a liability thing.</p>
+<h3 id="when-a-file-wont-parse">When a file won't parse<a class="headerlink" href="#when-a-file-wont-parse" title="Permanent link">&para;</a></h3>
+<p>A file that can't be parsed fails <strong>that row's QC</strong>, not the whole run. The sample is
+left out of the output, its reason lands in the QC report like any other QC failure,
+and every other sample is still processed and written. This covers a failing command,
+a timeout, a result containing a newline, and a <code>gs://</code> path that can't be downloaded.</p>
+<p>Three things stay fatal, because none of them is about one row's data:</p>
+<ul>
+<li><strong>a tool <code>file_parsing</code> needs isn't installed</strong> (e.g. <code>gcloud</code>) — no row could succeed</li>
+<li><strong>every row's <code>file_parsing</code> failed</strong> — a command or path template that is broken for
+  every sample leaves nothing to write, and a header-only table with an exit code of 0
+  would report that as a success</li>
+<li><strong>more than <code>--max-file-parsing-failures</code> rows failed</strong>, if you set a limit</li>
+</ul>
+<p>The all-rows-failed guard is always on and independent of the limit: the limit tunes
+how much genuinely bad data you'll tolerate, while the guard asks whether anything
+worked at all. <code>--max-file-parsing-failures</code> defaults to no limit; <code>0</code> aborts on the
+first failure, which is how LIMSport behaved before.</p>
+<h2 id="the-qc-report">The QC report<a class="headerlink" href="#the-qc-report" title="Permanent link">&para;</a></h2>
+<p>A QC report (default: <code>qc_report.tsv</code>) contains one row per failing sample/output pair, so a sample failing three outputs produces three rows. It has the following columns:</p>
+<table>
+<thead>
+<tr>
+<th>column</th>
+<th>explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sample</code></td>
+<td>the sample name</td>
+</tr>
+<tr>
+<td><code>input_column</code></td>
+<td>the input's original column name</td>
+</tr>
+<tr>
+<td><code>output_column</code></td>
+<td>the config's <code>output_column</code>, the same value as the input column if none was set, or the specific <code>file_parsing</code> output name</td>
+</tr>
+<tr>
+<td><code>operator</code></td>
+<td>the conditional used in the qc statement</td>
+</tr>
+<tr>
+<td><code>expected</code></td>
+<td>the value in the qc statement</td>
+</tr>
+<tr>
+<td><code>actual</code></td>
+<td>the actual row value</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>the reason why it failed</td>
+</tr>
+</tbody>
+</table>
+<h2 id="delimiter-handling">Delimiter handling<a class="headerlink" href="#delimiter-handling" title="Permanent link">&para;</a></h2>
+<p>Delimiters are auto-detected from its header line. If auto-detection fails, LIMSport gives up.</p>
+<p>With no <code>--delimiter</code>, the output defaults to tab. Change the output delimiter with <code>--delimiter</code></p>
+<h3 id="repo-layout">Repo Layout<a class="headerlink" href="#repo-layout" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>limsport/
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>├── cli.py           argparse entry point; flag parsing, exit codes
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>├── config.py        pydantic models for the YAML config + its loader
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>├── table_io.py      TSV/delimited I/O: read/write, delimiter detection
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>├── qc.py            pure QC evaluation (cell + condition -&gt; pass/fail/why)
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>├── file_parsing.py  file_parsing: cloud localization, bash execution
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>├── layout.py        validates the config against the input header, plans the output
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>├── ingest.py        reads the rows: sample filter, QC, writes the passers
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>├── pipeline.py      orchestrates one export: wires the above together
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>├── report.py        turns QC results into log lines and the report TSV
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>└── exceptions.py    the LIMSportError hierarchy cli.py catches
+</span></code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; 2022-2026 <a href="https://www.theiagen.com" target="_blank" rel="noopener">Theiagen Genomics</a>
+
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="mailto:<support@theiagen.com>" target="_blank" rel="noopener" title="Talk with us" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M48 64C21.5 64 0 85.5 0 112c0 15.1 7.1 29.3 19.2 38.4l208 156a48 48 0 0 0 57.6 0l208-156c12.1-9.1 19.2-23.3 19.2-38.4 0-26.5-21.5-48-48-48zM0 196v188c0 35.3 28.7 64 64 64h384c35.3 0 64-28.7 64-64V196L313.6 344.8c-34.1 25.6-81.1 25.6-115.2 0z"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://github.com/theiagen" target="_blank" rel="noopener" title="Code with us" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://bsky.app/profile/theiagen.bsky.social" target="_blank" rel="noopener" title="Tweet with us" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M407.8 294.7c-3.3-.4-6.7-.8-10-1.3 3.4.4 6.7.9 10 1.3M288 227.1c-26.1-50.7-97.1-145.2-163.1-191.8C61.6-9.4 37.5-1.7 21.6 5.5 3.3 13.8 0 41.9 0 58.4S9.1 194 15 213.9c19.5 65.7 89.1 87.9 153.2 80.7 3.3-.5 6.6-.9 10-1.4-3.3.5-6.6 1-10 1.4-93.9 14-177.3 48.2-67.9 169.9C220.6 589.1 265.1 437.8 288 361.1c22.9 76.7 49.2 222.5 185.6 103.4 102.4-103.4 28.1-156-65.8-169.9-3.3-.4-6.7-.8-10-1.3 3.4.4 6.7.9 10 1.3 64.1 7.1 133.6-15.1 153.2-80.7C566.9 194 576 75 576 58.4s-3.3-44.7-21.6-52.9c-15.8-7.1-40-14.9-103.2 29.8C385.1 81.9 314.1 176.4 288 227.1"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://www.linkedin.com/company/theiagen" target="_blank" rel="noopener" title="Connect with us" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M416 32H31.9C14.3 32 0 46.5 0 64.3v383.4C0 465.5 14.3 480 31.9 480H416c17.6 0 32-14.5 32-32.3V64.3c0-17.8-14.4-32.3-32-32.3M135.4 416H69V202.2h66.5V416zM102.2 96a38.5 38.5 0 1 1 0 77 38.5 38.5 0 1 1 0-77m282.1 320h-66.4V312c0-24.8-.5-56.7-34.5-56.7-34.6 0-39.9 27-39.9 54.9V416h-66.4V202.2h63.7v29.2h.9c8.9-16.8 30.6-34.5 62.9-34.5 67.2 0 79.7 44.3 79.7 101.9z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":".","features":["content.action.edit","content.action.view","content.code.annotate","content.code.copy","content.tabs.link","content.tooltips","navigation.instant","navigation.path","navigation.tabs","navigation.top","navigation.tracking","search.highlight","toc.follow"],"search":"./assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"alias":true,"default":"latest","provider":"mike"}}</script>
+    
+    
+      <script src="./assets/javascripts/bundle.e886cdf1.min.js"></script>
+      
+    
+  </body>
+</html>
