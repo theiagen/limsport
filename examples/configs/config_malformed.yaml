@@ -1,3 +1,0 @@
-# Demonstrates a hard error: this is not valid YAML syntax at all.
-# limsport must report this as a clean one-line message, not a raw traceback.
-columns: [this is not: valid: yaml
