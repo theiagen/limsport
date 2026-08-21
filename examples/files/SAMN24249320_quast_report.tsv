@@ -1,0 +1,22 @@
+Assembly	SAMN24249320_filtered_contigs
+# contigs (>= 0 bp)	239
+# contigs (>= 1000 bp)	131
+# contigs (>= 5000 bp)	74
+# contigs (>= 10000 bp)	64
+# contigs (>= 25000 bp)	51
+# contigs (>= 50000 bp)	39
+Total length (>= 0 bp)	6975261
+Total length (>= 1000 bp)	6924415
+Total length (>= 5000 bp)	6797705
+Total length (>= 10000 bp)	6721504
+Total length (>= 25000 bp)	6484609
+Total length (>= 50000 bp)	5984703
+# contigs	172
+Largest contig	472289
+Total length	6953034
+GC (%)	66.13
+N50	177799
+N75	84333
+L50	13
+L75	28
+# N's per 100 kbp	0.00

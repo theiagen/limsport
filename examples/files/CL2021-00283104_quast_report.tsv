@@ -1,0 +1,22 @@
+Assembly	CL2021_00283104_filtered_contigs
+# contigs (>= 0 bp)	879
+# contigs (>= 1000 bp)	663
+# contigs (>= 5000 bp)	317
+# contigs (>= 10000 bp)	134
+# contigs (>= 25000 bp)	18
+# contigs (>= 50000 bp)	0
+Total length (>= 0 bp)	4720542
+Total length (>= 1000 bp)	4572231
+Total length (>= 5000 bp)	3681903
+Total length (>= 10000 bp)	2360980
+Total length (>= 25000 bp)	570055
+Total length (>= 50000 bp)	0
+# contigs	853
+Largest contig	41424
+Total length	4708044
+GC (%)	50.62
+N50	10000
+N75	5607
+L50	134
+L75	289
+# N's per 100 kbp	0.00

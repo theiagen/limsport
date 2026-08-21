@@ -1,0 +1,22 @@
+Assembly	03_98DDCS_filtered_contigs
+# contigs (>= 0 bp)	273
+# contigs (>= 1000 bp)	190
+# contigs (>= 5000 bp)	113
+# contigs (>= 10000 bp)	91
+# contigs (>= 25000 bp)	63
+# contigs (>= 50000 bp)	34
+Total length (>= 0 bp)	5168263
+Total length (>= 1000 bp)	5119777
+Total length (>= 5000 bp)	4936806
+Total length (>= 10000 bp)	4773204
+Total length (>= 25000 bp)	4317565
+Total length (>= 50000 bp)	3266169
+# contigs	239
+Largest contig	217573
+Total length	5153956
+GC (%)	50.20
+N50	73591
+N75	36211
+L50	23
+L75	48
+# N's per 100 kbp	0.00

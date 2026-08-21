@@ -1,0 +1,22 @@
+Assembly	SRR16579222_Ecoli_stxPos2completeOperons_filtered_contigs
+# contigs (>= 0 bp)	163
+# contigs (>= 1000 bp)	134
+# contigs (>= 5000 bp)	66
+# contigs (>= 10000 bp)	48
+# contigs (>= 25000 bp)	39
+# contigs (>= 50000 bp)	28
+Total length (>= 0 bp)	5356792
+Total length (>= 1000 bp)	5337225
+Total length (>= 5000 bp)	5184858
+Total length (>= 10000 bp)	5063046
+Total length (>= 25000 bp)	4900673
+Total length (>= 50000 bp)	4472781
+# contigs	159
+Largest contig	374747
+Total length	5354960
+GC (%)	50.29
+N50	158307
+N75	79095
+L50	10
+L75	21
+# N's per 100 kbp	0.00

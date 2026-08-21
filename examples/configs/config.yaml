@@ -1,45 +1,14 @@
-# One consolidated example, built around a real Terra data table from PHB's
-# TheiaProk_Illumina_PE workflow (originally 491 columns / 70 samples,
-# trimmed here to the 15 columns and 11 samples this config actually
-# exercises). Two of the real samples' cells were deliberately edited (see
-# below and examples/README.md) to demonstrate edge cases the real data
-# didn't happen to contain; two more rows (NTC1, PC1) are synthetic,
-# added to mimic negative/positive control behavior for set_qc.
-#
-# This single config demonstrates:
-#   - every QC operator (>=, <=, >, <, =, ~=, contains, does_not_contain,
-#     is_empty, is_not_empty), including a plain multi-condition AND range
-#     (number_contigs) and case_insensitive equality (qc_status)
-#   - a column kept but never QC'd (assembler), and a column that's renamed
-#     but never QC'd (sequencing_platform -> platform)
-#   - conditional qc keyed on a match column (assembly_length, by predicted
-#     organism), deliberately with no default: 369711 (Salmonella enterica)
-#     has no matching rule and fails as a result
-#   - file_parsing against a real gs:// report file, three outputs from one
-#     file (quast_report), one of which is itself conditional qc
-#   - set_qc (run-level QC): all three match kinds, a rule checking more
-#     than one column, and the whole-run-fail behavior (see
-#     input_ntc_contaminated.tsv)
-#   - column allow-list at real scale (491 real columns down to 15, i.e.
-#     every other real column is dropped just by never being mentioned)
-#
-# A second, wholly separate small table (input_multi_format.tsv +
-# config_multi_format.yaml, further down in this directory) demonstrates
-# file_parsing against two more file formats (JSON, an invented report
-# format) and multi-output extraction from a single non-TSV file -- kept
-# separate because those formats don't correspond to anything in a real
-# TheiaProk_Illumina_PE table.
 columns:
   - input_column: "entity:theiaprok_illumina_pe_v4-2-0_id"
     output_column: sample_id
 
-  - input_column: assembler                # pass-through: kept, never QC'd
+  - input_column: assembler
 
   - input_column: sequencing_platform
-    output_column: platform               # renamed, kept, never QC'd
+    output_column: platform
 
   - input_column: gambit_predicted_taxon
-    output_column: predicted_taxon        # pass-through: also the match key for the conditional qc below
+    output_column: predicted_taxon
 
   - input_column: assembly_length
     qc:
@@ -54,6 +23,7 @@ columns:
         "Pseudomonas aeruginosa":
           - {operator: ">=", value: 5500000}
           - {operator: "<=", value: 7100000}
+    output: false
 
   - input_column: n50_value
     output_column: n50
@@ -63,7 +33,6 @@ columns:
   - input_column: number_contigs
     output_column: contig_count
     qc:
-      # A plain (non-conditional) range: both conditions must pass (ANDed).
       - {operator: ">=", value: 10}
       - {operator: "<=", value: 300}
 
@@ -86,27 +55,10 @@ columns:
     qc:
       - {operator: "=", value: PASS, case_insensitive: true}
 
-  - input_column: screening_notes
-    # No qc: here on purpose -- gated by set_qc below instead. A blank
-    # cell is normally an automatic QC failure ("missing value"), which
-    # would wrongly fail the negative control's expected-blank result if
-    # this column had a fixed qc: rule applied to every row.
-
-  - input_column: notes                    # pass-through commentary, never QC'd directly
-
-  - input_column: raw_read_count
-    # No qc: here either -- the negative control's raw read count is
-    # gated by set_qc below. A single fixed threshold can't apply to both
-    # a negative control (expected to be low) and a real sample.
+  - input_column: notes
 
   - input_column: quast_report
     file_parsing:
-      # Cross-validates the native assembly_length/n50 columns above
-      # against the same numbers pulled straight out of QUAST's own
-      # report.tsv for that sample -- three outputs from one file
-      # (real gs:// paths for the real samples, local files for the
-      # synthetic NTC1/PC1), localized once and parsed with three
-      # independent awk commands.
       - output_column: quast_n50
         command: |
           awk -F'\t' '$1 == "N50" {print $2}' "$FILE"
