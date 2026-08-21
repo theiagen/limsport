@@ -8,7 +8,7 @@ on a later row, so it is decided and written immediately -- see read_input() for
 one decision that can't be made until the last row is in.
 
 Included classes:
-    - InputSummary
+    - IngestSummary
 
 External methods:
     - read_input()
@@ -24,7 +24,7 @@ from .layout import ExportLayout
 
 
 @dataclass
-class InputSummary:
+class IngestSummary:
     """
     Information from reading the input file, and what got written while reading it.
 
@@ -157,6 +157,7 @@ def _build_qc_inputs(
             )
         return qc_inputs
 
+    # no file parsing
     conditions = _select_qc_conditions(
         column.qc, match_values, f"column {column.input_column!r}"
     )
@@ -179,24 +180,16 @@ def read_input(
     requested_samples: set[str] | None,
     writer,
     max_file_parsing_failures: int | None = None,
-) -> InputSummary:
+) -> IngestSummary:
     """
     Reads every input row, QCs it, and writes the passing ones straight to `writer`.
 
-    With `writer=None` this is a set_qc-only pre-pass: rows are still read, filtered
-    and counted, and set_qc is still evaluated, but no row is expanded and nothing is
-    written. That's what makes it cheap enough to run before the real pass -- see
-    ExportLayout.set_qc_prepass.
+    When `writer=None`, this is a set_qc-only pre-pass where only set_qc is evaluated.
 
-    A row's own QC verdict never depends on a later row, so it's decided here and
-    the row is written immediately -- nothing is held in memory. Only one decision
-    has to wait for the end of the file: whether a set_qc rule failed, which fails
-    the *whole* run. That's why `writer` must point at a staging file that only
-    gets committed once pipeline._apply_qc() has had its say.
+    Each row/QC pass is written immediately to a temp file that is finalized after all
+    processing is complete with no set_qc failures.
 
-    Once any set_qc check fails the run is already doomed, so every later row
-    skips its own expansion and QC entirely. That matters most for `file_parsing`,
-    where expanding a row means a subprocess (and possibly a download) per cell.
+    If a set_qc check fails, all subsequent rows skip expansion and QC entirely.
 
     Args:
         input_path: the input table to read.
@@ -205,23 +198,22 @@ def read_input(
         set_qc_rules: the config's run-level rules, or an empty list when there
           are none (or no config).
         requested_samples: the sample names to keep, or None to keep all.
-        max_file_parsing_failures: how many rows may lose their file_parsing before
+        max_file_parsing_failures: how many rows may fail file_parsing before
           the run aborts, or None for no limit.
         writer: an open row writer from table_io.open_row_writer(), or None to
-          evaluate set_qc only and write nothing. Required, with no default: a
-          caller that omits it wants the real pass, and silently getting a
-          pre-pass instead would produce an empty output with no error.
+          evaluate set_qc only and write nothing.
 
     Returns:
         The sample names, the set_qc bookkeeping, and what was written.
     """
-    summary = InputSummary(
+    summary = IngestSummary(
         set_qc_matched={rule.rule_name: [] for rule in set_qc_rules},
         set_qc_failures={rule.rule_name: [] for rule in set_qc_rules},
     )
 
     for row in table_io.iter_rows(input_path, input_delimiter):
-        # sample name should always be in the first column
+        # sample name should always be in the first column -- potentially modify this
+        # to be configurable in the future
         sample = row[0] if row else ""
         summary.total_rows += 1
 
@@ -232,18 +224,16 @@ def read_input(
                 continue
         summary.candidate_rows += 1
         if set_qc_rules:
-            # only a failing set_qc rule ever reads these; without rules it would
-            # be a string per row that nothing can reach. Kept once doomed too --
-            # every sample earns a collateral failure row.
+            # keep a list of all outpu sample names in the file in case of a set qc fail
             summary.sample_names.append(sample)
 
-        # This row's value for every column in match_index. Read two different
-        # ways below: conditional qc looks a value up to pick which conditions
-        # apply, while a set_qc check treats the value as the thing being checked.
+        # This row's value for every column in match_index.
+        # Conditional qc checks match_values to pick which conditions apply,
+        # while a set_qc check treats the match_value as the column being checked.
         match_values = {name: row[idx] for name, idx in layout.match_index.items()}
 
         # Always evaluated, even once doomed: every rule still needs its full
-        # matched-sample list for pipeline._check_set_qc_matched(), and every failing
+        # matched-sample list for pipeline._check_set_qc_matched_samples(), and every failing
         # sample still earns its own full-detail report row.
         for rule in set_qc_rules:
             if not rule.match_samples.applies_to(sample):
@@ -257,6 +247,7 @@ def read_input(
                     check.input_column,
                     match_values[check.input_column],
                     check.qc,
+                    output=False,
                 )
                 for check in rule.checks
             ]
@@ -267,7 +258,6 @@ def read_input(
 
         if writer is None or summary.set_qc_failed:
             # a set_qc-only pre-pass, or a run that can no longer produce output
-            # -- either way, skip the expensive part
             continue
 
         if not layout.config_has_columns:
@@ -276,12 +266,21 @@ def read_input(
             summary.written_rows += 1
             continue
 
+        # build list of qc inputs (perform file parsing as indicated)
         qc_inputs: list[qc.QCInput] = []
         for column, idx in layout.column_positions:
             qc_inputs.extend(_build_qc_inputs(column, row[idx], match_values))
         summary.expanded_rows += 1
+
+        # were there any file parsing errors when qc inputs were build? too many might
+        # indicate that bad command(s) were provided
         parse_failure = next(
-            (i.qc.reason for i in qc_inputs if isinstance(i.qc, qc.ParsingFailed)), None
+            (
+                item.qc.reason
+                for item in qc_inputs
+                if isinstance(item.qc, qc.ParsingFailed)
+            ),
+            None,
         )
         if parse_failure is not None:
             summary.parse_failed_rows += 1
@@ -290,17 +289,20 @@ def read_input(
                 max_file_parsing_failures is not None
                 and summary.parse_failed_rows > max_file_parsing_failures
             ):
-                # too many files are failing for this to look like bad data
+                # too many files are failing for this, quit
                 raise FileParsingError(
                     f"{input_path}: file_parsing failed on {summary.parse_failed_rows} "
                     f"row(s), over the --max-file-parsing-failures limit of "
                     f"{max_file_parsing_failures}; last failure: {parse_failure}"
                 )
+
+        # perform comparisons
         row_outcome = qc.evaluate_row(qc_inputs, sample)
         summary.row_failures.extend(row_outcome.failures)
         if not row_outcome.passed:
             # row failed qc, keep it out of the output
             continue
+        # write output to temp file
         writer.writerow([qc_input.value for qc_input in qc_inputs if qc_input.output])
         summary.written_rows += 1
 

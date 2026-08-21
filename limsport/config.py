@@ -102,7 +102,7 @@ class QCCondition(_StrictModel):
 
     @model_validator(mode="after")
     def _validate_operator_requirements(self) -> "QCCondition":
-        """Check that this operator can take the `value` and modifiers it was given.
+        """Check that this operator is compatible with both `value` and any modifiers
 
         Returns:
           `self` unchanged
@@ -133,9 +133,7 @@ class QCCondition(_StrictModel):
         # boolean operators
         if isinstance(self.value, bool):
             # reject booleans because `value: true` becomes 1.0, not "true"
-            # keep this functionality for now but we may want to confirm presence/absence
-            # of content with a boolean later depending on conversation w/ analysts??
-            raise ValueError(  # noqa: TRY004 -- we want this to fail as a config error instead of type
+            raise ValueError(  # noqa: TRY004 -- we want this to fail as a config error
                 f'QC value cannot be a boolean ({self.value!r}); quote it as a string (e.g. "true") if that\'s what you mean'
             )
 
@@ -152,7 +150,7 @@ class QCCondition(_StrictModel):
                     f"operator {self.operator.value!r} requires a non-empty string value"
                 )
         elif self.operator is not QCOperator.EQ:
-            # string values can only use equivalence or substring operators; error if not
+            # string operators can't do numerical comparisons
             if not isinstance(self.value, (int, float)):
                 # ValueError for the same reason as the boolean check above
                 raise ValueError(
@@ -189,7 +187,7 @@ class ConditionalQC(_StrictModel):
     Without a `default`, it's reported as a QC fail
 
     Attributes:
-        - match_column: the column to match on
+        - match_column: the name of the column to match on
         - cases: a dictionary of match values and their associated QCCondition(s)
         - default: the default QCCondition(s) to apply if no match was found
     """
@@ -237,14 +235,13 @@ class FileParsingOutput(_StrictModel):
     """
     One output value extracted from a column's file via `command`
 
-    `qc` can be either a plain list[QCCondition], or the ConditionalQC form. Requires
-    --allow-file-parsing on the CLI, to avoid lawsuits probably
+    `qc` can be either a plain list[QCCondition], or the ConditionalQC form.
 
     Attributes:
-        - output_column: the name of the output column generated from the command
-        - command: the parsing command to perform on the file
-        - timeout_seconds: how long to try before giving up
-        - qc: the list any QC to perform on the generated output
+        - output_column: the name of the output column that will be generated
+        - command: the parsing command to perform on the file to generate the output
+        - timeout_seconds: how long to try the command before giving up
+        - qc: the list of QC to perform on the generated output
     """
 
     output_column: str = Field(min_length=1)
@@ -256,16 +253,16 @@ class FileParsingOutput(_StrictModel):
     @classmethod
     def _command_is_not_blank(cls, command: str) -> str:
         """
-        A `command` needs more than whitespace in it.
+        `command` should not be blank.
 
-        Args:
-            command: the command string
+         Args:
+             command: the command string
 
-        Returns:
-            `command` unchanged
+         Returns:
+             `command` unchanged
 
-        Raises:
-            ValueError: if the command is empty or only whitespace.
+         Raises:
+             ValueError: if the command is empty or only whitespace.
         """
         # min_length=1 lets whitespace-only strings (like "   ") through booo
         if not command.strip():
@@ -304,8 +301,7 @@ class ColumnConfig(_StrictModel):
     Attributes:
         - input_column: the name of the input column
         - output_column: the name of the output column
-        - output: whether this column's value is written to the output; False keeps
-          it readable for `qc` without it ever reaching the output table
+        - output: whether this column's value is written to the output file
         - qc: the QC to perform on the column content; either a plain list[QCCondition]
           or the ConditionalQC form
         - file_parsing: if this column requires file parsing
@@ -405,16 +401,15 @@ class ColumnConfig(_StrictModel):
         return self.output_column or self.input_column
 
     @property
-    def expands_expensively(self) -> bool:
+    def contains_file_parsing(self) -> bool:
         """
-        Whether producing this column's output value(s) costs more than string work.
+        Whether producing this column's output value(s) are generated via file parsing
 
-        `file_parsing` spawns a subprocess (and maybe a download) per cell. Callers
-        use this to decide whether it's worth reading the input an extra time to
-        settle run-level QC before paying that cost -- see layout.build_layout().
+        Used because `file_parsing` spawns a subprocess (and maybe a download) per cell,
+        which is used to determine if a pre-process of set_qc would be beneficial.
 
         Returns:
-            True if expanding this column for one row is expensive.
+            True if this column has file parsing, which is computationally expensive
         """
         return self.file_parsing is not None
 
@@ -439,7 +434,6 @@ class SetQCMatch(_StrictModel):
     Identifies which sample(s) a `set_qc` rule applies to.
 
     Attributes:
-
         Only one of the following attributes is accepted at a time:
 
         - sample_pattern: a case-sensitive substring match against sample name
@@ -460,6 +454,7 @@ class SetQCMatch(_StrictModel):
         Raises:
             ValueError: if the match doesn't name exactly one usable method.
         """
+        # make list of provided methods
         given = [
             name
             for name, value in (
@@ -477,6 +472,7 @@ class SetQCMatch(_StrictModel):
             raise ValueError("set_qc match.samples must not be empty")
         if self.sample_regex is not None:
             try:
+                # make sure regex is valid
                 re.compile(self.sample_regex)
             except re.error as e:
                 raise ValueError(

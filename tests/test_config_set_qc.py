@@ -106,7 +106,7 @@ def test_set_qc_match_rejects_invalid_regex():
         )
 
 
-def test_set_qc_match_rejects_unknown_subkeys():
+def test_set_qc_match_rejects_missing_subkeys():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             _set_qc_config(
@@ -137,7 +137,7 @@ def test_set_qc_check_requires_at_least_one_qc_condition():
         ExportConfig.model_validate(_set_qc_config(_rule(checks=[_check(qc=[])])))
 
 
-def test_set_qc_check_rejects_unknown_subkeys():
+def test_set_qc_check_rejects_missing_subkeys():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(_set_qc_config(_rule(checks=[_check(typo_key=1)])))
 
@@ -160,7 +160,7 @@ def test_set_qc_rule_rejects_duplicate_input_columns_within_one_rule():
         )
 
 
-def test_set_qc_rule_rejects_unknown_subkeys():
+def test_set_qc_rule_rejects_missing_subkeys():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(_set_qc_config(_rule(typo_key=1)))
 

@@ -8,7 +8,7 @@ External methods:
     - log_nothing_to_do()
     - log_file_parsing_failures()
     - log_qc_failures()
-    - log_unknown_samples()
+    - log_missing_samples()
     - write_qc_report()
 """
 
@@ -94,14 +94,14 @@ def log_qc_failures(failures: list[QCFailure]) -> None:
             )
 
 
-def log_unknown_samples(unknown: set[str]) -> None:
+def log_missing_samples(missing: set[str]) -> None:
     """
     Warns about sample names in the sample list that aren't in the input table.
 
     Args:
-        unknown: the sample names that matched no row.
+        missing: the sample names that matched no row.
     """
-    logger.warning("sample list references unknown sample(s): %s", sorted(unknown))
+    logger.warning("sample list references a missing sample(s): %s", sorted(missing))
 
 
 def write_qc_report(path: Path, failures: list[QCFailure]) -> None:

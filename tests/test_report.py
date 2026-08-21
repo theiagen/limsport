@@ -125,7 +125,7 @@ def test_log_qc_failures_mentions_output_column_name_only_when_renamed(caplog):
     assert "total_reads" in messages[1] and "output" in messages[1]
 
 
-def test_log_unknown_samples(caplog):
+def test_log_missing_samples(caplog):
     with caplog.at_level("WARNING"):
-        report.log_unknown_samples({"SAMPLE_999"})
+        report.log_missing_samples({"SAMPLE_999"})
     assert any("SAMPLE_999" in r.message for r in caplog.records)

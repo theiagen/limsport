@@ -1,11 +1,6 @@
 """
-Orchestrates one export end to end: reads the config, works out the layout against
-the input's header, reads the rows, settles the run's verdict once run-level QC has
-had its say, and reports what happened.
-
-The steps themselves live elsewhere -- layout.py plans, ingest.py reads, qc.py judges
-one row, report.py tells the user. What's here is the order they run in, and the
-decisions that can only be made once the whole input has been seen.
+Orchestrates LIMSport by reading the config, working out the layout against
+the input's header, reading the rows, and reporting what happened
 
 External methods:
     - run_export()
@@ -18,20 +13,19 @@ from pathlib import Path
 from . import qc, report, table_io
 from .config import ExportConfig, SetQCRule, load_config
 from .exceptions import FileParsingError, InputTableError
-from .ingest import InputSummary, read_input
+from .ingest import IngestSummary, read_input
 from .layout import ExportLayout, build_layout, validate_file_parsing_allowed
 
 
 @dataclass
 class _QCOutcome:
     """
-    The run's final verdict, once set_qc's whole-run result is known.
+    The final QC verdict
 
     Attributes:
         failures: every QC failure to log and report.
         passed_rows: how many rows made it to the output.
-        run_failed: True when a set_qc rule failed the whole run, so whatever was
-          staged must be thrown away and the output is header-only.
+        run_failed: True when a set_qc rule failed the whole run
     """
 
     failures: list[qc.QCFailure] = field(default_factory=list)
@@ -41,7 +35,7 @@ class _QCOutcome:
 
 def _load_sample_list(path: Path) -> set[str]:
     """
-    Reads the sample names to filter for; the names come from the `--samples` file, not from the input table.
+    Reads the sample names to filter for (from `--samples`)
 
     Args:
         path: the file listing one sample name per line.
@@ -54,14 +48,11 @@ def _load_sample_list(path: Path) -> set[str]:
     return names
 
 
-def _warn_unknown_samples(
-    requested_samples: set[str] | None, summary: InputSummary
+def _warn_missing_samples(
+    requested_samples: set[str] | None, summary: IngestSummary
 ) -> None:
     """
     Warns about names in the --samples file that never showed up in the input.
-
-    Logged before the set_qc checks that can abort the run, so the warning is still
-    seen when the run then fails.
 
     Args:
         requested_samples: the sample names asked for, or None if none were.
@@ -69,13 +60,13 @@ def _warn_unknown_samples(
     """
     if requested_samples is None:
         return
-    unknown = requested_samples - summary.seen_samples
-    if unknown:
-        report.log_unknown_samples(unknown)
+    missing = requested_samples - summary.seen_samples
+    if missing:
+        report.log_missing_samples(missing)
 
 
-def _check_set_qc_matched(
-    set_qc_rules: list[SetQCRule], summary: InputSummary, input_path: Path
+def _check_set_qc_matched_samples(
+    set_qc_rules: list[SetQCRule], summary: IngestSummary, input_path: Path
 ) -> None:
     """
     Confirms every set_qc rule actually matched the sample(s) it claimed.
@@ -85,7 +76,7 @@ def _check_set_qc_matched(
 
     Args:
         set_qc_rules: the config's run-level rules, or an empty list.
-        summary: the finished summary, read for its set_qc_matched bookkeeping.
+        summary: the finished ingest summary
         input_path: the input table's path, used in the error messages.
 
     Raises:
@@ -95,10 +86,7 @@ def _check_set_qc_matched(
     for rule in set_qc_rules:
         matched = summary.set_qc_matched[rule.rule_name]
         if rule.match_samples.samples is not None:
-            # An exact-name matcher names specific samples the caller expects to
-            # exist (e.g. known controls) -- every one of them must actually show
-            # up, not just at least one, or a typo'd/missing name would be
-            # silently never checked.
+            # require all named samples to be present
             missing = [s for s in rule.match_samples.samples if s not in matched]
             if missing:
                 raise InputTableError(
@@ -112,16 +100,12 @@ def _check_set_qc_matched(
 
 
 def _check_file_parsing_produced_something(
-    summary: InputSummary, input_path: Path
+    summary: IngestSummary, input_path: Path
 ) -> None:
     """
     Aborts when file_parsing failed for every row that tried it.
 
-    One bad file among many is data, and fails only its own row. Every file failing
-    is a broken command, path template, or missing dependency -- there is no output
-    left to write, and a header-only table plus an exit code of 0 would report that
-    as success. Independent of --max-file-parsing-failures, which tunes how much
-    genuinely bad data to tolerate; this asks whether anything worked at all.
+    Independent of --max-file-parsing-failures
 
     Args:
         summary: the finished summary, read for its parsing counters.
@@ -141,14 +125,14 @@ def _check_file_parsing_produced_something(
 
 
 def _whole_run_failures(
-    run_failed_rules: list[SetQCRule], summary: InputSummary
+    run_failed_rules: list[SetQCRule], summary: IngestSummary
 ) -> list[qc.QCFailure]:
     """
     Builds the failure list for a run that a set_qc rule failed.
 
     Every sample fails, not only the offending one: the sample(s) that violated a
-    rule keep their real, full-detail failures, and every other sample in the run
-    gets one collateral row naming the rule(s) that failed the run.
+    set_qc rule keep their real, full-detail failures, and every other sample in the
+    run gets one collateral row naming the rule(s) that failed the run.
 
     Args:
         run_failed_rules: the set_qc rules that collected at least one failure.
@@ -186,13 +170,14 @@ def _whole_run_failures(
     return failures
 
 
-def _apply_qc(set_qc_rules: list[SetQCRule], summary: InputSummary) -> _QCOutcome:
+def _apply_qc_verdict(
+    set_qc_rules: list[SetQCRule], summary: IngestSummary
+) -> _QCOutcome:
     """
     Settles the run's verdict, now that set_qc's whole-run result is known.
 
-    The rows themselves were already written during the summary, so there is nothing
-    left to build here -- only to decide whether what was written counts, and
-    which failures to report.
+    The rows themselves were already written during the summary so it's only to decide
+    if we keep what was written.
 
     Args:
         set_qc_rules: the config's run-level rules, or an empty list.
@@ -205,10 +190,8 @@ def _apply_qc(set_qc_rules: list[SetQCRule], summary: InputSummary) -> _QCOutcom
         rule for rule in set_qc_rules if summary.set_qc_failures[rule.rule_name]
     ]
     if run_failed_rules:
-        # A set_qc rule failed, so the entire run fails QC -- not just the
-        # sample(s) that violated it. Whatever rows reached the staging file are
-        # discarded, and the per-row failures go with them: the run-level verdict
-        # replaces them.
+        # A set_qc rule failed, so the entire run fails QC. The run-level verdict
+        # replaces anything written
         return _QCOutcome(
             failures=_whole_run_failures(run_failed_rules, summary), run_failed=True
         )
@@ -233,14 +216,10 @@ def _write_header_only_output(
 
 
 def _settle_run(
-    set_qc_rules: list[SetQCRule], summary: InputSummary, input_path: Path
+    set_qc_rules: list[SetQCRule], summary: IngestSummary, input_path: Path
 ) -> _QCOutcome:
     """
     Runs the checks that need the whole input read, then returns the run's verdict.
-
-    The single place any end-of-input step belongs: both the set_qc pre-pass and the
-    real pass call it, so a new check is added once rather than kept in step across
-    two paths that must stay identical.
 
     Args:
         set_qc_rules: the config's run-level rules, or an empty list.
@@ -254,25 +233,25 @@ def _settle_run(
         InputTableError: if a set_qc rule matched no sample it named.
         FileParsingError: if file_parsing failed on every row it ran against.
     """
-    _check_set_qc_matched(set_qc_rules, summary, input_path)
+    _check_set_qc_matched_samples(set_qc_rules, summary, input_path)
     # a no-op after the pre-pass, which expands no rows and so parses no files
     _check_file_parsing_produced_something(summary, input_path)
-    return _apply_qc(set_qc_rules, summary)
+    return _apply_qc_verdict(set_qc_rules, summary)
 
 
 def _report_results(
     config: ExportConfig | None,
-    summary: InputSummary,
+    summary: IngestSummary,
     outcome: _QCOutcome,
     qc_report_path: Path | None,
 ) -> None:
     """
-    Logs the run summary, and writes the QC report when one was asked for.
+    Logs the run summary and writes the QC report
 
     Args:
         config: the loaded config, or None if there wasn't one.
-        summary: the finished summary, read for its row counts.
-        outcome: the QC result, read for its failures and pass count.
+        summary: the finished ingest summary
+        outcome: the QC result
         qc_report_path: where to write the QC failure report, or None to skip it.
     """
     if config is None:
@@ -355,34 +334,23 @@ def run_export(
     )
 
     if layout.set_qc_prepass:
-        # Read the input once for set_qc alone, before any file_parsing runs. A
-        # set_qc failure fails the whole run, so without this the expensive work
-        # is done and then thrown away -- and worst case that's all of it, since
-        # controls often sit at the end of the table and a rule matching zero
-        # samples isn't detected until the read finishes either way.
+        # check for set_qc failures if file parsing was included to avoid GCP downloads
         pre_summary = read_input(
             input_path,
             input_delimiter,
             layout,
             set_qc_rules,
             requested_samples,
-            writer=None,  # set_qc only: evaluate the gate, expand and write nothing
+            writer=None,  # set_qc only
         )
-        _warn_unknown_samples(requested_samples, pre_summary)
+        _warn_missing_samples(requested_samples, pre_summary)
         pre_outcome = _settle_run(set_qc_rules, pre_summary, input_path)
         if pre_outcome.run_failed:
-            # nothing expensive has run yet, and now none of it has to
             _write_header_only_output(output_path, layout, output_delimiter)
             _report_results(config, pre_summary, pre_outcome, qc_report_path)
             return
 
-    # Rows are written as they're read, but to a staging file rather than to
-    # output_path, because one decision can't be made until the last row is in:
-    # a failing set_qc rule fails every row in the run, not just the sample(s) it
-    # matched. So output_path is only created at the very end -- by renaming the
-    # staging file when the run passed, or by writing a header-only table when it
-    # didn't. Anything that raises in between leaves output_path untouched, which
-    # also means an earlier export at that path survives a failed re-run.
+    # keep the output staged on disk instead of memory
     staging_path = output_path.with_name(output_path.name + ".tmp")
     try:
         with table_io.open_row_writer(
@@ -399,19 +367,16 @@ def run_export(
             )
 
         if not layout.set_qc_prepass:
-            # the pre-pass already logged these
-            _warn_unknown_samples(requested_samples, summary)
+            _warn_missing_samples(requested_samples, summary)
 
-        # set_qc's verdict is known, so what was staged can finally be judged
         outcome = _settle_run(set_qc_rules, summary, input_path)
-
         if outcome.run_failed:
             # a set_qc rule failed, so nothing that was staged counts
             _write_header_only_output(output_path, layout, output_delimiter)
         else:
             os.replace(staging_path, output_path)
     finally:
-        # a no-op after a successful replace; cleans up on every other path
+        # remove staging file
         staging_path.unlink(missing_ok=True)
 
     _report_results(config, summary, outcome, qc_report_path)

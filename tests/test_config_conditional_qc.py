@@ -70,7 +70,7 @@ def test_conditional_qc_rejects_empty_rules():
         ExportConfig.model_validate(_conditional_qc_config(cases={}))
 
 
-def test_conditional_qc_rejects_unknown_subkeys():
+def test_conditional_qc_rejects_missing_subkeys():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(_conditional_qc_config(typo_key=1))
 

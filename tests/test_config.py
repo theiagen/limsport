@@ -1,5 +1,5 @@
 import pytest
-from factories import config_basic, config_qc_range, config_unknown_column
+from factories import config_basic, config_missing_column, config_qc_range
 from pydantic import ValidationError
 
 from limsport.config import ExportConfig, QCCondition, load_config
@@ -306,7 +306,7 @@ def test_load_config_rejects_wrong_top_level_shape(tmp_path):
         load_config(not_a_mapping)
 
 
-def test_rejects_unknown_top_level_key():
+def test_rejects_missing_top_level_key():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {"columns": [{"input_column": "a"}], "not_a_real_key": True}
@@ -527,9 +527,9 @@ def test_case_insensitive_true_rejected_on_numeric_value():
         )
 
 
-def test_unknown_column_config_raises_on_load(tmp_path):
+def test_missing_column_config_raises_on_load(tmp_path):
     # Loading only validates the config's own shape; missing-in-input-header
     # checking happens in pipeline.py, not here.
-    config = load_config(config_unknown_column(tmp_path))
+    config = load_config(config_missing_column(tmp_path))
     assert config.columns is not None
     assert [c.input_column for c in config.columns] == ["sample_id", "does_not_exist"]

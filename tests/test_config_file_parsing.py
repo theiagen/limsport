@@ -186,7 +186,7 @@ def test_file_parsing_accepts_no_timeout():
     assert file_parsing[0].timeout_seconds is None
 
 
-def test_file_parsing_rejects_unknown_subkeys():
+def test_file_parsing_rejects_missing_subkeys():
     # Unlike the original placeholder (extra="allow"), the real schema
     # catches typos in file_parsing's own keys.
     with pytest.raises(ValidationError):

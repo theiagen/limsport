@@ -1,7 +1,7 @@
 import pytest
 from factories import (
+    config_missing_column,
     config_qc_range,
-    config_unknown_column,
     file_parsing_scenario,
     input_basic,
     input_single_column,
@@ -96,14 +96,14 @@ def test_malformed_config_returns_1_without_traceback(tmp_path, capsys):
     assert "Traceback" not in capsys.readouterr().err
 
 
-def test_unknown_column_config_returns_1_no_output(tmp_path):
+def test_missing_column_config_returns_1_no_output(tmp_path):
     out = tmp_path / "out.tsv"
     rc = cli.main(
         [
             "--input",
             str(input_basic(tmp_path)),
             "--config",
-            str(config_unknown_column(tmp_path)),
+            str(config_missing_column(tmp_path)),
             "--output",
             str(out),
         ]

@@ -6,7 +6,7 @@ Three classes are included:
     - QCResult
     - QCInput
 
-Plus the stand-ins for "this output could not be checked":
+These are stand-ins for when "this output could not be checked":
     - UncheckableOutput (base)
     - NoMatchingRule
     - ParsingFailed

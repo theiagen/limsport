@@ -1,12 +1,6 @@
 """
-Works out what the config asks for against one input table's header: validates every
-column the config names, then builds the ExportLayout that every later step reads --
-the output header, where in each input row to find each value, and whether run-level
-QC is worth its own read of the input.
-
-Nothing here reads a data row or writes anything; it all runs before the first byte
-of output, so a config that can't work against this input fails before an old export
-at the output path is disturbed.
+Works out what the config is asking for against one input table's header: validates all
+columns the config names, then builds the ExportLayout that every later step reads.
 
 Included classes:
     - ExportLayout
@@ -26,14 +20,14 @@ from .exceptions import ConfigError, InputTableError
 @dataclass(frozen=True)
 class ExportLayout:
     """
-    What the config asks for, worked out once against this input's header.
+    What the config is asking for
 
     Attributes:
         output_header: the output table's header row
         column_positions: each configured column paired with the header index it
           reads from.
         match_index: the columns that are used in QC mapped to to its header index.
-          ConditionalQC-> contains the columns upon which the match/qc conditions apply;
+          ConditionalQC -> contains the columns upon which the match/qc conditions apply
           set_qc -> contains the columns that are being checked
         config_has_columns: True when the config lists `columns`, so each row is
           expanded into QCInputs. False when there is no config or only `set_qc`.
@@ -72,7 +66,7 @@ def _validate_header_reference(
 ) -> None:
     """
     Checks each column name from the config against the input file header to confirm
-    it exists or isn't duplicated
+    it exists and isn't duplicated
 
     Args:
         column_name: the column name the config referenced.
@@ -169,14 +163,14 @@ def validate_file_parsing_allowed(
     columns: list[ColumnConfig], allow_file_parsing: bool
 ) -> None:
     """
-    Quits if the config uses file_parsing but the user didn't opt in.
+    Quits if the config uses file_parsing but the user didn't use the CLI flag
 
     Args:
         columns: every column the config configures.
-        allow_file_parsing: whether --allow-file-parsing was given.
+        allow_file_parsing: whether CLI option --allow-file-parsing was given.
 
     Raises:
-        ConfigError: if any column configures file_parsing without the opt-in.
+        ConfigError: if any column configures file_parsing without the CLI option
     """
     if allow_file_parsing:
         return
@@ -189,7 +183,7 @@ def validate_file_parsing_allowed(
 
 def _collect_conditional_qc_match_columns(columns: list[ColumnConfig]) -> set[str]:
     """
-    Every column name referenced as a conditional-qc match
+    Every column name referenced as a conditional-qc match column
 
     Args:
         columns: every column the config configures, including their file_parsing
@@ -225,7 +219,7 @@ def build_layout(
         input_path: the input table's path, used in the error messages.
 
     Returns:
-        The plan every later step reads from.
+        The layout every later step reads from.
 
     Raises:
         InputTableError: if the config or a set_qc rule references a column that is
@@ -247,23 +241,21 @@ def build_layout(
     _validate_set_qc_check_columns(config.set_qc, column_name_indices, input_path)
 
     if config.columns is not None:
-        # ------------------------------------------------------------------
-        # OUTPUT COLUMNS ARE ORDERED LIKE THE CONFIG
+        # columns will be ordered as they are in the config
         ordered_columns = config.columns
-        # ------------------------------------------------------------------
-        # ---                             OR                             ---
-        # ------------------------------------------------------------------
-        # OUTPUT COLUMNS ARE KEPT IN THE SAME ORDER AS THE INPUT
+        # to keep columns in the same order as the input:
         # ordered_columns = sorted(config.columns, key=lambda c: column_name_indices[c.input_column][0])
-        # ------------------------------------------------------------------
 
         # one column can contribute several output names (file_parsing), so the
         # header is flattened out of every column's generated names
         output_header = [
-            name for c in ordered_columns for name in c.generated_output_column_names
+            name
+            for column in ordered_columns
+            for name in column.generated_output_column_names
         ]
         column_positions = [
-            (c, column_name_indices[c.input_column][0]) for c in ordered_columns
+            (column, column_name_indices[column.input_column][0])
+            for column in ordered_columns
         ]
     else:
         # no columns (only happens if there's only set_qc)
@@ -271,23 +263,21 @@ def build_layout(
         output_header = header
         column_positions = []
 
-    # Cells that have to be read whether or not they end up in the output:
-    # conditional qc's match columns, plus every column a set_qc check reads.
-    # Neither has to appear in the `columns` allow-list.
+    # grab the match columns:
+    # conditional qc -> the columns to check for matches on
+    # set_qc -> the columns to perform the set qc check on
     match_columns = _collect_conditional_qc_match_columns(config.columns or []) | {
         check.input_column for rule in config.set_qc for check in rule.checks
     }
 
-    # A set_qc failure fails the whole run, so per-row work done before it is
-    # discovered is wasted. Reading for set_qc alone first avoids that, but costs an
-    # extra parse -- worth it only when expanding a row is expensive, which each
-    # column reports for itself.
-    expansion_is_expensive = any(c.expands_expensively for c in (config.columns or []))
+    # Preprocess for set_qc if any file parsing is included in the config to avoid
+    # wasteful GCP downloads
+    file_parsing_included = any(c.contains_file_parsing for c in (config.columns or []))
 
     return ExportLayout(
         output_header=output_header,
         column_positions=column_positions,
         match_index={name: column_name_indices[name][0] for name in match_columns},
         config_has_columns=config.columns is not None,
-        set_qc_prepass=bool(config.set_qc) and expansion_is_expensive,
+        set_qc_prepass=bool(config.set_qc) and file_parsing_included,
     )

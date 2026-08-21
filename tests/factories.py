@@ -1,8 +1,7 @@
-"""Shared test-data builders used across multiple test modules. Each
+"""
+Shared test-data builders used across multiple test modules. Each
 builder takes a tmp_path and writes one small input/config/samples file
-into it, returning the Path -- plain functions rather than fixtures, so a
-test can build exactly the files it needs, in whatever combination,
-without pytest's fixture-injection machinery in the way.
+into it, returning the Path.
 
 A builder used by only one test module lives inline in that module
 instead of here.
@@ -92,8 +91,8 @@ def config_basic(tmp_path):
     return path
 
 
-def config_unknown_column(tmp_path):
-    path = tmp_path / "config_unknown_column.yaml"
+def config_missing_column(tmp_path):
+    path = tmp_path / "config_missing_column.yaml"
     path.write_text(
         "columns:\n  - input_column: sample_id\n  - input_column: does_not_exist\n"
     )
@@ -123,7 +122,8 @@ def samples_subset(tmp_path):
 
 
 def file_parsing_scenario(tmp_path, *, data_content, command, qc_yaml=""):
-    """A data file + input TSV referencing its path (as `data_path`) +
+    """
+    A data file + input TSV referencing its path (as `data_path`) +
     config with one file_parsing output (`extracted`) that runs `command`
     against it, optionally followed by a `qc:` block -- the shared shape
     behind every single-output file_parsing scenario in the test suite.

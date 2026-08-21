@@ -3,8 +3,8 @@ import tracemalloc
 import pytest
 from factories import (
     config_basic,
+    config_missing_column,
     config_qc_range,
-    config_unknown_column,
     hash_file,
     input_basic,
     input_comma,
@@ -39,8 +39,8 @@ def config_dupe_reference(tmp_path):
     return path
 
 
-def samples_with_unknown(tmp_path):
-    path = tmp_path / "samples_with_unknown.txt"
+def samples_with_missing(tmp_path):
+    path = tmp_path / "samples_with_missing.txt"
     path.write_text("SAMPLE_001\nSAMPLE_999\n")
     return path
 
@@ -96,12 +96,12 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
     assert header == ["status", "sample_id", "notes", "total_reads"]
 
 
-def test_unknown_config_column_raises_before_output_created(tmp_path):
+def test_missing_config_column_raises_before_output_created(tmp_path):
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
         pipeline.run_export(
             input_basic(tmp_path),
-            config_unknown_column(tmp_path),
+            config_missing_column(tmp_path),
             None,
             out,
             None,
@@ -193,13 +193,13 @@ def test_ambiguous_duplicate_column_reference_raises(tmp_path):
     assert not out.exists()
 
 
-def test_unknown_sample_name_warns_but_succeeds(tmp_path, caplog):
+def test_missing_sample_name_warns_but_succeeds(tmp_path, caplog):
     out = tmp_path / "out.tsv"
     with caplog.at_level("WARNING"):
         pipeline.run_export(
             input_basic(tmp_path),
             None,
-            samples_with_unknown(tmp_path),
+            samples_with_missing(tmp_path),
             out,
             None,
         )
