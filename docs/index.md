@@ -275,10 +275,3 @@ limsport/
 ```
 
 Tests mirror this layout (`tests/test_<module>.py`).
-
-## To-Do:
-
-- [ ] enable cell-parsing (eg BUSCO, etc.)
-- [x] substring QC
-- [x] set level QC - if "NTC" fails fail the entire run
-- [x] config builder from a html thingy
