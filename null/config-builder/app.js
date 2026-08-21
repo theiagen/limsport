@@ -1,0 +1,999 @@
+import {
+    OPERATORS,
+    STRING_OPERATORS,
+    NO_VALUE_OPERATORS,
+    NUMERIC_RE,
+    newColumn,
+    newCondition,
+    newCase,
+    newFileParsingOutput,
+    newSetQCRule,
+    newSetQCCheck,
+    buildConfig,
+    serializeYAML,
+} from "./schema.js";
+
+const state = { columns: [], setQCRules: [] };
+
+const columnsEl = document.getElementById("columns");
+const setQCRulesEl = document.getElementById("set-qc-rules");
+const previewEl = document.getElementById("preview");
+const errorsEl = document.getElementById("errors");
+const fileParsingNoticeEl = document.getElementById("file-parsing-notice");
+const downloadBtn = document.getElementById("download-btn");
+const copyBtn = document.getElementById("copy-btn");
+const copyStatusEl = document.getElementById("copy-status");
+
+function el(tag, props = {}, children = []) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props)) {
+        if (key === "class") node.className = value;
+        else if (key === "text") node.textContent = value;
+        else if (key.startsWith("on") && typeof value === "function") {
+            node.addEventListener(key.slice(2), value);
+        } else {
+            node.setAttribute(key, value);
+        }
+    }
+    for (const child of children) node.appendChild(child);
+    return node;
+}
+
+function labeledField(labelText, inputEl) {
+    const label = el("label", { class: "field" }, [
+        el("span", { class: "field-label", text: labelText }),
+        inputEl,
+    ]);
+    return label;
+}
+
+function refreshPreview() {
+    const { plain, errors } = buildConfig(state.columns, state.setQCRules);
+    previewEl.textContent = serializeYAML(plain);
+
+    errorsEl.innerHTML = "";
+    if (errors.length) {
+        errorsEl.classList.remove("hidden");
+        const heading = el("p", {
+            class: "errors-heading",
+            text: `${errors.length} issue(s) to fix before this config is valid:`,
+        });
+        const list = el("ul", { class: "errors-list" });
+        for (const err of errors) list.appendChild(el("li", { text: err }));
+        errorsEl.append(heading, list);
+    } else {
+        errorsEl.classList.add("hidden");
+    }
+
+    const hasFileParsing = state.columns.some((c) => c.isFileParsing);
+    fileParsingNoticeEl.classList.toggle("hidden", !hasFileParsing);
+
+    const ok =
+        errors.length === 0 &&
+        (state.columns.length > 0 || state.setQCRules.length > 0);
+    downloadBtn.disabled = !ok;
+    copyBtn.disabled = !ok;
+}
+
+// ---------------------------------------------------------------------------
+// Condition list editor (used for plain qc lists, rule condition lists, and
+// default condition lists -- always the same three fields per row).
+// ---------------------------------------------------------------------------
+
+function buildConditionsEditor(conditions) {
+    const container = el("div", { class: "conditions" });
+
+    function renderRow(cond) {
+        const operatorSelect = el("select", { class: "cond-operator" });
+        for (const op of OPERATORS) {
+            operatorSelect.appendChild(el("option", { value: op, text: op }));
+        }
+        operatorSelect.value = cond.operator;
+
+        const valuePlaceholders = {
+            "=": "e.g. PASS or 1000",
+            contains: "e.g. Escherichia",
+            does_not_contain: "e.g. contaminant",
+        };
+
+        const valueInput = el("input", {
+            type: "text",
+            class: "cond-value",
+            placeholder: valuePlaceholders[cond.operator] ?? "e.g. 1000",
+            value: cond.value,
+        });
+
+        const toleranceInput = el("input", {
+            type: "text",
+            class: "cond-tolerance",
+            placeholder: "tolerance %",
+            value: cond.tolerancePercent,
+        });
+
+        const forceStringInput = el("input", { type: "checkbox" });
+        const forceStringLabel = el("label", { class: "cond-force-string" }, [
+            forceStringInput,
+            document.createTextNode(" treat as string"),
+        ]);
+        forceStringInput.checked = cond.forceString;
+
+        const caseInsensitiveInput = el("input", { type: "checkbox" });
+        const caseInsensitiveLabel = el(
+            "label",
+            { class: "cond-case-insensitive" },
+            [caseInsensitiveInput, document.createTextNode(" ignore case")],
+        );
+        caseInsensitiveInput.checked = cond.caseInsensitive;
+
+        // A "=" value with any non-numeric character is unambiguously a string
+        // already -- no need to ask. "Treat as string" only matters for a
+        // numeric-looking (or blank) value, where auto-detection is ambiguous.
+        function equalityValueIsExplicitString() {
+            const raw = (valueInput.value ?? "").toString().trim();
+            return raw !== "" && !NUMERIC_RE.test(raw);
+        }
+
+        // "=" only treats its value as a string worth ignoring case on once
+        // it's a string -- either because it's already non-numeric, or because
+        // "treat as string" is checked. contains/does_not_contain always compare
+        // strings, so they don't need either gate.
+        function forceStringApplies() {
+            return (
+                operatorSelect.value === "=" && !equalityValueIsExplicitString()
+            );
+        }
+        function caseInsensitiveApplies() {
+            if (operatorSelect.value === "=") {
+                return (
+                    equalityValueIsExplicitString() || forceStringInput.checked
+                );
+            }
+            return STRING_OPERATORS.has(operatorSelect.value);
+        }
+
+        function syncOperatorDependentUI() {
+            valueInput.classList.toggle(
+                "hidden",
+                NO_VALUE_OPERATORS.has(operatorSelect.value),
+            );
+            toleranceInput.classList.toggle(
+                "hidden",
+                operatorSelect.value !== "~=",
+            );
+            forceStringLabel.classList.toggle("hidden", !forceStringApplies());
+            caseInsensitiveLabel.classList.toggle(
+                "hidden",
+                !caseInsensitiveApplies(),
+            );
+            valueInput.placeholder =
+                valuePlaceholders[operatorSelect.value] ?? "e.g. 1000";
+        }
+        syncOperatorDependentUI();
+
+        operatorSelect.addEventListener("change", () => {
+            cond.operator = operatorSelect.value;
+            // Clear state tied to a now-hidden control -- otherwise a stale
+            // leftover value (typed before switching operators) can trip
+            // buildConfig's validation with no visible control left to fix it.
+            if (NO_VALUE_OPERATORS.has(cond.operator)) {
+                cond.value = "";
+                valueInput.value = "";
+            }
+            if (cond.operator !== "~=") {
+                // strict inequality
+                cond.tolerancePercent = "";
+                toleranceInput.value = "";
+            }
+            if (cond.operator !== "=") {
+                cond.forceString = false;
+                forceStringInput.checked = false;
+            }
+            if (!caseInsensitiveApplies()) {
+                cond.caseInsensitive = false;
+                caseInsensitiveInput.checked = false;
+            }
+            syncOperatorDependentUI();
+            refreshPreview();
+        });
+        valueInput.addEventListener("input", () => {
+            cond.value = valueInput.value;
+            // The value itself (not just the operator) can flip whether "ignore
+            // case" is currently valid -- e.g. typing a letter into a numeric-
+            // looking "=" value makes it an explicit string.
+            if (!caseInsensitiveApplies()) {
+                cond.caseInsensitive = false;
+                caseInsensitiveInput.checked = false;
+            }
+            syncOperatorDependentUI();
+            refreshPreview();
+        });
+        toleranceInput.addEventListener("input", () => {
+            cond.tolerancePercent = toleranceInput.value;
+            refreshPreview();
+        });
+        forceStringInput.addEventListener("change", () => {
+            cond.forceString = forceStringInput.checked;
+            if (!caseInsensitiveApplies()) {
+                cond.caseInsensitive = false;
+                caseInsensitiveInput.checked = false;
+            }
+            syncOperatorDependentUI();
+            refreshPreview();
+        });
+        caseInsensitiveInput.addEventListener("change", () => {
+            cond.caseInsensitive = caseInsensitiveInput.checked;
+            refreshPreview();
+        });
+
+        const removeBtn = el("button", {
+            type: "button",
+            class: "btn-icon",
+            title: "Remove condition",
+            text: "✕",
+            onclick: () => {
+                const idx = conditions.indexOf(cond);
+                if (idx >= 0) conditions.splice(idx, 1);
+                row.remove();
+                refreshPreview();
+            },
+        });
+
+        const row = el("div", { class: "condition-row" }, [
+            operatorSelect,
+            valueInput,
+            toleranceInput,
+            forceStringLabel,
+            caseInsensitiveLabel,
+            removeBtn,
+        ]);
+        return row;
+    }
+
+    for (const cond of conditions) container.appendChild(renderRow(cond));
+
+    const addBtn = el("button", {
+        type: "button",
+        class: "btn-add",
+        text: "+ Add condition",
+        onclick: () => {
+            const cond = newCondition();
+            conditions.push(cond);
+            container.insertBefore(renderRow(cond), addBtn);
+            refreshPreview();
+        },
+    });
+    container.appendChild(addBtn);
+
+    return container;
+}
+
+// ---------------------------------------------------------------------------
+// QC editor: none / fixed list / conditional (match + rules + optional default)
+// ---------------------------------------------------------------------------
+
+function buildQCEditor(qc) {
+    const container = el("div", { class: "qc-editor" });
+    const kindSelect = el("select", { class: "qc-kind" }, [
+        el("option", { value: "none", text: "No QC on this value" }),
+        el("option", { value: "list", text: "Fixed threshold(s)" }),
+        el("option", {
+            value: "conditional",
+            text: "Threshold depends on another column",
+        }),
+    ]);
+    kindSelect.value = qc.kind;
+
+    const body = el("div", { class: "qc-body" });
+
+    function renderBody() {
+        body.innerHTML = "";
+        if (qc.kind === "list") {
+            body.appendChild(buildConditionsEditor(qc.conditions));
+        } else if (qc.kind === "conditional") {
+            body.appendChild(buildConditionalQCEditor(qc));
+        }
+    }
+
+    kindSelect.addEventListener("change", () => {
+        qc.kind = kindSelect.value;
+        if (qc.kind === "list" && qc.conditions.length === 0)
+            qc.conditions.push(newCondition());
+        if (qc.kind === "conditional" && qc.cases.length === 0)
+            qc.cases.push(newCase());
+        renderBody();
+        refreshPreview();
+    });
+
+    renderBody();
+    container.append(kindSelect, body);
+    return container;
+}
+
+function buildConditionalQCEditor(qc) {
+    const container = el("div", { class: "conditional-qc" });
+
+    const matchInput = el("input", {
+        type: "text",
+        placeholder:
+            "column name whose value picks the rule, e.g. predicted_taxon",
+        value: qc.matchColumn,
+    });
+    matchInput.addEventListener("input", () => {
+        qc.matchColumn = matchInput.value;
+        refreshPreview();
+    });
+
+    const casesContainer = el("div", { class: "rules" });
+
+    function renderCase(qcCase) {
+        const keyInput = el("input", {
+            type: "text",
+            class: "rule-key",
+            placeholder: 'value to match, e.g. "Escherichia coli"',
+            value: qcCase.key,
+        });
+        keyInput.addEventListener("input", () => {
+            qcCase.key = keyInput.value;
+            refreshPreview();
+        });
+
+        const removeBtn = el("button", {
+            type: "button",
+            class: "btn-icon",
+            title: "Remove case",
+            text: "✕",
+            onclick: () => {
+                const idx = qc.cases.indexOf(qcCase);
+                if (idx >= 0) qc.cases.splice(idx, 1);
+                caseBlock.remove();
+                refreshPreview();
+            },
+        });
+
+        const header = el("div", { class: "rule-header" }, [
+            keyInput,
+            removeBtn,
+        ]);
+        const conditionsEditor = buildConditionsEditor(qcCase.conditions);
+        const caseBlock = el("div", { class: "rule-block" }, [
+            header,
+            conditionsEditor,
+        ]);
+        return caseBlock;
+    }
+
+    for (const qcCase of qc.cases)
+        casesContainer.appendChild(renderCase(qcCase));
+
+    const addCaseBtn = el("button", {
+        type: "button",
+        class: "btn-add",
+        text: "+ Add case",
+        onclick: () => {
+            const qcCase = newCase();
+            qc.cases.push(qcCase);
+            casesContainer.insertBefore(renderCase(qcCase), addCaseBtn);
+            refreshPreview();
+        },
+    });
+    casesContainer.appendChild(addCaseBtn);
+
+    const defaultToggle = el("label", { class: "checkbox-field" });
+    const defaultCheckbox = el("input", { type: "checkbox" });
+    defaultCheckbox.checked = qc.useDefault;
+    defaultToggle.append(
+        defaultCheckbox,
+        document.createTextNode("Add a default rule"),
+    );
+
+    const defaultBody = el("div", { class: "default-body" });
+    function renderDefaultBody() {
+        defaultBody.innerHTML = "";
+        defaultBody.classList.toggle("hidden", !qc.useDefault);
+        if (qc.useDefault) {
+            if (qc.default.length === 0) qc.default.push(newCondition());
+            defaultBody.appendChild(buildConditionsEditor(qc.default));
+        }
+    }
+    defaultCheckbox.addEventListener("change", () => {
+        qc.useDefault = defaultCheckbox.checked;
+        renderDefaultBody();
+        refreshPreview();
+    });
+    renderDefaultBody();
+
+    const hint = el("p", {
+        class: "hint",
+        text: "A value with no matches is considered a QC fail without a default rule",
+    });
+
+    container.append(
+        labeledField("Match column", matchInput),
+        casesContainer,
+        hint,
+        defaultToggle,
+        defaultBody,
+    );
+    return container;
+}
+
+// ---------------------------------------------------------------------------
+// file_parsing editor: a list of named outputs, each with its own command,
+// optional timeout, and its own QC editor.
+// ---------------------------------------------------------------------------
+
+function buildFileParsingEditor(column) {
+    const container = el("div", { class: "file-parsing" });
+
+    function renderOutput(fp) {
+        const summarySpan = el("span", { class: "output-summary" });
+        function updateSummary() {
+            summarySpan.textContent = fp.outputColumn.trim() || "( )";
+        }
+
+        const nameInput = el("input", {
+            type: "text",
+            placeholder: "output column name, e.g. mean_depth",
+            value: fp.outputColumn,
+        });
+        nameInput.addEventListener("input", () => {
+            fp.outputColumn = nameInput.value;
+            updateSummary();
+            refreshPreview();
+        });
+
+        const commandInput = el("textarea", {
+            rows: "3",
+            placeholder:
+                'shell command; the file to parse is available as $FILE, e.g.\ncut -d, -f2 "$FILE"',
+            text: fp.command,
+        });
+        commandInput.addEventListener("input", () => {
+            fp.command = commandInput.value;
+            refreshPreview();
+        });
+
+        const timeoutInput = el("input", {
+            type: "text",
+            placeholder: "optional timeout (seconds)",
+            value: fp.timeoutSeconds,
+        });
+        timeoutInput.addEventListener("input", () => {
+            fp.timeoutSeconds = timeoutInput.value;
+            refreshPreview();
+        });
+
+        const removeBtn = el("button", {
+            type: "button",
+            class: "btn-remove",
+            text: "Remove output",
+            onclick: () => {
+                const idx = column.fileParsing.indexOf(fp);
+                if (idx >= 0) column.fileParsing.splice(idx, 1);
+                block.remove();
+                refreshPreview();
+            },
+        });
+
+        const qcEditor = buildQCEditor(fp.qc);
+
+        const body = el("div", { class: "output-body" }, [
+            labeledField("Output column name", nameInput),
+            labeledField(
+                "Command (must print a single-line result)",
+                commandInput,
+            ),
+            labeledField("Command timeout duration (seconds)", timeoutInput),
+            qcEditor,
+        ]);
+
+        let collapsed = false;
+        const chevron = el("span", { class: "chevron" });
+        const collapseBtn = el(
+            "button",
+            {
+                type: "button",
+                class: "btn-collapse",
+                title: "Collapse this output",
+                onclick: () => {
+                    collapsed = !collapsed;
+                    body.classList.toggle("hidden", collapsed);
+                    block.classList.toggle("collapsed", collapsed);
+                    collapseBtn.title = collapsed
+                        ? "Expand this output"
+                        : "Collapse this output";
+                },
+            },
+            [chevron],
+        );
+
+        const block = el("div", { class: "file-parsing-output" }, [
+            el("div", { class: "output-header" }, [
+                el("div", { class: "output-header-title" }, [
+                    el("strong", { text: "Output" }),
+                    summarySpan,
+                ]),
+                el("div", { class: "output-header-actions" }, [
+                    collapseBtn,
+                    removeBtn,
+                ]),
+            ]),
+            body,
+        ]);
+        updateSummary();
+        return block;
+    }
+
+    for (const fp of column.fileParsing)
+        container.appendChild(renderOutput(fp));
+
+    const addBtn = el("button", {
+        type: "button",
+        class: "btn-add",
+        text: "+ Add another output from this file",
+        onclick: () => {
+            const fp = newFileParsingOutput();
+            column.fileParsing.push(fp);
+            container.insertBefore(renderOutput(fp), addBtn);
+            refreshPreview();
+        },
+    });
+    container.appendChild(addBtn);
+
+    return container;
+}
+
+// ---------------------------------------------------------------------------
+// Set-level QC rule card: which sample(s) it applies to (one of three
+// matcher kinds), which column to check, and its own QC condition list.
+// ---------------------------------------------------------------------------
+
+function buildSetQCMatchEditor(match) {
+    const kindSelect = el("select", {}, [
+        el("option", { value: "pattern", text: "Sample name contains" }),
+        el("option", { value: "regex", text: "Sample name matches a regex" }),
+        el("option", { value: "samples", text: "Specific sample name(s)" }),
+    ]);
+    kindSelect.value = match.kind;
+
+    const patternInput = el("input", {
+        type: "text",
+        placeholder: "e.g. NTC",
+        value: match.samplePattern,
+    });
+    patternInput.addEventListener("input", () => {
+        match.samplePattern = patternInput.value;
+        refreshPreview();
+    });
+
+    const regexInput = el("input", {
+        type: "text",
+        placeholder: "e.g. ^NTC-?\\d*$",
+        value: match.sampleRegex,
+    });
+    regexInput.addEventListener("input", () => {
+        match.sampleRegex = regexInput.value;
+        refreshPreview();
+    });
+
+    const samplesInput = el("input", {
+        type: "text",
+        placeholder: "comma-separated exact names, e.g. NTC1, NTC2",
+        value: match.samples,
+    });
+    samplesInput.addEventListener("input", () => {
+        match.samples = samplesInput.value;
+        refreshPreview();
+    });
+
+    function syncKind() {
+        patternInput.classList.toggle("hidden", match.kind !== "pattern");
+        regexInput.classList.toggle("hidden", match.kind !== "regex");
+        samplesInput.classList.toggle("hidden", match.kind !== "samples");
+    }
+    syncKind();
+
+    kindSelect.addEventListener("change", () => {
+        match.kind = kindSelect.value;
+        syncKind();
+        refreshPreview();
+    });
+
+    return el("div", { class: "set-qc-match" }, [
+        kindSelect,
+        patternInput,
+        regexInput,
+        samplesInput,
+    ]);
+}
+
+// A rule's `columns`: one or more {column, qc} checks, all read from the
+// same matched sample(s) -- same nested-list shape/CSS as the conditional-qc
+// editor's rule list (.rules/.rule-block/.rule-header/.rule-key), reused
+// as-is since the pattern ("a labeled key input + remove button, then a
+// condition list, in a grouped-overlap list") is identical.
+function buildSetQCChecksEditor(rule) {
+    const container = el("div", { class: "rules" });
+
+    function renderCheck(check) {
+        const columnInput = el("input", {
+            type: "text",
+            class: "rule-key",
+            placeholder: "column to check, e.g. reads",
+            value: check.inputColumn,
+        });
+        columnInput.addEventListener("input", () => {
+            check.inputColumn = columnInput.value;
+            refreshPreview();
+        });
+
+        const removeBtn = el("button", {
+            type: "button",
+            class: "btn-icon",
+            title: "Remove this column check",
+            text: "✕",
+            onclick: () => {
+                const idx = rule.checks.indexOf(check);
+                if (idx >= 0) rule.checks.splice(idx, 1);
+                block.remove();
+                refreshPreview();
+            },
+        });
+
+        const header = el("div", { class: "rule-header" }, [
+            columnInput,
+            removeBtn,
+        ]);
+        const conditionsEditor = buildConditionsEditor(check.conditions);
+        const block = el("div", { class: "rule-block" }, [
+            header,
+            conditionsEditor,
+        ]);
+        return block;
+    }
+
+    for (const check of rule.checks) container.appendChild(renderCheck(check));
+
+    const addBtn = el("button", {
+        type: "button",
+        class: "btn-add",
+        text: "+ Add another column to check",
+        onclick: () => {
+            const check = newSetQCCheck();
+            rule.checks.push(check);
+            container.insertBefore(renderCheck(check), addBtn);
+            refreshPreview();
+        },
+    });
+    container.appendChild(addBtn);
+
+    return container;
+}
+
+function buildSetQCRuleCard(rule) {
+    const summarySpan = el("span", { class: "column-summary" });
+    function updateSummary() {
+        summarySpan.textContent = rule.ruleName.trim() || "( )";
+    }
+
+    const nameInput = el("input", {
+        type: "text",
+        placeholder: "e.g. NTC read count",
+        value: rule.ruleName,
+    });
+    nameInput.addEventListener("input", () => {
+        rule.ruleName = nameInput.value;
+        updateSummary();
+        refreshPreview();
+    });
+
+    const matchEditor = buildSetQCMatchEditor(rule.matchSamples);
+    const checksEditor = buildSetQCChecksEditor(rule);
+    const checksSection = el("div", { class: "section" }, [
+        el("h4", { text: "Columns to check" }),
+        checksEditor,
+    ]);
+
+    const removeBtn = el("button", {
+        type: "button",
+        class: "btn-remove",
+        text: "Remove rule",
+        onclick: () => {
+            const idx = state.setQCRules.indexOf(rule);
+            if (idx >= 0) state.setQCRules.splice(idx, 1);
+            card.remove();
+            refreshPreview();
+        },
+    });
+
+    const body = el("div", { class: "column-body" }, [
+        labeledField("Rule name", nameInput),
+        labeledField("Which sample(s) does this apply to?", matchEditor),
+        checksSection,
+    ]);
+
+    let collapsed = false;
+    const chevron = el("span", { class: "chevron" });
+    const collapseBtn = el(
+        "button",
+        {
+            type: "button",
+            class: "btn-collapse",
+            title: "Collapse this rule",
+            onclick: () => {
+                collapsed = !collapsed;
+                body.classList.toggle("hidden", collapsed);
+                card.classList.toggle("collapsed", collapsed);
+                collapseBtn.title = collapsed
+                    ? "Expand this rule"
+                    : "Collapse this rule";
+            },
+        },
+        [chevron],
+    );
+
+    const card = el("div", { class: "set-qc-rule-card" }, [
+        el("div", { class: "column-header" }, [
+            el("div", { class: "column-header-title" }, [
+                el("strong", { text: "Set-level QC rule" }),
+                summarySpan,
+            ]),
+            el("div", { class: "column-header-actions" }, [
+                collapseBtn,
+                removeBtn,
+            ]),
+        ]),
+        body,
+    ]);
+    updateSummary();
+    return card;
+}
+
+function addSetQCRule(rule) {
+    state.setQCRules.push(rule);
+    setQCRulesEl.appendChild(buildSetQCRuleCard(rule));
+    refreshPreview();
+}
+
+// ---------------------------------------------------------------------------
+// Column card
+// ---------------------------------------------------------------------------
+
+function buildColumnCard(col) {
+    const summarySpan = el("span", { class: "column-summary" });
+    function updateSummary() {
+        const label = col.inputColumn.trim() || "( )";
+        const bits = [];
+        if (col.isFileParsing) bits.push("file parsing");
+        else if (col.output === false)
+            bits.push("QC only, excluded from output");
+        else if (col.outputColumn.trim())
+            bits.push(`→ ${col.outputColumn.trim()}`);
+        summarySpan.textContent = bits.length
+            ? `${label} (${bits.join(", ")})`
+            : label;
+    }
+
+    const nameInput = el("input", {
+        type: "text",
+        placeholder: "column name as it appears in your input table",
+        value: col.inputColumn,
+    });
+    nameInput.addEventListener("input", () => {
+        col.inputColumn = nameInput.value;
+        updateSummary();
+        refreshPreview();
+    });
+
+    const outputColumnInput = el("input", {
+        type: "text",
+        placeholder: "optional new name for the output",
+        value: col.outputColumn,
+    });
+    outputColumnInput.addEventListener("input", () => {
+        col.outputColumn = outputColumnInput.value;
+        updateSummary();
+        refreshPreview();
+    });
+    const outputColumnField = labeledField(
+        "Output column name (optional)",
+        outputColumnInput,
+    );
+
+    // isFileParsing and output===false are mutually exclusive (same rule as
+    // output_column/qc vs. file_parsing, config.py's model_validator) --
+    // really one three-way mode, not two independent booleans. A single
+    // select above the fields it controls means picking a mode only ever
+    // reveals/hides what's below it, never yanks away a field above it.
+    const modeSelect = el("select", {}, [
+        el("option", {
+            value: "keep",
+            text: "Add to the output file",
+        }),
+        el("option", {
+            value: "exclude",
+            text: "Use for QC only",
+        }),
+        el("option", {
+            value: "fileparsing",
+            text: "Extract value(s) from a file",
+        }),
+    ]);
+    function modeFor() {
+        if (col.isFileParsing) return "fileparsing";
+        if (col.output === false) return "exclude";
+        return "keep";
+    }
+    modeSelect.value = modeFor();
+    const modeField = labeledField(
+        "What should happen to this column?",
+        modeSelect,
+    );
+
+    const qcEditor = buildQCEditor(col.qc);
+    const qcSection = el("div", { class: "section" }, [
+        el("h4", { text: "QC" }),
+        qcEditor,
+    ]);
+
+    const fileParsingEditor = buildFileParsingEditor(col);
+    const fileParsingSection = el("div", { class: "section" }, [
+        el("h4", { text: "File parsing outputs" }),
+        fileParsingEditor,
+    ]);
+
+    function syncMode() {
+        outputColumnField.classList.toggle(
+            "hidden",
+            col.isFileParsing || col.output === false,
+        );
+        qcSection.classList.toggle("hidden", col.isFileParsing);
+        fileParsingSection.classList.toggle("hidden", !col.isFileParsing);
+        updateSummary();
+    }
+    syncMode();
+
+    modeSelect.addEventListener("change", () => {
+        const mode = modeSelect.value;
+        col.isFileParsing = mode === "fileparsing";
+        col.output = mode === "exclude" ? false : true;
+        if (col.isFileParsing && col.fileParsing.length === 0)
+            col.fileParsing.push(newFileParsingOutput());
+        syncMode();
+        refreshPreview();
+    });
+
+    const removeBtn = el("button", {
+        type: "button",
+        class: "btn-remove",
+        text: "Remove column",
+        onclick: () => {
+            const idx = state.columns.indexOf(col);
+            if (idx >= 0) state.columns.splice(idx, 1);
+            card.remove();
+            refreshPreview();
+        },
+    });
+
+    const body = el("div", { class: "column-body" }, [
+        labeledField("Source column name", nameInput),
+        modeField,
+        outputColumnField,
+        qcSection,
+        fileParsingSection,
+    ]);
+
+    let collapsed = false;
+    const chevron = el("span", { class: "chevron" });
+    const collapseBtn = el(
+        "button",
+        {
+            type: "button",
+            class: "btn-collapse",
+            title: "Collapse this column",
+            onclick: () => {
+                collapsed = !collapsed;
+                body.classList.toggle("hidden", collapsed);
+                card.classList.toggle("collapsed", collapsed);
+                collapseBtn.title = collapsed
+                    ? "Expand this column"
+                    : "Collapse this column";
+            },
+        },
+        [chevron],
+    );
+
+    const card = el("div", { class: "column-card" }, [
+        el("div", { class: "column-header" }, [
+            el("div", { class: "column-header-title" }, [
+                el("strong", { text: "Column" }),
+                summarySpan,
+            ]),
+            el("div", { class: "column-header-actions" }, [
+                collapseBtn,
+                removeBtn,
+            ]),
+        ]),
+        body,
+    ]);
+    updateSummary();
+    return card;
+}
+
+function addColumn(col) {
+    state.columns.push(col);
+    columnsEl.appendChild(buildColumnCard(col));
+    refreshPreview();
+}
+
+function clearAll() {
+    state.columns.length = 0;
+    columnsEl.innerHTML = "";
+    refreshPreview();
+}
+
+// ---------------------------------------------------------------------------
+// Top-level controls
+// ---------------------------------------------------------------------------
+
+document
+    .getElementById("add-column-btn")
+    .addEventListener("click", () => addColumn(newColumn()));
+document
+    .getElementById("add-set-qc-btn")
+    .addEventListener("click", () => addSetQCRule(newSetQCRule()));
+document.getElementById("start-blank-btn").addEventListener("click", () => {
+    if (state.columns.length && !confirm("Clear all columns and start over?"))
+        return;
+    clearAll();
+});
+
+downloadBtn.addEventListener("click", () => {
+    const { plain, errors } = buildConfig(state.columns, state.setQCRules);
+    if (errors.length) return;
+    const blob = new Blob([serializeYAML(plain)], { type: "text/yaml" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: "config.yaml" });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+});
+
+// navigator.clipboard only exists in a secure context (https://, or
+// localhost/127.0.0.1) -- on a plain http:// origin like a Tailscale IP,
+// it's undefined. Fall back to the older select+execCommand technique,
+// which isn't restricted to secure contexts.
+async function copyToClipboard(text) {
+    if (window.isSecureContext && navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    if (!ok) throw new Error("execCommand('copy') was unsuccessful");
+}
+
+copyBtn.addEventListener("click", async () => {
+    const { plain, errors } = buildConfig(state.columns, state.setQCRules);
+    if (errors.length) return;
+    try {
+        await copyToClipboard(serializeYAML(plain));
+        copyStatusEl.textContent = "Copied!";
+    } catch (err) {
+        copyStatusEl.textContent =
+            "Copy failed! Select the text in the preview and copy it manually.";
+    }
+    setTimeout(() => (copyStatusEl.textContent = ""), 2500);
+});
+
+// Start with one blank column so the form isn't empty on first load.
+addColumn(newColumn());
