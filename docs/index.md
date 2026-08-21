@@ -273,5 +273,3 @@ limsport/
 ├── report.py        turns QC results into log lines and the report TSV
 └── exceptions.py    the LIMSportError hierarchy cli.py catches
 ```
-
-Tests mirror this layout (`tests/test_<module>.py`).
