@@ -1,3 +1,5 @@
+from importlib.metadata import version
+
 import pytest
 from factories import (
     config_missing_column,
@@ -145,6 +147,13 @@ def test_help_lists_all_flags(capsys):
         "--max-file-parsing-failures",
     ]:
         assert flag in out
+
+
+def test_version_prints_installed_version(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["--version"])
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out == f"limsport {version('limsport')}\n"
 
 
 def test_delimiter_flag_converts_output(tmp_path):

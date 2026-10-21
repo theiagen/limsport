@@ -11,6 +11,7 @@ External methods:
 import argparse
 import logging
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 from . import pipeline
@@ -119,6 +120,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-file-parsing",
         action="store_true",
         help="allow executing file_parsing commands from --config (required if the config uses them)",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {version('limsport')}",
     )
     return parser
 

@@ -38,6 +38,7 @@ See `examples/` for a demo.
 | `--delimiter`, `-d` | no | output delimiter (default: tab) |
 | `--allow-file-parsing` | no | required if the config uses `file_parsing` (see below) |
 | `--max-file-parsing-failures` | no | abort once more than N rows fail `file_parsing` (default: no limit) |
+| `--version` | no | print the version and exit |
 
 ## The config file
 
