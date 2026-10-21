@@ -400,10 +400,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#known-limitation-not-yet-built" class="md-nav__link">
+  <a href="#editing-an-existing-config" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Known limitation / not yet built
+        Editing an existing config
       </span>
     </span>
   </a>
@@ -482,8 +482,10 @@ inconsistent). Serve the folder over HTTP instead:</p>
   validation checks as the Pydantic models in <code>limsport/config.py</code>
   (duplicate names, <code>tolerance_percent</code> only valid with <code>~=</code>, etc.), and
   serializes the result to YAML.</li>
-<li><strong><code>examples.js</code></strong> -- builds wizard state matching each scenario under
-  <code>../examples/</code>. There's no "load example" button in the UI (deliberately
+<li><strong><code>importer.js</code></strong> / <strong><code>vendor/js-yaml.js</code></strong> -- the "open an existing
+  config" path (see below).</li>
+<li><strong><code>examples.js</code></strong> -- builds wizard state matching
+  <code>../examples/configs/config.yaml</code>. There's no "load example" button in the UI (deliberately
   removed -- worry was users would download an example unmodified instead
   of building their own config), but this module is still the backbone of
   the test suite below.</li>
@@ -504,13 +506,20 @@ reimplementation) and checks the result is semantically identical to the
 checked-in <code>examples/*/config.yaml</code> fixtures. That requires <code>limsport</code>'s
 dependencies (<code>pyyaml</code>, <code>pydantic</code>) to be importable -- e.g. an editable
 install (<code>pip install -e ..</code>) or <code>PYTHONPATH</code> pointing at <code>../src</code>.</p>
-<h2 id="known-limitation-not-yet-built">Known limitation / not yet built<a class="headerlink" href="#known-limitation-not-yet-built" title="Permanent link">&para;</a></h2>
-<p>There's no "load an existing <code>config.yaml</code> to edit" feature yet. Doing that
-properly needs a real YAML parser, and this tool deliberately has zero
-dependencies so it keeps working offline and doesn't need a build step. If
-this becomes worth doing, the cleanest path is a small vendored YAML parser
-(or a single pinned <code>js-yaml</code> file) used only for the import path -- the
-generator/serializer here wouldn't need to change.</p>
+<h2 id="editing-an-existing-config">Editing an existing config<a class="headerlink" href="#editing-an-existing-config" title="Permanent link">&para;</a></h2>
+<p>"Open existing config.yaml", or dropping a file anywhere on the page, loads
+a config back into the form. <code>importer.js</code> parses it with
+<a href="https://github.com/nodeca/js-yaml">js-yaml</a> 4.1.0, vendored unmodified as
+<code>vendor/js-yaml.js</code> (its <code>dist/js-yaml.mjs</code>, MIT; named <code>.js</code> so it's
+served as JavaScript), and <code>schema.js</code>'s <code>stateFromConfig()</code> turns the
+result into wizard state.</p>
+<p>A file the form can't hold exactly is rejected, not partially loaded, with
+each problem listed by line number (unknown keys, <code>value: true</code>, sample
+names containing commas, an empty <code>default: []</code>, an unquoted <code>yes</code>/<code>no</code>/
+<code>on</code>/<code>off</code> that limsport's YAML 1.1 parser reads as a boolean, and so on).
+That way a config that loads always downloads unchanged. Comments are not
+kept, since the download is regenerated from the form; the page warns when
+the file has any.</p>
 <h2 id="where-this-should-live-long-term">Where this should live long-term<a class="headerlink" href="#where-this-should-live-long-term" title="Permanent link">&para;</a></h2>
 <p>This folder is intentionally decoupled from the docs site so it could be
 built and tested before that existed. Once the Zensical docs site is set
