@@ -223,6 +223,59 @@ body.limsport-config-builder {
   color: var(--text-muted);
 }
 
+.limsport-config-builder .toolbar-open {
+  display: flex;
+  align-items: center;
+  gap: calc(0.5 * var(--unit));
+}
+
+.limsport-config-builder .confirm-dialog {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: calc(1 * var(--unit)) calc(1.25 * var(--unit));
+  max-width: min(28rem, calc(100vw - 2rem));
+  font-size: calc(0.95 * var(--unit));
+}
+
+.limsport-config-builder .confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.limsport-config-builder .confirm-dialog p {
+  margin: 0 0 calc(1 * var(--unit));
+  text-align: center;
+}
+
+.limsport-config-builder .dialog-actions {
+  display: flex;
+  justify-content: center;
+  gap: calc(0.6 * var(--unit));
+}
+
+.limsport-config-builder .dialog-confirm {
+  background: var(--action-accent);
+  color: var(--accent-contrast);
+  border-color: var(--action-accent);
+}
+
+/* pointer-events: none keeps drag events landing on the page underneath,
+   so app.js's dragenter/dragleave depth count stays balanced */
+.limsport-config-builder .drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  border: 3px dashed var(--action-accent);
+  color: var(--text);
+  font-size: calc(1.4 * var(--unit));
+  pointer-events: none;
+}
+
 .limsport-config-builder .layout {
   max-width: var(--page-max-width);
   margin: 0 auto;

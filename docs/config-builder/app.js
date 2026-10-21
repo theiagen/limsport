@@ -12,6 +12,7 @@ import {
     buildConfig,
     serializeYAML,
 } from "./schema.js";
+import { importConfigYAML } from "./importer.js";
 
 const state = { columns: [], setQCRules: [] };
 
@@ -23,6 +24,9 @@ const fileParsingNoticeEl = document.getElementById("file-parsing-notice");
 const downloadBtn = document.getElementById("download-btn");
 const copyBtn = document.getElementById("copy-btn");
 const copyStatusEl = document.getElementById("copy-status");
+const importStatusEl = document.getElementById("import-status");
+const openInputEl = document.getElementById("open-input");
+const dropOverlayEl = document.getElementById("drop-overlay");
 
 function el(tag, props = {}, children = []) {
     const node = document.createElement(tag);
@@ -45,6 +49,33 @@ function labeledField(labelText, inputEl) {
         inputEl,
     ]);
     return label;
+}
+
+// The browser draws window.confirm() itself, pinned to the top of the
+// window; a modal <dialog> is centered by default. It's appended inside the
+// builder's root element so it picks up the builder's CSS variables.
+function confirmDialog(message, confirmLabel) {
+    const confirmBtn = el("button", {
+        type: "button",
+        class: "dialog-confirm",
+        text: confirmLabel,
+    });
+    const cancelBtn = el("button", { type: "button", text: "Cancel" });
+    const dialog = el("dialog", { class: "confirm-dialog" }, [
+        el("p", { text: message }),
+        el("div", { class: "dialog-actions" }, [cancelBtn, confirmBtn]),
+    ]);
+    document.querySelector(".limsport-config-builder").appendChild(dialog);
+    return new Promise((resolve) => {
+        confirmBtn.addEventListener("click", () => dialog.close("confirm"));
+        cancelBtn.addEventListener("click", () => dialog.close());
+        // Also fires on Escape, with an empty returnValue.
+        dialog.addEventListener("close", () => {
+            dialog.remove();
+            resolve(dialog.returnValue === "confirm");
+        });
+        dialog.showModal();
+    });
 }
 
 function refreshPreview() {
@@ -927,9 +958,72 @@ function addColumn(col) {
 }
 
 function clearAll() {
+    loadState([], []);
+    importStatusEl.classList.add("hidden");
+}
+
+function loadState(columns, setQCRules) {
     state.columns.length = 0;
+    state.setQCRules.length = 0;
     columnsEl.innerHTML = "";
+    setQCRulesEl.innerHTML = "";
+    columns.forEach(addColumn);
+    setQCRules.forEach(addSetQCRule);
     refreshPreview();
+}
+
+// ---------------------------------------------------------------------------
+// Opening an existing config.yaml (file picker or drag-and-drop)
+// ---------------------------------------------------------------------------
+
+function showImportStatus(heading, messages, isError) {
+    importStatusEl.innerHTML = "";
+    importStatusEl.className = isError ? "errors" : "notice";
+    importStatusEl.appendChild(
+        el("p", { class: isError ? "errors-heading" : "", text: heading }),
+    );
+    if (messages.length) {
+        const list = el("ul", { class: "errors-list" });
+        for (const message of messages)
+            list.appendChild(el("li", { text: message }));
+        importStatusEl.appendChild(list);
+    }
+}
+
+function formHasContent() {
+    return (
+        state.setQCRules.length > 0 ||
+        state.columns.some((c) => c.inputColumn.trim())
+    );
+}
+
+async function openConfigFile(file) {
+    let text;
+    try {
+        text = await file.text();
+    } catch (err) {
+        showImportStatus(
+            `Couldn't read ${file.name}: ${err.message}`,
+            [],
+            true,
+        );
+        return;
+    }
+    const { columns, setQCRules, errors, warnings } = importConfigYAML(text);
+    if (errors.length) {
+        showImportStatus(`${file.name} was not loaded:`, errors, true);
+        return;
+    }
+    if (
+        formHasContent() &&
+        !(await confirmDialog(
+            `Replace everything in the form with ${file.name}?`,
+            "Replace",
+        ))
+    )
+        return;
+    loadState(columns, setQCRules);
+    showImportStatus(`Loaded ${file.name}.`, warnings, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -942,10 +1036,52 @@ document
 document
     .getElementById("add-set-qc-btn")
     .addEventListener("click", () => addSetQCRule(newSetQCRule()));
-document.getElementById("start-blank-btn").addEventListener("click", () => {
-    if (state.columns.length && !confirm("Clear all columns and start over?"))
-        return;
-    clearAll();
+document
+    .getElementById("start-blank-btn")
+    .addEventListener("click", async () => {
+        if (
+            (state.columns.length || state.setQCRules.length) &&
+            !(await confirmDialog("Clear everything and start over?", "Clear"))
+        )
+            return;
+        clearAll();
+    });
+
+document
+    .getElementById("open-btn")
+    .addEventListener("click", () => openInputEl.click());
+openInputEl.addEventListener("change", () => {
+    const [file] = openInputEl.files;
+    // Reset so choosing the same file again still fires "change".
+    openInputEl.value = "";
+    if (file) openConfigFile(file);
+});
+
+// Without preventDefault() on both dragover and drop, the browser opens the
+// dropped file in place of this page, discarding the form. dragenter/
+// dragleave fire for every element crossed, hence the depth count.
+let dragDepth = 0;
+const isFileDrag = (event) => event.dataTransfer?.types.includes("Files");
+document.addEventListener("dragenter", (event) => {
+    if (!isFileDrag(event)) return;
+    dragDepth += 1;
+    dropOverlayEl.classList.remove("hidden");
+});
+document.addEventListener("dragleave", (event) => {
+    if (!isFileDrag(event)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dropOverlayEl.classList.add("hidden");
+});
+document.addEventListener("dragover", (event) => {
+    if (isFileDrag(event)) event.preventDefault();
+});
+document.addEventListener("drop", (event) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    dropOverlayEl.classList.add("hidden");
+    const [file] = event.dataTransfer.files;
+    if (file) openConfigFile(file);
 });
 
 downloadBtn.addEventListener("click", () => {

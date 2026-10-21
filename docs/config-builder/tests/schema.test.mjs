@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,8 +28,8 @@ import {
   condition,
   fullExampleColumns,
   fullExampleSetQCRules,
-  multiFormatExampleColumns,
 } from "../examples.js";
+import { importConfigYAML } from "../importer.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
@@ -71,12 +71,6 @@ test("full example: every operator, renames, conditional qc with no default, rea
   const { plain, errors } = buildConfig(fullExampleColumns(), fullExampleSetQCRules());
   assert.deepEqual(errors, []);
   assertValidAndMatches(plain, path.join(EXAMPLES, "configs", "config.yaml"), "full");
-});
-
-test("full example multi-format adjunct: single-output, multi-output, and a third command style", () => {
-  const { plain, errors } = buildConfig(multiFormatExampleColumns());
-  assert.deepEqual(errors, []);
-  assertValidAndMatches(plain, path.join(EXAMPLES, "configs", "config_multi_format.yaml"), "configs/config_multi_format");
 });
 
 // ---------------------------------------------------------------------------
@@ -242,7 +236,7 @@ test("validation: a config with every column hidden is also rejected by the real
 test("validation: an empty column name is rejected", () => {
   const col = newColumn();
   const { errors } = buildConfig([col]);
-  assert.ok(errors.some((e) => e.includes("name is required")));
+  assert.ok(errors.some((e) => e.includes("input_column is required")));
 });
 
 test("validation: a genuinely invalid config (duplicate names) is also rejected by the real load_config()", () => {
@@ -739,4 +733,122 @@ test("validation: an invalid sample_regex is still caught by the real load_confi
   const result = loadAndDump(p);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /invalid sample_regex/);
+});
+
+// ---------------------------------------------------------------------------
+// Import: an existing config.yaml back into wizard state
+// ---------------------------------------------------------------------------
+
+test("import: the full example loads, and re-downloads semantically identical to itself", () => {
+  const fixture = path.join(EXAMPLES, "configs", "config.yaml");
+  const imported = importConfigYAML(readFileSync(fixture, "utf8"));
+  assert.deepEqual(imported.errors, []);
+  assert.deepEqual(imported.warnings, []);
+  const { plain, errors } = buildConfig(imported.columns, imported.setQCRules);
+  assert.deepEqual(errors, []);
+  assertValidAndMatches(plain, fixture, "import round-trip");
+});
+
+test("import: unrepresentable content is rejected with the line it's on", () => {
+  const { errors, columns } = importConfigYAML(
+    [
+      "columns:",
+      "  - input_column: a",
+      "    colour: red",
+      "    qc:",
+      '      - {operator: ">=", value: true}',
+      "  - input_column: b",
+      "    output: false",
+      "    output_column: bee",
+      "set_qc:",
+      "  - rule_name: r",
+      "    match_samples:",
+      '      samples: ["a,b"]',
+      "    checks:",
+      "      - input_column: z",
+      "        qc: [{operator: is_empty}]",
+      "",
+    ].join("\n")
+  );
+  assert.deepEqual(columns, []);
+  assert.equal(errors.length, 4);
+  assert.match(errors[0], /^Line 3: columns\[0\]\.colour: unknown key/);
+  assert.match(errors[1], /^Line 5: columns\[0\]\.qc\[0\]\.value: must be a number or a string/);
+  assert.match(errors[2], /^Line 8: columns\[1\]\.output_column: can't be combined with output: false/);
+  assert.match(errors[3], /^Line 12: set_qc\[0\]\.match_samples\.samples\[0\]: sample names/);
+});
+
+test("import: a YAML syntax error reports its line", () => {
+  const { errors } = importConfigYAML("columns:\n  - input_column: a\n   bad: [\n");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /^Line \d+: /);
+});
+
+test("import: an empty conditional default and an unquoted YAML 1.1 boolean are rejected", () => {
+  const { errors } = importConfigYAML(
+    [
+      "columns:",
+      "  - input_column: a",
+      "    qc:",
+      "      match_column: taxon",
+      "      cases:",
+      '        "E. coli": [{operator: "=", value: yes}]',
+      "      default: []",
+      "",
+    ].join("\n")
+  );
+  assert.equal(errors.length, 2);
+  assert.match(errors[0], /^Line 6: unquoted "yes"/);
+  assert.match(errors[1], /^Line 7: columns\[0\]\.qc\.default: an empty default/);
+});
+
+test("import: a quoted numeric '=' value stays a string, and small numbers aren't written in exponent form", () => {
+  const { errors, columns } = importConfigYAML(
+    [
+      "columns:",
+      "  - input_column: a",
+      "    qc:",
+      '      - {operator: "=", value: "1000"}',
+      '      - {operator: "<", value: 0.0000001}',
+      "",
+    ].join("\n")
+  );
+  assert.deepEqual(errors, []);
+  const [eq, lt] = columns[0].qc.conditions;
+  assert.equal(eq.forceString, true);
+  assert.equal(lt.value, "0.0000001");
+  const yaml = serializeYAML(buildConfig(columns).plain);
+  assert.match(yaml, /value: "1000"/);
+  assert.match(yaml, /value: 0\.0000001\}/);
+  const p = path.join(mkdtempSync(path.join(tmpdir(), "limsport-config-builder-")), "small.yaml");
+  writeFileSync(p, yaml);
+  assert.equal(loadAndDump(p).status, 0);
+});
+
+test("import: unquoted numbers PyYAML reads differently from js-yaml are rejected", () => {
+  for (const raw of ["1e5", "1.0e5", "017", "0o17", "1:30"]) {
+    const { errors } = importConfigYAML(`columns:\n  - input_column: a\n    qc:\n      - {operator: "=", value: ${raw}}\n`);
+    assert.equal(errors.length, 1, raw);
+    assert.match(errors[0], /^Line 4: unquoted .* is read differently by limsport/, raw);
+  }
+  for (const raw of ["1000", "0", "0.5", "-2.5", "1_000"]) {
+    assert.deepEqual(importConfigYAML(`columns:\n  - input_column: a\n    qc:\n      - {operator: "=", value: ${raw}}\n`).errors, [], raw);
+  }
+});
+
+test("import: comments warn, but a '#' inside a command block doesn't", () => {
+  const config = [
+    "columns:",
+    "  - input_column: report",
+    "    file_parsing:",
+    "      - output_column: n50",
+    "        command: |",
+    "          # a bash comment is part of the command",
+    '          cut -f2 "$FILE"',
+    "",
+  ].join("\n");
+  assert.deepEqual(importConfigYAML(config).warnings, []);
+  const { errors, warnings } = importConfigYAML(`# my config\n${config}`);
+  assert.deepEqual(errors, []);
+  assert.equal(warnings.length, 1);
 });

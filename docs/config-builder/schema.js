@@ -459,6 +459,488 @@ export function buildConfig(columns, setQCRules = []) {
 }
 
 // ---------------------------------------------------------------------------
+// Import: a parsed config.yaml back into wizard state
+// ---------------------------------------------------------------------------
+
+const isMapping = (v) =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
+
+function checkKeys(obj, allowed, path, errors) {
+    for (const key of Object.keys(obj)) {
+        if (!allowed.includes(key))
+            errors.push({
+                path: [...path, key],
+                message: `unknown key "${key}"`,
+            });
+    }
+}
+
+function listAt(raw, path, errors, what) {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) {
+        errors.push({ path, message: `expected a list of ${what}` });
+        return [];
+    }
+    return raw;
+}
+
+// For the name-like fields buildConfig() trims: outer whitespace would be
+// silently dropped on download, so it's rejected instead.
+function readName(obj, key, path, errors) {
+    const v = obj[key];
+    if (v === undefined || v === null) return "";
+    if (typeof v !== "string") {
+        errors.push({
+            path: [...path, key],
+            message: "must be a string (quote it)",
+        });
+        return "";
+    }
+    if (v !== v.trim()) {
+        errors.push({
+            path: [...path, key],
+            message:
+                "has leading or trailing whitespace, which the builder would drop",
+        });
+    }
+    return v.trim();
+}
+
+// String(1e-7) is "1e-7", which NUMERIC_RE rejects and PyYAML reads as a
+// string (its floats need a dot) -- spell exponent forms out as decimals.
+function numberToText(n) {
+    const s = String(n);
+    const m = /^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(s);
+    if (!m) return s;
+    const [, sign, int, frac = "", expText] = m;
+    const digits = int + frac;
+    const exp = Number(expText);
+    if (exp < 0) return `${sign}0.${"0".repeat(-exp - 1)}${digits}`;
+    return sign + digits.padEnd(exp + 1, "0");
+}
+
+function readNumberText(obj, key, path, errors) {
+    const v = obj[key];
+    if (v === undefined || v === null) return "";
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+        errors.push({ path: [...path, key], message: "must be a number" });
+        return "";
+    }
+    return numberToText(v);
+}
+
+function conditionFromConfig(raw, path, errors) {
+    const cond = newCondition();
+    if (!isMapping(raw)) {
+        errors.push({
+            path,
+            message: 'expected a condition like {operator: ">=", value: 1000}',
+        });
+        return cond;
+    }
+    checkKeys(
+        raw,
+        ["operator", "value", "tolerance_percent", "case_insensitive"],
+        path,
+        errors,
+    );
+    if (!OPERATORS.includes(raw.operator)) {
+        errors.push({
+            path: [...path, "operator"],
+            message: `unknown operator ${JSON.stringify(raw.operator)}`,
+        });
+        return cond;
+    }
+    cond.operator = raw.operator;
+
+    const value = raw.value;
+    const valuePath = [...path, "value"];
+    if (NO_VALUE_OPERATORS.has(cond.operator)) {
+        if (value !== undefined && value !== null)
+            errors.push({
+                path: valuePath,
+                message: `operator "${cond.operator}" does not take a value`,
+            });
+    } else if (typeof value === "number") {
+        if (!Number.isFinite(value)) {
+            errors.push({
+                path: valuePath,
+                message: "must be a finite number",
+            });
+        } else if (
+            STRING_OPERATORS.has(cond.operator) &&
+            cond.operator !== "="
+        ) {
+            errors.push({
+                path: valuePath,
+                message: `operator "${cond.operator}" requires a string value`,
+            });
+        } else {
+            cond.value = numberToText(value);
+        }
+    } else if (typeof value === "string") {
+        if (!STRING_OPERATORS.has(cond.operator)) {
+            errors.push({
+                path: valuePath,
+                message: `operator "${cond.operator}" requires a numeric value, not a string`,
+            });
+        } else if (value !== value.trim()) {
+            errors.push({
+                path: valuePath,
+                message:
+                    "has leading or trailing whitespace, which the builder would drop",
+            });
+        } else {
+            cond.value = value;
+            // A quoted numeric-looking value is a string match on purpose.
+            cond.forceString = cond.operator === "=" && NUMERIC_RE.test(value);
+        }
+    } else if (value !== undefined && value !== null) {
+        errors.push({
+            path: valuePath,
+            message:
+                "must be a number or a string (quote it if you mean the text)",
+        });
+    }
+
+    cond.tolerancePercent = readNumberText(
+        raw,
+        "tolerance_percent",
+        path,
+        errors,
+    );
+    if (raw.case_insensitive === true) {
+        cond.caseInsensitive = true;
+    } else if (
+        raw.case_insensitive !== undefined &&
+        raw.case_insensitive !== false
+    ) {
+        errors.push({
+            path: [...path, "case_insensitive"],
+            message: "must be true or false",
+        });
+    }
+    return cond;
+}
+
+function conditionListFromConfig(raw, path, errors) {
+    return listAt(raw, path, errors, "conditions").map((c, i) =>
+        conditionFromConfig(c, [...path, i], errors),
+    );
+}
+
+function qcFromConfig(raw, path, errors) {
+    const qc = newQC();
+    if (raw === undefined || raw === null) return qc;
+    if (Array.isArray(raw)) {
+        if (raw.length) {
+            qc.kind = "list";
+            qc.conditions = conditionListFromConfig(raw, path, errors);
+        }
+        return qc;
+    }
+    if (!isMapping(raw)) {
+        errors.push({
+            path,
+            message:
+                "expected a list of conditions or a {match_column, cases} mapping",
+        });
+        return qc;
+    }
+    checkKeys(raw, ["match_column", "cases", "default"], path, errors);
+    qc.kind = "conditional";
+    qc.matchColumn = readName(raw, "match_column", path, errors);
+
+    const casesPath = [...path, "cases"];
+    if (isMapping(raw.cases)) {
+        qc.cases = Object.entries(raw.cases).map(([key, conditions]) => {
+            const qcCase = newCase();
+            if (key !== key.trim()) {
+                errors.push({
+                    path: [...casesPath, key],
+                    message:
+                        "case key has leading or trailing whitespace, which the builder would drop",
+                });
+            }
+            qcCase.key = key.trim();
+            qcCase.conditions = conditionListFromConfig(
+                conditions,
+                [...casesPath, key],
+                errors,
+            );
+            return qcCase;
+        });
+    } else if (raw.cases !== undefined && raw.cases !== null) {
+        errors.push({
+            path: casesPath,
+            message: "expected a mapping of match value to conditions",
+        });
+    }
+
+    if (raw.default !== undefined && raw.default !== null) {
+        const defaultPath = [...path, "default"];
+        qc.useDefault = true;
+        qc.default = conditionListFromConfig(raw.default, defaultPath, errors);
+        if (Array.isArray(raw.default) && !raw.default.length) {
+            errors.push({
+                path: defaultPath,
+                message:
+                    "an empty default passes every unmatched value, which the builder can't express; remove it or add a condition",
+            });
+        }
+    }
+    return qc;
+}
+
+function fileParsingOutputFromConfig(raw, path, errors) {
+    const fp = newFileParsingOutput();
+    if (!isMapping(raw)) {
+        errors.push({
+            path,
+            message:
+                "expected a file_parsing output (output_column, command, ...)",
+        });
+        return fp;
+    }
+    checkKeys(
+        raw,
+        ["output_column", "command", "timeout_seconds", "qc"],
+        path,
+        errors,
+    );
+    fp.outputColumn = readName(raw, "output_column", path, errors);
+    if (typeof raw.command === "string") {
+        // serializeYAML() writes commands as `|` blocks, which end in exactly one newline.
+        fp.command = raw.command.replace(/\n+$/, "");
+    } else if (raw.command !== undefined && raw.command !== null) {
+        errors.push({
+            path: [...path, "command"],
+            message: "must be a string",
+        });
+    }
+    fp.timeoutSeconds = readNumberText(raw, "timeout_seconds", path, errors);
+    fp.qc = qcFromConfig(raw.qc, [...path, "qc"], errors);
+    return fp;
+}
+
+function columnFromConfig(raw, path, errors) {
+    const col = newColumn();
+    if (!isMapping(raw)) {
+        errors.push({ path, message: "expected a column (input_column: ...)" });
+        return col;
+    }
+    checkKeys(
+        raw,
+        ["input_column", "output_column", "output", "qc", "file_parsing"],
+        path,
+        errors,
+    );
+    col.inputColumn = readName(raw, "input_column", path, errors);
+    if (raw.output !== undefined && typeof raw.output !== "boolean")
+        errors.push({
+            path: [...path, "output"],
+            message: "must be true or false",
+        });
+
+    // The wizard's three column modes are exclusive, and buildConfig() drops
+    // whatever belongs to the other modes -- so a combination is rejected
+    // rather than loaded and then silently lost on download.
+    if (raw.file_parsing !== undefined && raw.file_parsing !== null) {
+        col.isFileParsing = true;
+        for (const key of ["output_column", "qc"]) {
+            const v = raw[key];
+            if (
+                v !== undefined &&
+                v !== null &&
+                !(Array.isArray(v) && !v.length)
+            )
+                errors.push({
+                    path: [...path, key],
+                    message: `can't be combined with file_parsing`,
+                });
+        }
+        if (raw.output === false)
+            errors.push({
+                path: [...path, "output"],
+                message: "can't be combined with file_parsing",
+            });
+        col.fileParsing = listAt(
+            raw.file_parsing,
+            [...path, "file_parsing"],
+            errors,
+            "outputs",
+        ).map((fp, i) =>
+            fileParsingOutputFromConfig(
+                fp,
+                [...path, "file_parsing", i],
+                errors,
+            ),
+        );
+        return col;
+    }
+
+    col.output = raw.output !== false;
+    col.outputColumn = readName(raw, "output_column", path, errors);
+    if (!col.output && col.outputColumn)
+        errors.push({
+            path: [...path, "output_column"],
+            message: "can't be combined with output: false",
+        });
+    col.qc = qcFromConfig(raw.qc, [...path, "qc"], errors);
+    return col;
+}
+
+function setQCMatchFromConfig(raw, rule, path, errors) {
+    if (raw === undefined || raw === null) return;
+    if (!isMapping(raw)) {
+        errors.push({
+            path,
+            message: "expected one of sample_pattern, sample_regex, or samples",
+        });
+        return;
+    }
+    checkKeys(raw, ["sample_pattern", "sample_regex", "samples"], path, errors);
+    const present = ["sample_pattern", "sample_regex", "samples"].filter(
+        (k) => raw[k] !== undefined && raw[k] !== null,
+    );
+    if (present.length > 1) {
+        errors.push({ path, message: `set only one of ${present.join(", ")}` });
+        return;
+    }
+    const match = rule.matchSamples;
+    if (present[0] === "sample_pattern") {
+        match.kind = "pattern";
+        match.samplePattern = readName(raw, "sample_pattern", path, errors);
+    } else if (present[0] === "sample_regex") {
+        match.kind = "regex";
+        match.sampleRegex = readName(raw, "sample_regex", path, errors);
+    } else if (present[0] === "samples") {
+        match.kind = "samples";
+        const samplesPath = [...path, "samples"];
+        // The form holds samples as one comma-separated string.
+        const names = listAt(
+            raw.samples,
+            samplesPath,
+            errors,
+            "sample names",
+        ).map((name, i) => {
+            if (
+                typeof name !== "string" ||
+                !name.trim() ||
+                name !== name.trim() ||
+                /[,\n]/.test(name)
+            ) {
+                errors.push({
+                    path: [...samplesPath, i],
+                    message:
+                        "sample names must be non-empty strings with no commas, newlines, or outer whitespace",
+                });
+            }
+            return String(name);
+        });
+        match.samples = names.join(", ");
+    }
+}
+
+function setQCRuleFromConfig(raw, path, errors) {
+    const rule = newSetQCRule();
+    if (!isMapping(raw)) {
+        errors.push({
+            path,
+            message:
+                "expected a set_qc rule (rule_name, match_samples, checks)",
+        });
+        return rule;
+    }
+    checkKeys(raw, ["rule_name", "match_samples", "checks"], path, errors);
+    rule.ruleName = readName(raw, "rule_name", path, errors);
+    setQCMatchFromConfig(
+        raw.match_samples,
+        rule,
+        [...path, "match_samples"],
+        errors,
+    );
+    rule.checks = listAt(raw.checks, [...path, "checks"], errors, "checks").map(
+        (rawCheck, i) => {
+            const checkPath = [...path, "checks", i];
+            const check = newSetQCCheck();
+            if (!isMapping(rawCheck)) {
+                errors.push({
+                    path: checkPath,
+                    message: "expected a check (input_column, qc)",
+                });
+                return check;
+            }
+            checkKeys(rawCheck, ["input_column", "qc"], checkPath, errors);
+            check.inputColumn = readName(
+                rawCheck,
+                "input_column",
+                checkPath,
+                errors,
+            );
+            if (isMapping(rawCheck.qc)) {
+                errors.push({
+                    path: [...checkPath, "qc"],
+                    message:
+                        "set-level checks take a list of conditions, not a conditional qc",
+                });
+                check.conditions = [];
+            } else {
+                check.conditions = conditionListFromConfig(
+                    rawCheck.qc,
+                    [...checkPath, "qc"],
+                    errors,
+                );
+            }
+            return check;
+        },
+    );
+    return rule;
+}
+
+/**
+ * The inverse of buildConfig(): turns a parsed config.yaml back into wizard
+ * state. Anything the wizard can't hold exactly (an unknown key, a value
+ * type the form has no control for, a combination buildConfig() would
+ * drop) is an error, so a config that loads always downloads unchanged.
+ * Checks buildConfig() already makes (missing names, duplicates, ...) are
+ * left to it and show up in the usual error list once loaded.
+ *
+ * Returns {columns, setQCRules, errors}; each error is {path, message},
+ * where path is the keys/indexes leading to the offending node.
+ */
+export function stateFromConfig(obj) {
+    const errors = [];
+    const result = { columns: [], setQCRules: [], errors };
+    if (obj === undefined || obj === null) {
+        errors.push({ path: [], message: "the file is empty" });
+        return result;
+    }
+    if (!isMapping(obj)) {
+        errors.push({
+            path: [],
+            message: "expected a mapping with columns: and/or set_qc:",
+        });
+        return result;
+    }
+    checkKeys(obj, ["columns", "set_qc"], [], errors);
+    if (Array.isArray(obj.columns) && !obj.columns.length) {
+        errors.push({
+            path: ["columns"],
+            message:
+                "columns: [] is rejected by limsport; remove the key to keep every input column",
+        });
+    }
+    result.columns = listAt(obj.columns, ["columns"], errors, "columns").map(
+        (col, i) => columnFromConfig(col, ["columns", i], errors),
+    );
+    result.setQCRules = listAt(obj.set_qc, ["set_qc"], errors, "rules").map(
+        (rule, i) => setQCRuleFromConfig(rule, ["set_qc", i], errors),
+    );
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // YAML serialization
 // ---------------------------------------------------------------------------
 
@@ -467,7 +949,7 @@ const AMBIGUOUS_SCALAR_RE =
     /^(true|false|null|yes|no|on|off|~|-?\d+(\.\d+)?)$/i;
 
 function yamlScalar(value) {
-    if (typeof value === "number") return String(value);
+    if (typeof value === "number") return numberToText(value);
     const s = String(value);
     if (QUOTE_NEEDED_RE.test(s) || AMBIGUOUS_SCALAR_RE.test(s)) {
         return JSON.stringify(s);
@@ -486,7 +968,7 @@ function yamlKey(value) {
 // it, regardless of whether it happens to be plain alphanumeric, so it's
 // visually unambiguous that this is a string comparison, not a bare keyword.
 function yamlEqualityValue(value) {
-    if (typeof value === "number") return String(value);
+    if (typeof value === "number") return numberToText(value);
     return JSON.stringify(String(value));
 }
 

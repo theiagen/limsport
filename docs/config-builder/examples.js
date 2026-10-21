@@ -1,9 +1,7 @@
 /**
- * Wizard-state builders for the two scenarios in ../examples/configs/
- * (config.yaml and config_multi_format.yaml). Shared by app.js (the "load
- * example" buttons) and tests/schema.test.mjs (which proves each one, once
- * run through buildConfig()+serializeYAML(), is semantically identical to
- * the real examples/configs/*.yaml fixture).
+ * Wizard-state builders for the scenario in ../examples/configs/config.yaml.
+ * Used by tests/schema.test.mjs, which proves it, once run through
+ * buildConfig()+serializeYAML(), is semantically identical to that fixture.
  */
 
 import {
@@ -74,6 +72,7 @@ export function fullExampleColumns() {
 
   const assemblyLength = newColumn();
   assemblyLength.inputColumn = "assembly_length";
+  assemblyLength.output = false;
   assemblyLength.qc = {
     kind: "conditional",
     matchColumn: "gambit_predicted_taxon",
@@ -122,17 +121,9 @@ export function fullExampleColumns() {
   qcStatus.qc = { kind: "list", conditions: [caseInsensitiveCondition("=", "PASS")] };
   columns.push(qcStatus);
 
-  const screeningNotes = newColumn();
-  screeningNotes.inputColumn = "screening_notes";
-  columns.push(screeningNotes);
-
   const notes = newColumn();
   notes.inputColumn = "notes";
   columns.push(notes);
-
-  const rawReadCount = newColumn();
-  rawReadCount.inputColumn = "raw_read_count";
-  columns.push(rawReadCount);
 
   const quastReport = newColumn();
   quastReport.inputColumn = "quast_report";
@@ -192,49 +183,4 @@ export function fullExampleSetQCRules() {
   ];
 
   return [ntcRule, pcRule, contaminationRule];
-}
-
-/** columns: for examples/configs/config_multi_format.yaml -- the file_parsing-format adjunct scenario. */
-export function multiFormatExampleColumns() {
-  const columns = [];
-
-  const sampleId = newColumn();
-  sampleId.inputColumn = "sample_id";
-  columns.push(sampleId);
-
-  const metadataJson = newColumn();
-  metadataJson.inputColumn = "metadata_json";
-  metadataJson.isFileParsing = true;
-  const meanDepth = newFileParsingOutput();
-  meanDepth.outputColumn = "mean_depth";
-  meanDepth.command = `python3 -c "import json; print(json.load(open('$FILE'))['run']['metrics']['mean_depth'])"`;
-  meanDepth.qc = { kind: "list", conditions: [condition(">=", 30)] };
-  metadataJson.fileParsing = [meanDepth];
-  columns.push(metadataJson);
-
-  const coverageTsv = newColumn();
-  coverageTsv.inputColumn = "coverage_tsv";
-  coverageTsv.isFileParsing = true;
-  const chr1MeanDepth = newFileParsingOutput();
-  chr1MeanDepth.outputColumn = "chr1_meandepth";
-  chr1MeanDepth.command = `awk -F'\\t' '$1 == "chr1" {print $7}' "$FILE"`;
-  chr1MeanDepth.qc = { kind: "list", conditions: [condition(">=", 30)] };
-  const chr1CoveragePct = newFileParsingOutput();
-  chr1CoveragePct.outputColumn = "chr1_coverage_pct";
-  chr1CoveragePct.command = `awk -F'\\t' '$1 == "chr1" {print $6}' "$FILE"`;
-  chr1CoveragePct.qc = { kind: "list", conditions: [condition(">=", 95)] };
-  coverageTsv.fileParsing = [chr1MeanDepth, chr1CoveragePct];
-  columns.push(coverageTsv);
-
-  const qcReport = newColumn();
-  qcReport.inputColumn = "qc_report";
-  qcReport.isFileParsing = true;
-  const errorRateOut = newFileParsingOutput();
-  errorRateOut.outputColumn = "error_rate";
-  errorRateOut.command = `grep '^error_rate ::' "$FILE" | cut -d: -f3 | tr -d ' '`;
-  errorRateOut.qc = { kind: "list", conditions: [condition("<", 0.01)] };
-  qcReport.fileParsing = [errorRateOut];
-  columns.push(qcReport);
-
-  return columns;
 }

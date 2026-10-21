@@ -10,7 +10,12 @@ config when ready!
 
 <div class="limsport-config-builder">
   <div class="toolbar">
-    <button type="button" id="start-blank-btn" class="toolbar-secondary">Clear all columns</button>
+    <div class="toolbar-open">
+      <button type="button" id="open-btn" class="toolbar-secondary">Open existing config.yaml</button>
+      <input type="file" id="open-input" class="hidden" accept=".yaml,.yml" />
+      <span class="hint">or drop one anywhere on the page</span>
+    </div>
+    <button type="button" id="start-blank-btn" class="toolbar-secondary">Clear all</button>
   </div>
 
   <main class="layout">
@@ -30,6 +35,7 @@ config when ready!
 
     <aside class="preview-pane">
       <h2>config.yaml</h2>
+      <div id="import-status" class="hidden" aria-live="polite"></div>
       <div id="file-parsing-notice" class="notice hidden">
         This config extracts values from files. Remember to pass <code>--allow-file-parsing</code> when
         you run <code>limsport</code>, or these columns will be rejected at run time.
@@ -43,6 +49,8 @@ config when ready!
       </div>
     </aside>
   </main>
+
+  <div id="drop-overlay" class="drop-overlay hidden">Drop a config.yaml to edit it</div>
 </div>
 
 <script type="module" src="config-builder/app.js"></script>

@@ -26,8 +26,10 @@ python3 -m http.server 8000
   validation checks as the Pydantic models in `limsport/config.py`
   (duplicate names, `tolerance_percent` only valid with `~=`, etc.), and
   serializes the result to YAML.
-- **`examples.js`** -- builds wizard state matching each scenario under
-  `../examples/`. There's no "load example" button in the UI (deliberately
+- **`importer.js`** / **`vendor/js-yaml.js`** -- the "open an existing
+  config" path (see below).
+- **`examples.js`** -- builds wizard state matching
+  `../examples/configs/config.yaml`. There's no "load example" button in the UI (deliberately
   removed -- worry was users would download an example unmodified instead
   of building their own config), but this module is still the backbone of
   the test suite below.
@@ -52,14 +54,22 @@ checked-in `examples/*/config.yaml` fixtures. That requires `limsport`'s
 dependencies (`pyyaml`, `pydantic`) to be importable -- e.g. an editable
 install (`pip install -e ..`) or `PYTHONPATH` pointing at `../src`.
 
-## Known limitation / not yet built
+## Editing an existing config
 
-There's no "load an existing `config.yaml` to edit" feature yet. Doing that
-properly needs a real YAML parser, and this tool deliberately has zero
-dependencies so it keeps working offline and doesn't need a build step. If
-this becomes worth doing, the cleanest path is a small vendored YAML parser
-(or a single pinned `js-yaml` file) used only for the import path -- the
-generator/serializer here wouldn't need to change.
+"Open existing config.yaml", or dropping a file anywhere on the page, loads
+a config back into the form. `importer.js` parses it with
+[js-yaml](https://github.com/nodeca/js-yaml) 4.1.0, vendored unmodified as
+`vendor/js-yaml.js` (its `dist/js-yaml.mjs`, MIT; named `.js` so it's
+served as JavaScript), and `schema.js`'s `stateFromConfig()` turns the
+result into wizard state.
+
+A file the form can't hold exactly is rejected, not partially loaded, with
+each problem listed by line number (unknown keys, `value: true`, sample
+names containing commas, an empty `default: []`, an unquoted `yes`/`no`/
+`on`/`off` that limsport's YAML 1.1 parser reads as a boolean, and so on).
+That way a config that loads always downloads unchanged. Comments are not
+kept, since the download is regenerated from the form; the page warns when
+the file has any.
 
 ## Where this should live long-term
 
