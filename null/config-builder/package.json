@@ -1,9 +1,0 @@
-{
-  "name": "limsport-config-builder",
-  "private": true,
-  "type": "module",
-  "description": "Browser-based config.yaml builder for LIMSport",
-  "scripts": {
-    "test": "node --test tests/"
-  }
-}
