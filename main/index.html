@@ -845,6 +845,11 @@
 <td>abort once more than N rows fail <code>file_parsing</code> (default: no limit)</td>
 </tr>
 <tr>
+<td><code>--verbose</code>, <code>-v</code></td>
+<td>no</td>
+<td>log each step of the run (layout, per-sample filtering and QC, file_parsing commands) to stderr</td>
+</tr>
+<tr>
 <td><code>--version</code></td>
 <td>no</td>
 <td>print the version and exit</td>
@@ -853,7 +858,7 @@
 </table>
 <h2 id="the-config-file">The config file<a class="headerlink" href="#the-config-file" title="Permanent link">&para;</a></h2>
 <p>A config is a YAML file with two primary keys: <code>columns</code> and <code>set_qc</code>.</p>
-<p><code>columns</code> lists every column to keep in the output, ordered to match how they appear in the config. <code>columns</code> can be omitted entirely if a <a href="#set-level-qc"><code>set_qc</code></a> list exists. <code>columns: []</code> will be rejected.</p>
+<p><code>columns</code> lists every column to keep in the output, ordered to match how they appear in the config. The sample ID (the first input column) is always written as the first output column, even if it isn't listed (list it under <code>columns</code> to move, rename, or hide it with <code>output: false</code>). <code>columns</code> can be omitted entirely if a <a href="#set-level-qc"><code>set_qc</code></a> list exists. <code>columns: []</code> will be rejected.</p>
 <p><code>set_qc</code> lists a series of rules where if one fails, all samples fail the run.</p>
 <p>A config with neither <code>columns</code> nor <code>set_qc</code> is treated as malformatted and fails.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># a basic configuration example that renames a column</span>
