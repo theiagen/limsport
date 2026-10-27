@@ -38,13 +38,14 @@ See `examples/` for a demo.
 | `--delimiter`, `-d`           | no       | output delimiter (default: tab)                                                        |
 | `--allow-file-parsing`        | no       | required if the config uses `file_parsing` (see below)                                 |
 | `--max-file-parsing-failures` | no       | abort once more than N rows fail `file_parsing` (default: no limit)                    |
+| `--verbose`, `-v`             | no       | log each step of the run (layout, per-sample filtering and QC, file_parsing commands) to stderr |
 | `--version`                   | no       | print the version and exit                                                             |
 
 ## The config file
 
 A config is a YAML file with two primary keys: `columns` and `set_qc`.
 
-`columns` lists every column to keep in the output, ordered to match how they appear in the config. `columns` can be omitted entirely if a [`set_qc`](#set-level-qc) list exists. `columns: []` will be rejected.
+`columns` lists every column to keep in the output, ordered to match how they appear in the config. The sample ID (the first input column) is always written as the first output column, even if it isn't listed (list it under `columns` to move, rename, or hide it with `output: false`). `columns` can be omitted entirely if a [`set_qc`](#set-level-qc) list exists. `columns: []` will be rejected.
 
 `set_qc` lists a series of rules where if one fails, all samples fail the run.
 

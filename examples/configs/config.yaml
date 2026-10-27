@@ -1,5 +1,5 @@
 columns:
-  - input_column: "entity:theiaprok_illumina_pe_v4-2-0_id"
+  - input_column: "theiaprok_illumina_pe_v4-2-0_id"
     output_column: sample_id
 
   - input_column: assembler

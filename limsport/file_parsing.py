@@ -86,6 +86,7 @@ def _localize(original_path: str) -> tuple[str, Path | None]:
     # make a temporary dir
     temp_dir = Path(tempfile.mkdtemp(prefix="limsport-"))
     local_path = temp_dir / _safe_basename(original_path)
+    logger.debug("downloading %s to %s", original_path, local_path)
     result = subprocess.run(
         [*_GCS_DOWNLOAD_CMD, original_path, str(local_path)],
         capture_output=True,
@@ -142,6 +143,12 @@ def _run_command(
 
     # strip trailing newlines, fail on embedded ones
     output_value = result.stdout.rstrip("\n")
+    logger.debug(
+        "file_parsing %r on %r -> %r",
+        output.output_column,
+        original_path,
+        output_value[:200],
+    )
     if "\n" in output_value or "\r" in output_value:
         raise FileParsingError(
             f"file_parsing command for {original_path!r} produced a value containing a newline, which cannot be written to a TSV cell: {output_value!r}"

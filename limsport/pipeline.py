@@ -6,6 +6,7 @@ External methods:
     - run_export()
 """
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,8 @@ from .config import ExportConfig, SetQCRule, load_config
 from .exceptions import FileParsingError, InputTableError
 from .ingest import IngestSummary, read_input
 from .layout import ExportLayout, build_layout, validate_file_parsing_allowed
+
+logger = logging.getLogger("limsport")
 
 
 @dataclass
@@ -45,6 +48,7 @@ def _load_sample_list(path: Path) -> set[str]:
     """
     names = {line.strip() for line in path.read_text().splitlines()}
     names.discard("")  # remove blank lines
+    logger.debug("loaded %d sample name(s) from %s", len(names), path)
     return names
 
 
@@ -189,6 +193,12 @@ def _apply_qc_verdict(
     run_failed_rules = [
         rule for rule in set_qc_rules if summary.set_qc_failures[rule.rule_name]
     ]
+    logger.info(
+        "set_qc verdict: %s",
+        [r.rule_name for r in run_failed_rules]
+        if run_failed_rules
+        else "all rules passed",
+    )
     if run_failed_rules:
         # A set_qc rule failed, so the entire run fails QC. The run-level verdict
         # replaces anything written
@@ -309,6 +319,7 @@ def run_export(
     """
     # auto-detect delimiter
     input_delimiter = table_io.detect_delimiter(input_path)
+    logger.debug("input %s: detected delimiter %r", input_path, input_delimiter)
 
     if (
         config_path is None
@@ -320,9 +331,21 @@ def run_export(
         return
 
     header = table_io.get_input_header(input_path, input_delimiter)
+    logger.debug(
+        "input header: %d column(s); sample ID column is %r",
+        len(header),
+        header[0] if header else None,
+    )
     config: ExportConfig | None = (
         load_config(config_path) if config_path is not None else None
     )
+    if config is not None:
+        logger.debug(
+            "config %s: %s column(s), %d set_qc rule(s)",
+            config_path,
+            "no" if config.columns is None else len(config.columns),
+            len(config.set_qc),
+        )
     if config is not None:
         # a capability question, not a header one -- refuse before the input is
         # touched, so a column error can't mask it
@@ -334,6 +357,7 @@ def run_export(
     )
 
     if layout.set_qc_prepass:
+        logger.debug("set_qc pre-pass: evaluating set_qc before any file_parsing")
         # check for set_qc failures if file parsing was included to avoid GCP downloads
         pre_summary = read_input(
             input_path,
@@ -346,12 +370,14 @@ def run_export(
         _warn_missing_samples(requested_samples, pre_summary)
         pre_outcome = _settle_run(set_qc_rules, pre_summary, input_path)
         if pre_outcome.run_failed:
+            logger.debug("set_qc failed in the pre-pass; skipping the full read")
             _write_header_only_output(output_path, layout, output_delimiter)
             _report_results(config, pre_summary, pre_outcome, qc_report_path)
             return
 
     # keep the output staged on disk instead of memory
     staging_path = output_path.with_name(output_path.name + ".tmp")
+    logger.debug("staging output rows in %s", staging_path)
     try:
         with table_io.open_row_writer(
             staging_path, layout.output_header, output_delimiter
@@ -373,8 +399,10 @@ def run_export(
         if outcome.run_failed:
             # a set_qc rule failed, so nothing that was staged counts
             _write_header_only_output(output_path, layout, output_delimiter)
+            logger.debug("wrote header-only output to %s", output_path)
         else:
             os.replace(staging_path, output_path)
+            logger.debug("wrote %d row(s) to %s", summary.written_rows, output_path)
     finally:
         # remove staging file
         staging_path.unlink(missing_ok=True)

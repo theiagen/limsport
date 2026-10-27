@@ -131,6 +131,21 @@ def test_samples_flag_filters_through_cli(tmp_path):
     assert {row[0] for row in rows} == {"SAMPLE_001", "SAMPLE_003"}
 
 
+@pytest.mark.parametrize("verbose", [True, False])
+def test_verbose_toggles_debug_logging(tmp_path, capsys, verbose):
+    args = [
+        "--input",
+        str(input_basic(tmp_path)),
+        "--config",
+        str(config_qc_range(tmp_path)),
+        "--output",
+        str(tmp_path / "out.tsv"),
+    ]
+    rc = cli.main(args + ["--verbose"] if verbose else args)
+    assert rc == 0
+    assert ("DEBUG:" in capsys.readouterr().err) is verbose
+
+
 def test_help_lists_all_flags(capsys):
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["--help"])
@@ -145,6 +160,7 @@ def test_help_lists_all_flags(capsys):
         "--delimiter",
         "--allow-file-parsing",
         "--max-file-parsing-failures",
+        "--verbose",
     ]:
         assert flag in out
 

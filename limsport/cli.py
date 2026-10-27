@@ -17,6 +17,8 @@ from pathlib import Path
 from . import pipeline
 from .exceptions import LIMSportError
 
+logger = logging.getLogger("limsport")
+
 
 def existing_file(value: str) -> Path:
     """
@@ -122,6 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="allow executing file_parsing commands from --config (required if the config uses them)",
     )
     parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="log each step of the run to stderr",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {version('limsport')}",
@@ -140,13 +148,14 @@ def main(argv: list[str] | None = None) -> int:
         The process exit code -- 0 on success, 1 if the export raised a
         LIMSportError or an OSError.
     """
+    args = build_parser().parse_args(argv)
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
         stream=sys.stderr,
         force=True,
     )
-    args = build_parser().parse_args(argv)
+    logger.debug("arguments: %s", vars(args))
 
     try:
         pipeline.run_export(

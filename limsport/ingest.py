@@ -14,6 +14,7 @@ External methods:
     - read_input()
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from . import file_parsing, qc, table_io
 from .config import ColumnConfig, ConditionalQC, QCCondition, SetQCRule
 from .exceptions import FileParsingError
 from .layout import ExportLayout
+
+logger = logging.getLogger("limsport")
 
 
 @dataclass
@@ -125,6 +128,7 @@ def _build_qc_inputs(
         try:
             command_outputs = file_parsing.run(column.file_parsing, raw_cell)
         except FileParsingError as e:
+            logger.debug("file_parsing failed for %r: %s", raw_cell, e)
             # return as a qc fail
             return [
                 qc.QCInput(
@@ -211,6 +215,9 @@ def read_input(
         set_qc_failures={rule.rule_name: [] for rule in set_qc_rules},
     )
 
+    # read_input runs twice when set_qc has a pre-pass, so tag the pre-pass's lines
+    read_tag = "[set_qc pre-pass] " if writer is None else ""
+
     for row in table_io.iter_rows(input_path, input_delimiter):
         # sample name should always be in the first column -- potentially modify this
         # to be configurable in the future
@@ -221,6 +228,7 @@ def read_input(
             summary.seen_samples.add(sample)
             if sample not in requested_samples:
                 # skip samples not specified
+                logger.debug("%s%s: skipped, not in --samples", read_tag, sample)
                 continue
         summary.candidate_rows += 1
         if set_qc_rules:
@@ -252,16 +260,30 @@ def read_input(
                 for check in rule.checks
             ]
             rule_outcome = qc.evaluate_row(rule_qc_inputs, sample)
+            logger.debug(
+                "%s%s: set_qc rule %r %s",
+                read_tag,
+                sample,
+                rule.rule_name,
+                "passed" if rule_outcome.passed else "failed",
+            )
             if not rule_outcome.passed:
                 summary.set_qc_failures[rule.rule_name].extend(rule_outcome.failures)
                 summary.set_qc_failed = True
 
         if writer is None or summary.set_qc_failed:
             # a set_qc-only pre-pass, or a run that can no longer produce output
+            if writer is not None:
+                logger.debug(
+                    "%s%s: row QC skipped, run already failed set_qc",
+                    read_tag,
+                    sample,
+                )
             continue
 
         if not layout.config_has_columns:
             # pass-through: no QC configured, so the raw cells are the output row
+            logger.debug("%s%s: written unchanged", read_tag, sample)
             writer.writerow(row)
             summary.written_rows += 1
             continue
@@ -301,7 +323,14 @@ def read_input(
         summary.row_failures.extend(row_outcome.failures)
         if not row_outcome.passed:
             # row failed qc, keep it out of the output
+            logger.debug(
+                "%s%s: failed QC on %s",
+                read_tag,
+                sample,
+                [f.output_column or f.input_column for f in row_outcome.failures],
+            )
             continue
+        logger.debug("%s%s: passed QC, written", read_tag, sample)
         # write output to temp file
         writer.writerow([qc_input.value for qc_input in qc_inputs if qc_input.output])
         summary.written_rows += 1

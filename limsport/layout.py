@@ -10,11 +10,14 @@ External methods:
     - validate_file_parsing_allowed()
 """
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import ColumnConfig, ConditionalQC, ExportConfig, SetQCRule
 from .exceptions import ConfigError, InputTableError
+
+logger = logging.getLogger("limsport")
 
 
 @dataclass(frozen=True)
@@ -243,6 +246,13 @@ def build_layout(
     if config.columns is not None:
         # columns will be ordered as they are in the config
         ordered_columns = config.columns
+        # the sample ID (first input column) always leads the output unless the
+        # config places it itself
+        if not any(c.input_column == header[0] for c in ordered_columns):
+            logger.debug(
+                "sample ID column %r not in config columns; writing it first", header[0]
+            )
+            ordered_columns = [ColumnConfig(input_column=header[0]), *ordered_columns]
         # to keep columns in the same order as the input:
         # ordered_columns = sorted(config.columns, key=lambda c: column_name_indices[c.input_column][0])
 
@@ -262,6 +272,7 @@ def build_layout(
         # all input column passes through unchanged, same as no config at all
         output_header = header
         column_positions = []
+        logger.debug("no config columns; every input column passes through")
 
     # grab the match columns:
     # conditional qc -> the columns to check for matches on
@@ -274,10 +285,22 @@ def build_layout(
     # wasteful GCP downloads
     file_parsing_included = any(c.contains_file_parsing for c in (config.columns or []))
 
-    return ExportLayout(
+    layout = ExportLayout(
         output_header=output_header,
         column_positions=column_positions,
         match_index={name: column_name_indices[name][0] for name in match_columns},
         config_has_columns=config.columns is not None,
         set_qc_prepass=bool(config.set_qc) and file_parsing_included,
     )
+    for column, idx in layout.column_positions:
+        logger.debug(
+            "input column %r (index %d) -> output %s%s",
+            column.input_column,
+            idx,
+            column.generated_output_column_names,
+            "" if column.output else " (not written; QC only)",
+        )
+    logger.debug("output header: %s", layout.output_header)
+    if layout.match_index:
+        logger.debug("read for conditional QC/set_qc: %s", sorted(layout.match_index))
+    return layout

@@ -96,6 +96,17 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
     assert header == ["status", "sample_id", "notes", "total_reads"]
 
 
+def test_sample_id_column_is_output_first_when_config_omits_it(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "columns:\n  - input_column: status\n  - input_column: read_count\n"
+    )
+    out = tmp_path / "out.tsv"
+    pipeline.run_export(input_basic(tmp_path), config, None, out, None)
+    header = table_io.get_input_header(out)
+    assert header == ["sample_id", "status", "read_count"]
+
+
 def test_missing_config_column_raises_before_output_created(tmp_path):
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
