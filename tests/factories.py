@@ -80,7 +80,7 @@ def input_ragged_long(tmp_path):
 def config_basic(tmp_path):
     path = tmp_path / "config_basic.yaml"
     path.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: read_count\n"
         "    output_column: total_reads\n"
@@ -94,7 +94,7 @@ def config_basic(tmp_path):
 def config_missing_column(tmp_path):
     path = tmp_path / "config_missing_column.yaml"
     path.write_text(
-        "columns:\n  - input_column: sample_id\n  - input_column: does_not_exist\n"
+        "sample_qc:\n  - input_column: sample_id\n  - input_column: does_not_exist\n"
     )
     return path
 
@@ -102,7 +102,7 @@ def config_missing_column(tmp_path):
 def config_qc_range(tmp_path):
     path = tmp_path / "config_qc_range.yaml"
     path.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: read_count\n"
         "    qc:\n"
@@ -137,7 +137,7 @@ def file_parsing_scenario(tmp_path, *, data_content, command, qc_yaml=""):
 
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: data_path\n"
         "    file_parsing:\n"

@@ -58,7 +58,7 @@ def _mixed_scenario(tmp_path, command, extra_qc=""):
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: data_path\n"
         "    file_parsing:\n"
@@ -214,7 +214,7 @@ def test_missing_cloud_tool_still_aborts_the_whole_run(tmp_path, monkeypatch):
     input_tsv.write_text("sample_id\tdata_path\nSAMPLE_001\tgs://bucket/f.txt\n")
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: data_path\n"
         "    file_parsing:\n"
@@ -238,7 +238,7 @@ def test_file_parsing_not_invoked_for_samples_filtered_out(tmp_path, monkeypatch
     samples.write_text("SAMPLE_001\n")  # SAMPLE_002 deliberately not requested
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n  - input_column: sample_id\n  - input_column: data_path\n    file_parsing:\n"
+        "sample_qc:\n  - input_column: sample_id\n  - input_column: data_path\n    file_parsing:\n"
         "      - output_column: extracted\n        command: cat\n"
     )
 
@@ -269,7 +269,7 @@ def test_file_parsing_runs_independently_per_column_no_caching(tmp_path, monkeyp
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: path_a\n"
         "    file_parsing:\n      - output_column: a_out\n        command: cat\n"
@@ -303,7 +303,7 @@ def _multi_output_scenario(tmp_path, coverage_pct="99.98"):
 
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: coverage_tsv\n"
         "    file_parsing:\n"
@@ -365,7 +365,7 @@ def test_allow_file_parsing_flag_is_harmless_when_config_has_no_file_parsing(tmp
     input_tsv.write_text("sample_id\tread_count\nSAMPLE_001\t5000\n")
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n  - input_column: sample_id\n  - input_column: read_count\n"
+        "sample_qc:\n  - input_column: sample_id\n  - input_column: read_count\n"
     )
 
     out_with_flag = tmp_path / "with_flag.tsv"

@@ -4,6 +4,7 @@ argparse entry point for the `limsport` command
 External methods:
     - existing_file()
     - non_negative_int()
+    - output_path()
     - build_parser()
     - main()
 """
@@ -61,6 +62,23 @@ def non_negative_int(value: str) -> int:
     return number
 
 
+def output_path(prefix: str, delimiter: str, suffix: str = "") -> Path:
+    """
+    Names an output file from its prefix and the output delimiter.
+
+    Args:
+        prefix: the --output-prefix value, which may include directories.
+        delimiter: the output delimiter.
+        suffix: appended to the prefix before the extension.
+
+    Returns:
+        The prefix and suffix with .tsv for a tab, .csv for a comma, or .txt
+        otherwise.
+    """
+    extension = {"\t": ".tsv", ",": ".csv"}.get(delimiter, ".txt")
+    return Path(f"{prefix}{suffix}{extension}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     """
     Builds the argparse parser for the LIMSport CLI.
@@ -76,11 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--input", "-i", required=True, type=existing_file, help="input TSV table"
     )
     parser.add_argument(
-        "--output",
+        "--output-prefix",
         "-o",
-        type=Path,
-        default=Path("limsport.tsv"),
-        help="output TSV path (default: limsport.tsv).",
+        default="limsport",
+        help="prefix for the output (<prefix>_lims_report), QC failure report "
+        "(<prefix>_qc_fail_report), and QC summary (<prefix>_qc_summary); the "
+        "extension, .tsv, .csv, or .txt, matches --output-delimiter (default: limsport).",
     )
 
     # optional inputs
@@ -97,14 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional file listing sample names to include",
     )
     parser.add_argument(
-        "--qc-report",
-        "-r",
-        type=Path,
-        default=Path("qc_report.tsv"),
-        help="QC failure report TSV path (default: qc_report.tsv)",
-    )
-    parser.add_argument(
-        "--delimiter",
+        "--output-delimiter",
         "-d",
         type=str,
         default="\t",
@@ -117,6 +129,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="abort once more than N rows fail file_parsing (default: no limit; a "
         "file that won't parse fails that row's QC and the run continues). Use 0 to "
         "abort on the first failure.",
+    )
+    parser.add_argument(
+        "--include-qc-fails",
+        action="store_true",
+        help="also write samples that fail QC to the output, including every sample "
+        "of a run that fails set_qc; the QC summary still marks them FAIL",
     )
     parser.add_argument(
         "--allow-file-parsing",
@@ -162,11 +180,13 @@ def main(argv: list[str] | None = None) -> int:
             args.input,
             args.config,
             args.samples,
-            args.output,
-            args.qc_report,
-            args.delimiter,
+            output_path(args.output_prefix, args.output_delimiter, "_lims_report"),
+            output_path(args.output_prefix, args.output_delimiter, "_qc_fail_report"),
+            args.output_delimiter,
             args.allow_file_parsing,
             args.max_file_parsing_failures,
+            output_path(args.output_prefix, args.output_delimiter, "_qc_summary"),
+            args.include_qc_fails,
         )
     except (LIMSportError, OSError) as e:
         # LIMSportError covers config/input-table domain errors (see

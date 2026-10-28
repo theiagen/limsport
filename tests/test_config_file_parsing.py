@@ -10,7 +10,7 @@ from limsport.config import ExportConfig
 def test_file_parsing_accepts_single_output_with_command_and_optional_timeout():
     config = ExportConfig.model_validate(
         {
-            "columns": [
+            "sample_qc": [
                 {
                     "input_column": "reference_file",
                     "file_parsing": [
@@ -24,8 +24,8 @@ def test_file_parsing_accepts_single_output_with_command_and_optional_timeout():
             ]
         }
     )
-    assert config.columns is not None
-    file_parsing = config.columns[0].file_parsing
+    assert config.sample_qc is not None
+    file_parsing = config.sample_qc[0].file_parsing
     assert file_parsing is not None
     assert len(file_parsing) == 1
     assert file_parsing[0].command == "bcftools view"
@@ -35,7 +35,7 @@ def test_file_parsing_accepts_single_output_with_command_and_optional_timeout():
 def test_file_parsing_accepts_multiple_outputs_each_with_their_own_command():
     config = ExportConfig.model_validate(
         {
-            "columns": [
+            "sample_qc": [
                 {
                     "input_column": "coverage_tsv",
                     "file_parsing": [
@@ -50,12 +50,12 @@ def test_file_parsing_accepts_multiple_outputs_each_with_their_own_command():
             ]
         }
     )
-    assert config.columns is not None
-    file_parsing = config.columns[0].file_parsing
+    assert config.sample_qc is not None
+    file_parsing = config.sample_qc[0].file_parsing
     assert file_parsing is not None
     assert [o.output_column for o in file_parsing] == ["mean_depth", "coverage_pct"]
     assert file_parsing[1].timeout_seconds == 10
-    assert config.columns[0].generated_output_column_names == [
+    assert config.sample_qc[0].generated_output_column_names == [
         "mean_depth",
         "coverage_pct",
     ]
@@ -64,7 +64,7 @@ def test_file_parsing_accepts_multiple_outputs_each_with_their_own_command():
 def test_file_parsing_rejects_empty_list():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
-            {"columns": [{"input_column": "a", "file_parsing": []}]}
+            {"sample_qc": [{"input_column": "a", "file_parsing": []}]}
         )
 
 
@@ -72,7 +72,7 @@ def test_file_parsing_rejects_duplicate_generated_output_column_names_within_a_c
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
-                "columns": [
+                "sample_qc": [
                     {
                         "input_column": "a",
                         "file_parsing": [
@@ -89,7 +89,7 @@ def test_file_parsing_rejects_output_column_name_collision_across_columns():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
-                "columns": [
+                "sample_qc": [
                     {
                         "input_column": "a",
                         "file_parsing": [{"output_column": "shared", "command": "cat"}],
@@ -109,7 +109,7 @@ def test_file_parsing_rejects_output_column_on_a_file_parsing_column():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
-                "columns": [
+                "sample_qc": [
                     {
                         "input_column": "a",
                         "output_column": "b",
@@ -124,7 +124,7 @@ def test_file_parsing_rejects_column_level_qc_on_a_file_parsing_column():
     with pytest.raises(ValidationError):
         ExportConfig.model_validate(
             {
-                "columns": [
+                "sample_qc": [
                     {
                         "input_column": "a",
                         "qc": [{"operator": ">=", "value": 1}],
@@ -141,7 +141,7 @@ def _single_output_config(**output_kwargs):
     output_kwargs -- shared by the single-output validation tests below,
     which otherwise differ only in that one output's fields."""
     return {
-        "columns": [
+        "sample_qc": [
             {
                 "input_column": "a",
                 "file_parsing": [{"output_column": "out", **output_kwargs}],
@@ -180,8 +180,8 @@ def test_file_parsing_rejects_non_positive_timeout(bad_timeout):
 
 def test_file_parsing_accepts_no_timeout():
     config = ExportConfig.model_validate(_single_output_config(command="cat"))
-    assert config.columns is not None
-    file_parsing = config.columns[0].file_parsing
+    assert config.sample_qc is not None
+    file_parsing = config.sample_qc[0].file_parsing
     assert file_parsing is not None
     assert file_parsing[0].timeout_seconds is None
 

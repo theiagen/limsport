@@ -28,16 +28,46 @@
 
   <main class="layout">
     <section class="form-pane">
-      <div id="columns"></div>
-      <button type="button" id="add-column-btn" class="btn-add btn-add-column">+ Add column</button>
+      <div class="form-section">
+        <div class="section-header">
+          <h3>Sample-level QC</h3>
+          <button type="button" class="btn-collapse" title="Collapse this section"><span class="chevron"></span></button>
+        </div>
+        <div class="section-body">
+          <p class="hint">
+            Include only these columns in the output and exclude samples that fail a column's QC
+          </p>
+          <div id="columns"></div>
+          <button type="button" id="add-column-btn" class="btn-add btn-add-column">+ Add column</button>
+        </div>
+      </div>
 
-      <div class="set-qc-section">
-        <h3>Set-level QC (optional)</h3>
-        <p class="hint">
-          Fail the entire run if specific sample(s) fail a QC check
-        </p>
-        <div id="set-qc-rules"></div>
-        <button type="button" id="add-set-qc-btn" class="btn-add btn-add-set-qc">+ Add set-level QC rule</button>
+      <div class="form-section">
+        <div class="section-header">
+          <h3>Set-level QC (optional)</h3>
+          <button type="button" class="btn-collapse" title="Collapse this section"><span class="chevron"></span></button>
+        </div>
+        <div class="section-body">
+          <p class="hint">
+            Fail the entire run if specific sample(s) fail a QC check
+          </p>
+          <div id="set-qc-rules"></div>
+          <button type="button" id="add-set-qc-btn" class="btn-add btn-add-set-qc">+ Add set-level QC rule</button>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="section-header">
+          <h3>Skip sample-level QC (optional)</h3>
+          <button type="button" class="btn-collapse" title="Collapse this section"><span class="chevron"></span></button>
+        </div>
+        <div class="section-body">
+          <p class="hint">
+            Samples (e.g. negative controls) that skip sample-level QC but are still checked by set-level QC rules
+          </p>
+          <div id="skip-sample-qc"></div>
+          <button type="button" id="add-skip-sample-qc-btn" class="btn-add btn-add-set-qc">+ Add samples to skip</button>
+        </div>
       </div>
     </section>
 
@@ -49,6 +79,7 @@
         you run <code>limsport</code>, or these columns will be rejected at run time.
       </div>
       <div id="errors" class="errors hidden"></div>
+      <div id="warnings" class="warnings hidden"></div>
       <pre id="preview"></pre>
       <div class="preview-actions">
         <button type="button" id="download-btn">Download config.yaml</button>

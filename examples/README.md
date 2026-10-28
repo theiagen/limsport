@@ -9,10 +9,10 @@
 - `inputs/input_ntc_contaminated.tsv` — same table, except `NTC1`'s `raw_read_count` is raised to `5000`, over the `set_qc` threshold.
 - `inputs/samples.txt` — sample list passed via `--samples`.
 - `files/*_quast_report.tsv` — local QUAST reports for every sample (the 9 real samples' reports were pulled once from their `gs://` source and committed, so running the examples needs no cloud access).
-- `outputs/output.tsv`, `outputs/qc_report.tsv` — committed result of the successful run.
-- `outputs/output_ntc_contaminated.tsv`, `outputs/qc_report_ntc_contaminated.tsv` — committed result of the set_qc-failure run.
+- `outputs/output_lims_report.tsv`, `outputs/output_qc_fail_report.tsv`, `outputs/output_qc_summary.tsv` — committed result of the successful run.
+- `outputs/output_ntc_contaminated_lims_report.tsv`, `outputs/output_ntc_contaminated_qc_fail_report.tsv`, `outputs/output_ntc_contaminated_qc_summary.tsv` — committed result of the set_qc-failure run.
 
 ## Expected end state
 
 - **Successful run**: 4 of 10 requested samples pass (`19050801924`, `155734`, `NTC1`, `PC1`); the rest each fail at least one QC check.
-- **set_qc-failure run**: 0 of 10 samples pass — `NTC1`'s `raw_read_count` fails its `set_qc` rule, which fails the whole run, so `output_ntc_contaminated.tsv` ends up header-only.
+- **set_qc-failure run**: 0 of 10 samples pass — `NTC1`'s `raw_read_count` fails its `set_qc` rule, which fails the whole run, so `output_ntc_contaminated_lims_report.tsv` ends up header-only.

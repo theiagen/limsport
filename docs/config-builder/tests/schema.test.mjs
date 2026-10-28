@@ -21,10 +21,12 @@ import {
   newFileParsingOutput,
   newSetQCRule,
   newSetQCCheck,
+  newSkipSampleQC,
   buildConfig,
   serializeYAML,
 } from "../schema.js";
 import {
+  caseFor,
   condition,
   fullExampleColumns,
   fullExampleSetQCRules,
@@ -163,8 +165,8 @@ test("validation: a column that is both renamed and file_parsing-enabled cannot 
   col.fileParsing = [output];
   const { plain, errors } = buildConfig([col]);
   assert.deepEqual(errors, []);
-  assert.equal(plain.columns[0].output_column, undefined);
-  assert.equal(plain.columns[0].qc, undefined);
+  assert.equal(plain.sample_qc[0].output_column, undefined);
+  assert.equal(plain.sample_qc[0].qc, undefined);
 });
 
 test("validation: a column excluded from output cannot also emit output_column via the wizard's own state shape (mutual exclusivity is structural)", () => {
@@ -180,9 +182,9 @@ test("validation: a column excluded from output cannot also emit output_column v
   col.qc = { kind: "list", conditions: [condition(">=", 1000)] };
   const { plain, errors } = buildConfig([sampleId, col]);
   assert.deepEqual(errors, []);
-  assert.equal(plain.columns[1].output_column, undefined);
-  assert.equal(plain.columns[1].output, false);
-  assert.ok(plain.columns[1].qc, "qc should still be emitted for an output-excluded column");
+  assert.equal(plain.sample_qc[1].output_column, undefined);
+  assert.equal(plain.sample_qc[1].output, false);
+  assert.ok(plain.sample_qc[1].qc, "qc should still be emitted for an output-excluded column");
 });
 
 test("validation: a column excluded from output round-trips through the real load_config(), QC'd but absent from the output header", () => {
@@ -204,7 +206,7 @@ test("validation: a column excluded from output round-trips through the real loa
   const result = loadAndDump(p);
   assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
   const dumped = JSON.parse(result.stdout);
-  const hiddenColumn = dumped.columns.find((c) => c.input_column === "read_length");
+  const hiddenColumn = dumped.sample_qc.find((c) => c.input_column === "read_length");
   assert.equal(hiddenColumn.output, false);
   assert.ok(hiddenColumn.qc.length, "hidden column should still carry its qc conditions");
 });
@@ -274,7 +276,7 @@ test("validation: 'contains'/'does_not_contain' with a non-numeric value round -
   assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
   const dumped = JSON.parse(result.stdout);
   assert.deepEqual(
-    dumped.columns[0].qc.map((c) => [c.operator, c.value]),
+    dumped.sample_qc[0].qc.map((c) => [c.operator, c.value]),
     [
       ["contains", "Escherichia"],
       ["does_not_contain", "contaminant"],
@@ -315,9 +317,9 @@ test("validation: 'is_empty'/'is_not_empty' take no value, and round-trip throug
   const result = loadAndDump(p);
   assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
   const dumped = JSON.parse(result.stdout);
-  assert.equal(dumped.columns[0].qc[0].operator, "is_empty");
-  assert.equal(dumped.columns[0].qc[0].value, null);
-  assert.equal(dumped.columns[1].qc[0].operator, "is_not_empty");
+  assert.equal(dumped.sample_qc[0].qc[0].operator, "is_empty");
+  assert.equal(dumped.sample_qc[0].qc[0].value, null);
+  assert.equal(dumped.sample_qc[1].qc[0].operator, "is_not_empty");
 });
 
 test("validation: a leftover value on 'is_empty' is dropped entirely, not rejected or passed through", () => {
@@ -363,7 +365,7 @@ test("validation: case_insensitive: true round-trips through the real load_confi
   const result = loadAndDump(p);
   assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
   const dumped = JSON.parse(result.stdout);
-  assert.equal(dumped.columns[0].qc[0].case_insensitive, true);
+  assert.equal(dumped.sample_qc[0].qc[0].case_insensitive, true);
 
   // default (case_insensitive left false) shouldn't appear in the emitted YAML at all
   const defaultCol = newColumn();
@@ -420,9 +422,9 @@ test("validation: '=' with forceString treats a numeric-looking value as a strin
   const result = loadAndDump(p);
   assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
   const dumped = JSON.parse(result.stdout);
-  assert.equal(dumped.columns[0].qc[0].value, "1000");
-  assert.equal(typeof dumped.columns[0].qc[0].value, "string");
-  assert.equal(dumped.columns[0].qc[0].case_insensitive, true);
+  assert.equal(dumped.sample_qc[0].qc[0].value, "1000");
+  assert.equal(typeof dumped.sample_qc[0].qc[0].value, "string");
+  assert.equal(dumped.sample_qc[0].qc[0].case_insensitive, true);
 });
 
 test("serialization: string-operator values are always quoted, even when plain alphanumeric, and load_config() preserves them exactly", () => {
@@ -451,7 +453,7 @@ test("serialization: string-operator values are always quoted, even when plain a
   const result = loadAndDump(p);
   assert.equal(result.status, 0, result.stderr);
   const dumped = JSON.parse(result.stdout);
-  const values = dumped.columns[0].qc.map((c) => c.value);
+  const values = dumped.sample_qc[0].qc.map((c) => c.value);
   assert.deepEqual(values, ["PASS", "value1", "high-risk", "N/A"]);
 });
 
@@ -481,13 +483,13 @@ test("set_qc: omitted entirely from the YAML when no rules are configured", () =
   assert.doesNotMatch(serializeYAML(plain), /set_qc/);
 });
 
-test("validation: neither columns nor set_qc rules configured is rejected, with no columns: line in the preview", () => {
+test("validation: neither columns nor set_qc rules configured is rejected, with no sample_qc: line in the preview", () => {
   const { plain, errors } = buildConfig([], []);
   assert.ok(errors.some((e) => e.includes("Add at least one column or set-level QC rule")));
   assert.equal(serializeYAML(plain).trim(), "");
 });
 
-test("columns: [] is never rendered -- omitted when there are no columns, even with set_qc configured", () => {
+test("sample_qc: [] is never rendered -- omitted when there are no columns, even with set_qc configured", () => {
   const rule = newSetQCRule();
   rule.ruleName = "NTC read count";
   rule.matchSamples.kind = "pattern";
@@ -497,9 +499,9 @@ test("columns: [] is never rendered -- omitted when there are no columns, even w
   const { plain, errors } = buildConfig([], [rule]);
   assert.deepEqual(errors, []);
   const yaml = serializeYAML(plain);
-  // /^columns:/m, not /columns:/ -- only the top-level config `columns:` key
+  // /^sample_qc:/m, not /sample_qc:/ -- only the top-level config `sample_qc:` key
   // should be absent.
-  assert.doesNotMatch(yaml, /^columns:/m);
+  assert.doesNotMatch(yaml, /^sample_qc:/m);
   assert.match(yaml, /^set_qc:/m);
 
   const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
@@ -508,7 +510,7 @@ test("columns: [] is never rendered -- omitted when there are no columns, even w
   const result = loadAndDump(p);
   assert.equal(result.status, 0, `${result.stderr}\n--- generated YAML ---\n${yaml}`);
   const dumped = JSON.parse(result.stdout);
-  assert.equal(dumped.columns, null);
+  assert.equal(dumped.sample_qc, null);
 });
 
 test("validation: adding a set_qc rule with zero columns clears the \"add at least one\" warning", () => {
@@ -528,7 +530,7 @@ function setCheck(rule, { column, operator, value }) {
   const cond = newCondition();
   cond.operator = operator;
   cond.value = value;
-  rule.checks[0].conditions = [cond];
+  rule.checks[0].qc.conditions = [cond];
 }
 
 test("set_qc: sample_pattern matcher round-trips through the real load_config()", () => {
@@ -617,7 +619,7 @@ test("set_qc: a rule can check multiple columns under one match, all read from t
   const cond2 = newCondition();
   cond2.operator = "<=";
   cond2.value = "5";
-  check2.conditions = [cond2];
+  check2.qc.conditions = [cond2];
   rule.checks.push(check2);
 
   const { dumped } = assertValidSetQC([col, col2, col3], [rule], "multi-column rule");
@@ -668,7 +670,7 @@ test("validation: set_qc rule with a blank samples list is rejected", () => {
 test("validation: set_qc rule requires a name, at least one column check, and at least one condition per check", () => {
   const rule = newSetQCRule();
   rule.matchSamples.samplePattern = "NTC";
-  rule.checks[0].conditions = [];
+  rule.checks[0].qc.conditions = [];
   const { errors } = buildConfig([newColumn()], [rule]);
   assert.ok(errors.some((e) => e.includes("name is required")));
   assert.ok(errors.some((e) => e.includes("column is required")));
@@ -694,7 +696,7 @@ test("validation: duplicate columns within one set_qc rule are rejected", () => 
   const cond2 = newCondition();
   cond2.operator = ">=";
   cond2.value = "0";
-  check2.conditions = [cond2];
+  check2.qc.conditions = [cond2];
   rule.checks.push(check2);
 
   const { errors } = buildConfig([newColumn()], [rule]);
@@ -851,4 +853,273 @@ test("import: comments warn, but a '#' inside a command block doesn't", () => {
   const { errors, warnings } = importConfigYAML(`# my config\n${config}`);
   assert.deepEqual(errors, []);
   assert.equal(warnings.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// pattern_cases / regex_cases, conditional set_qc checks, include_sample_qc,
+// and skip_sample_qc
+// ---------------------------------------------------------------------------
+
+const NEW_FEATURES_YAML = [
+  "sample_qc:",
+  "  - input_column: sample_id",
+  "",
+  "  - input_column: assembly_length",
+  "    qc:",
+  "      match_column: taxon",
+  "      cases:",
+  '        "Escherichia coli":',
+  '          - {operator: ">=", value: 4600000}',
+  "      pattern_cases:",
+  '        "Shigella":',
+  '          - {operator: ">=", value: 4200000}',
+  "      regex_cases:",
+  '        "^Salmonella":',
+  '          - {operator: ">=", value: 4400000}',
+  "",
+  "set_qc:",
+  '  - rule_name: "NTC read count"',
+  "    match_samples:",
+  '      sample_pattern: "NTC"',
+  "    checks:",
+  "      - input_column: reads",
+  "        qc:",
+  "          match_column: run_type",
+  "          pattern_cases:",
+  '            "nextseq":',
+  '              - {operator: "<=", value: 1000}',
+  "          default:",
+  '            - {operator: "<=", value: 100}',
+  "",
+  '  - rule_name: "PC passes production qc"',
+  "    match_samples:",
+  '      samples: ["PC1"]',
+  "    include_sample_qc: true",
+  "",
+  "skip_sample_qc:",
+  '  sample_pattern: "NTC"',
+  "",
+].join("\n");
+
+function writeTemp(name, text) {
+  const dir = mkdtempSync(path.join(tmpdir(), "limsport-config-builder-"));
+  const p = path.join(dir, name);
+  writeFileSync(p, text);
+  return p;
+}
+
+function newFeaturesState() {
+  const id = newColumn();
+  id.inputColumn = "sample_id";
+  const length = newColumn();
+  length.inputColumn = "assembly_length";
+  const shigella = caseFor("Shigella", condition(">=", 4200000));
+  shigella.matchType = "pattern";
+  const salmonella = caseFor("^Salmonella", condition(">=", 4400000));
+  salmonella.matchType = "regex";
+  length.qc = {
+    ...length.qc,
+    kind: "conditional",
+    matchColumn: "taxon",
+    cases: [caseFor("Escherichia coli", condition(">=", 4600000)), shigella, salmonella],
+  };
+
+  const ntc = newSetQCRule();
+  ntc.ruleName = "NTC read count";
+  ntc.matchSamples.samplePattern = "NTC";
+  const nextseq = caseFor("nextseq", condition("<=", 1000));
+  nextseq.matchType = "pattern";
+  ntc.checks[0].inputColumn = "reads";
+  ntc.checks[0].qc = {
+    ...ntc.checks[0].qc,
+    kind: "conditional",
+    matchColumn: "run_type",
+    cases: [nextseq],
+    useDefault: true,
+    default: [condition("<=", 100)],
+  };
+
+  const pc = newSetQCRule();
+  pc.ruleName = "PC passes production qc";
+  pc.matchSamples.kind = "samples";
+  pc.matchSamples.samples = "PC1";
+  pc.includeSampleQC = true;
+  pc.checks = [];
+
+  const skip = newSkipSampleQC();
+  skip.enabled = true;
+  skip.match.samplePattern = "NTC";
+  return { columns: [id, length], setQCRules: [ntc, pc], skipSampleQC: skip };
+}
+
+test("new features: match-type cases, conditional set_qc, include_sample_qc, and skip_sample_qc round-trip through load_config()", () => {
+  const { columns, setQCRules, skipSampleQC } = newFeaturesState();
+  const { plain, errors } = buildConfig(columns, setQCRules, skipSampleQC);
+  assert.deepEqual(errors, []);
+  assertValidAndMatches(plain, writeTemp("reference.yaml", NEW_FEATURES_YAML), "new features");
+});
+
+test("new features: importing the reference loads every feature and re-downloads identical to it", () => {
+  const imported = importConfigYAML(NEW_FEATURES_YAML);
+  assert.deepEqual(imported.errors, []);
+  assert.equal(imported.skipSampleQC.enabled, true);
+  assert.deepEqual(
+    imported.columns[1].qc.cases.map((c) => [c.matchType, c.key]),
+    [["exact", "Escherichia coli"], ["pattern", "Shigella"], ["regex", "^Salmonella"]]
+  );
+  assert.equal(imported.setQCRules[0].checks[0].qc.kind, "conditional");
+  assert.equal(imported.setQCRules[1].includeSampleQC, true);
+  const { plain, errors } = buildConfig(imported.columns, imported.setQCRules, imported.skipSampleQC);
+  assert.deepEqual(errors, []);
+  assert.equal(serializeYAML(plain), NEW_FEATURES_YAML);
+});
+
+function columnWithQC() {
+  const col = newColumn();
+  col.inputColumn = "reads";
+  col.qc = { ...col.qc, kind: "list", conditions: [condition(">=", 1)] };
+  return col;
+}
+
+test("validation: a set_qc rule with no checks needs include_sample_qc", () => {
+  const rule = newSetQCRule();
+  rule.ruleName = "x";
+  rule.matchSamples.samplePattern = "PC";
+  rule.checks = [];
+  assert.ok(buildConfig([columnWithQC()], [rule]).errors.some((e) => e.includes("needs at least one column to check")));
+  rule.includeSampleQC = true;
+  assert.ok(!buildConfig([columnWithQC()], [rule]).errors.some((e) => e.includes("x:")));
+});
+
+test("validation: include_sample_qc needs some sample-level QC, from a column or a file_parsing output", () => {
+  const rule = newSetQCRule();
+  rule.ruleName = "x";
+  rule.matchSamples.samplePattern = "PC";
+  rule.checks = [];
+  rule.includeSampleQC = true;
+  const plain = newColumn();
+  plain.inputColumn = "sample_id";
+  const message = '"Include all sample-level QC checks in this rule" is on, but no sample-level QC column has QC to include';
+  assert.ok(buildConfig([plain], [rule]).errors.some((e) => e === `x: ${message}`));
+  assert.ok(buildConfig([], [rule]).errors.some((e) => e === `x: ${message}`));
+
+  const fp = newColumn();
+  fp.inputColumn = "report";
+  fp.isFileParsing = true;
+  fp.fileParsing[0].outputColumn = "n50";
+  fp.fileParsing[0].command = 'cat "$FILE"';
+  fp.fileParsing[0].qc = { ...fp.fileParsing[0].qc, kind: "list", conditions: [condition(">=", 1)] };
+  const { plain: built, errors } = buildConfig([plain, fp], [rule]);
+  assert.deepEqual(errors, []);
+  const result = loadAndDump(writeTemp("include-fp.yaml", serializeYAML(built)));
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("validation: skip_sample_qc needs a matcher only when turned on, and the same key can repeat across case types", () => {
+  const col = newColumn();
+  col.inputColumn = "sample_id";
+  const skip = newSkipSampleQC();
+  assert.equal(buildConfig([col], [], skip).plain.skip_sample_qc, undefined);
+  skip.enabled = true;
+  assert.ok(buildConfig([col], [], skip).errors.some((e) => e.includes("Skip sample-level QC: sample_pattern is required")));
+
+  const exact = caseFor("Shigella", condition(">=", 1));
+  const pattern = caseFor("Shigella", condition(">=", 2));
+  pattern.matchType = "pattern";
+  col.qc = { ...col.qc, kind: "conditional", matchColumn: "taxon", cases: [exact, pattern] };
+  assert.deepEqual(buildConfig([col]).errors, []);
+  pattern.matchType = "exact";
+  assert.ok(buildConfig([col]).errors.some((e) => e.includes("duplicate cases key(s): Shigella")));
+});
+
+test("preview: an incomplete set_qc rule and skip_sample_qc still show as drafts, while errors gate the download", () => {
+  const col = newColumn();
+  col.inputColumn = "sample_id";
+  const rule = newSetQCRule(); // blank name, matcher, and check
+  const skip = newSkipSampleQC();
+  skip.enabled = true;
+  const { plain, errors } = buildConfig([col], [rule], skip);
+  assert.ok(errors.length);
+  const yaml = serializeYAML(plain);
+  assert.match(yaml, /^set_qc:\n {2}- rule_name: ""\n {4}match_samples:\n {6}sample_pattern: ""\n {4}checks:\n {6}- input_column: ""$/m);
+  assert.match(yaml, /^skip_sample_qc:\n {2}sample_pattern: ""$/m);
+});
+
+test("import: the old columns: key loads as sample_qc, and using both keys is rejected", () => {
+  const old = importConfigYAML("columns:\n  - input_column: sample_id\n");
+  assert.deepEqual(old.errors, []);
+  const { plain } = buildConfig(old.columns, old.setQCRules, old.skipSampleQC);
+  assert.equal(serializeYAML(plain), "sample_qc:\n  - input_column: sample_id\n");
+
+  const both = importConfigYAML(
+    "sample_qc:\n  - input_column: a\ncolumns:\n  - input_column: b\n"
+  );
+  assert.equal(both.errors.length, 1);
+  assert.match(both.errors[0], /^Line 3: columns: columns is the old name for sample_qc/);
+});
+
+// ---------------------------------------------------------------------------
+// Predicted skip_sample_qc / include_sample_qc collisions (warnings only)
+// ---------------------------------------------------------------------------
+
+function includeRule(name, kind, value) {
+  const rule = newSetQCRule();
+  rule.ruleName = name;
+  rule.includeSampleQC = true;
+  rule.checks = [];
+  rule.matchSamples.kind = kind;
+  rule.matchSamples[{ pattern: "samplePattern", regex: "sampleRegex", samples: "samples" }[kind]] = value;
+  return rule;
+}
+
+function skipFor(kind, value) {
+  const skip = newSkipSampleQC();
+  skip.enabled = true;
+  skip.match.kind = kind;
+  skip.match[{ pattern: "samplePattern", regex: "sampleRegex", samples: "samples" }[kind]] = value;
+  return skip;
+}
+
+function collisionWarnings(rule, skip) {
+  return buildConfig([columnWithQC()], [rule], skip);
+}
+
+test("collisions: a definite overlap warns, naming the rule and samples, without adding an error", () => {
+  const cases = [
+    [includeRule("PC", "samples", "PC1, NTC1"), skipFor("samples", "NTC1, NTC2"),
+      'The set-level QC rule "PC" requires sample-level QC for "NTC1", which is marked to skip it. This will cause LIMSport to fail.'],
+    [includeRule("PC", "samples", "PC1, NTC1, NTC2"), skipFor("pattern", "NTC"),
+      'The set-level QC rule "PC" requires sample-level QC for ["NTC1", "NTC2"], which are marked to skip it. This will cause LIMSport to fail.'],
+    [includeRule("PC", "pattern", "NTC"), skipFor("samples", "NTC1, NTC2"),
+      'The set-level QC rule "PC" requires sample-level QC for ["NTC1", "NTC2"], which are marked to skip it. This may cause LIMSport to fail.'],
+    [includeRule("PC", "regex", "^NTC\\d$"), skipFor("samples", "NTC1, PCX"),
+      'The set-level QC rule "PC" requires sample-level QC for "NTC1", which is marked to skip it. This may cause LIMSport to fail.'],
+    [includeRule("PC", "pattern", "NTC"), skipFor("pattern", "NTC-"),
+      'The set-level QC rule "PC" requires sample-level QC for samples containing "NTC-", which are marked to skip it. This may cause LIMSport to fail.'],
+  ];
+  for (const [rule, skip, expected] of cases) {
+    const { errors, warnings } = collisionWarnings(rule, skip);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(warnings, [expected]);
+  }
+});
+
+test("collisions: no warning when nothing overlaps, the matcher is blank, the rule doesn't include sample QC, or it can't be decided", () => {
+  const none = [
+    [includeRule("PC", "samples", "PC1"), skipFor("samples", "NTC1")],
+    [includeRule("PC", "pattern", "PC"), skipFor("pattern", "NTC")],
+    [includeRule("PC", "samples", "PC1"), skipFor("pattern", "")],
+    [includeRule("PC", "regex", "^PC"), skipFor("pattern", "NTC")],
+    [includeRule("PC", "regex", "(?P<x>NTC)"), skipFor("samples", "NTC1")],
+  ];
+  const notIncluded = includeRule("PC", "samples", "NTC1");
+  notIncluded.includeSampleQC = false;
+  notIncluded.checks = [newSetQCCheck()];
+  none.push([notIncluded, skipFor("samples", "NTC1")]);
+  for (const [rule, skip] of none) {
+    assert.deepEqual(collisionWarnings(rule, skip).warnings, [], JSON.stringify(rule.matchSamples));
+  }
+  const off = skipFor("samples", "NTC1");
+  off.enabled = false;
+  assert.deepEqual(collisionWarnings(includeRule("PC", "samples", "NTC1"), off).warnings, []);
 });

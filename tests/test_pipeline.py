@@ -22,7 +22,7 @@ from limsport.exceptions import InputTableError
 def config_qc_approx(tmp_path):
     path = tmp_path / "config_qc_approx.yaml"
     path.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: read_count\n"
         "    qc:\n"
@@ -34,7 +34,7 @@ def config_qc_approx(tmp_path):
 def config_dupe_reference(tmp_path):
     path = tmp_path / "config_dupe_reference.yaml"
     path.write_text(
-        "columns:\n  - input_column: sample_id\n  - input_column: read_count\n"
+        "sample_qc:\n  - input_column: sample_id\n  - input_column: read_count\n"
     )
     return path
 
@@ -83,7 +83,7 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
     # input order instead.
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: status\n"
         "  - input_column: sample_id\n"
         "  - input_column: notes\n"
@@ -99,7 +99,7 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
 def test_sample_id_column_is_output_first_when_config_omits_it(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n  - input_column: status\n  - input_column: read_count\n"
+        "sample_qc:\n  - input_column: status\n  - input_column: read_count\n"
     )
     out = tmp_path / "out.tsv"
     pipeline.run_export(input_basic(tmp_path), config, None, out, None)
@@ -135,7 +135,7 @@ def test_qc_range_drops_expected_samples(tmp_path):
 def config_qc_range_output_hidden(tmp_path):
     path = tmp_path / "config_qc_range_output_hidden.yaml"
     path.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: read_count\n"
         "    output: false\n"
@@ -314,7 +314,7 @@ def test_ragged_short_row_no_op_path_never_inspects_rows(tmp_path):
 def test_ragged_short_row_becomes_missing_value_not_a_crash(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: notes\n"
         "    qc:\n"
@@ -331,7 +331,7 @@ def test_ragged_short_row_becomes_missing_value_not_a_crash(tmp_path):
 
 def test_ragged_long_row_raises_before_output_created(tmp_path):
     config = tmp_path / "config.yaml"
-    config.write_text("columns:\n  - input_column: sample_id\n")
+    config.write_text("sample_qc:\n  - input_column: sample_id\n")
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError):
         pipeline.run_export(input_ragged_long(tmp_path), config, None, out, None)
@@ -343,7 +343,7 @@ def test_failed_run_leaves_an_earlier_export_at_that_path_untouched(tmp_path):
     # clobbered whatever was already at output_path -- only a run that finishes
     # replaces it.
     config = tmp_path / "config.yaml"
-    config.write_text("columns:\n  - input_column: sample_id\n")
+    config.write_text("sample_qc:\n  - input_column: sample_id\n")
     out = tmp_path / "out.tsv"
     out.write_text("an earlier, good export\n")
 

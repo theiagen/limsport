@@ -9,17 +9,25 @@ import {
     newFileParsingOutput,
     newSetQCRule,
     newSetQCCheck,
+    newSkipSampleQC,
     buildConfig,
     serializeYAML,
 } from "./schema.js";
 import { importConfigYAML } from "./importer.js";
 
-const state = { columns: [], setQCRules: [] };
+const state = {
+    columns: [],
+    setQCRules: [],
+    skipSampleQC: newSkipSampleQC(),
+};
 
 const columnsEl = document.getElementById("columns");
 const setQCRulesEl = document.getElementById("set-qc-rules");
+const skipSampleQCEl = document.getElementById("skip-sample-qc");
+const addSkipSampleQCBtn = document.getElementById("add-skip-sample-qc-btn");
 const previewEl = document.getElementById("preview");
 const errorsEl = document.getElementById("errors");
+const warningsEl = document.getElementById("warnings");
 const fileParsingNoticeEl = document.getElementById("file-parsing-notice");
 const downloadBtn = document.getElementById("download-btn");
 const copyBtn = document.getElementById("copy-btn");
@@ -51,6 +59,16 @@ function labeledField(labelText, inputEl) {
     return label;
 }
 
+// Double-clicking a card or section title toggles it like its collapse
+// button; double-clicks on the header's own controls are left alone.
+function toggleOnDoubleClick(header, collapseBtn) {
+    header.addEventListener("dblclick", (event) => {
+        if (event.target.closest("button, input, select, textarea, .drag-handle"))
+            return;
+        collapseBtn.click();
+    });
+}
+
 // The browser draws window.confirm() itself, pinned to the top of the
 // window; a modal <dialog> is centered by default. It's appended inside the
 // builder's root element so it picks up the builder's CSS variables.
@@ -78,9 +96,27 @@ function confirmDialog(message, confirmLabel) {
     });
 }
 
+function currentConfig() {
+    return buildConfig(state.columns, state.setQCRules, state.skipSampleQC);
+}
+
 function refreshPreview() {
-    const { plain, errors } = buildConfig(state.columns, state.setQCRules);
+    const { plain, errors, warnings } = currentConfig();
     previewEl.textContent = serializeYAML(plain);
+
+    // warnings never disable download: the config is valid, it just may
+    // fail at run time
+    warningsEl.replaceChildren();
+    warningsEl.classList.toggle("hidden", !warnings.length);
+    if (warnings.length) {
+        const list = el("ul", { class: "errors-list" });
+        for (const warning of warnings)
+            list.appendChild(el("li", { text: warning }));
+        warningsEl.append(
+            el("p", { class: "warnings-heading", text: "Warning:" }),
+            list,
+        );
+    }
 
     errorsEl.innerHTML = "";
     if (errors.length) {
@@ -302,10 +338,13 @@ function buildConditionsEditor(conditions) {
 // QC editor: none / fixed list / conditional (match + rules + optional default)
 // ---------------------------------------------------------------------------
 
-function buildQCEditor(qc) {
+// allowNone is false for a set-level check, which always has to check something.
+function buildQCEditor(qc, { allowNone = true } = {}) {
     const container = el("div", { class: "qc-editor" });
     const kindSelect = el("select", { class: "qc-kind" }, [
-        el("option", { value: "none", text: "No QC on this value" }),
+        ...(allowNone
+            ? [el("option", { value: "none", text: "No QC on this value" })]
+            : []),
         el("option", { value: "list", text: "Fixed threshold(s)" }),
         el("option", {
             value: "conditional",
@@ -356,15 +395,34 @@ function buildConditionalQCEditor(qc) {
 
     const casesContainer = el("div", { class: "rules" });
 
+    const keyPlaceholders = {
+        exact: "e.g. Escherichia coli",
+        pattern: "e.g. Shigella",
+        regex: "e.g. ^Salmonella",
+    };
+
+    // Same stacked select-then-input layout as a set-level rule's
+    // "Which sample(s) does this apply to?" matcher.
     function renderCase(qcCase) {
+        const matchTypeSelect = el("select", { class: "case-match-type" }, [
+            el("option", { value: "exact", text: "Value equals" }),
+            el("option", { value: "pattern", text: "Value contains" }),
+            el("option", { value: "regex", text: "Value matches a regex" }),
+        ]);
+        matchTypeSelect.value = qcCase.matchType;
+
         const keyInput = el("input", {
             type: "text",
-            class: "rule-key",
-            placeholder: 'value to match, e.g. "Escherichia coli"',
+            placeholder: keyPlaceholders[qcCase.matchType],
             value: qcCase.key,
         });
         keyInput.addEventListener("input", () => {
             qcCase.key = keyInput.value;
+            refreshPreview();
+        });
+        matchTypeSelect.addEventListener("change", () => {
+            qcCase.matchType = matchTypeSelect.value;
+            keyInput.placeholder = keyPlaceholders[qcCase.matchType];
             refreshPreview();
         });
 
@@ -381,8 +439,13 @@ function buildConditionalQCEditor(qc) {
             },
         });
 
-        const header = el("div", { class: "rule-header" }, [
-            keyInput,
+        const matchField = labeledField(
+            "Which match column value(s) does this case apply to?",
+            el("div", { class: "set-qc-match" }, [matchTypeSelect, keyInput]),
+        );
+        matchField.classList.add("rule-key");
+        const header = el("div", { class: "rule-header case-header" }, [
+            matchField,
             removeBtn,
         ]);
         const conditionsEditor = buildConditionsEditor(qcCase.conditions);
@@ -551,6 +614,7 @@ function buildFileParsingEditor(column) {
             ]),
             body,
         ]);
+        toggleOnDoubleClick(block.querySelector(".output-header"), collapseBtn);
         updateSummary();
         return block;
     }
@@ -675,11 +739,8 @@ function buildSetQCChecksEditor(rule) {
             columnInput,
             removeBtn,
         ]);
-        const conditionsEditor = buildConditionsEditor(check.conditions);
-        const block = el("div", { class: "rule-block" }, [
-            header,
-            conditionsEditor,
-        ]);
+        const qcEditor = buildQCEditor(check.qc, { allowNone: false });
+        const block = el("div", { class: "rule-block" }, [header, qcEditor]);
         return block;
     }
 
@@ -719,6 +780,20 @@ function buildSetQCRuleCard(rule) {
     });
 
     const matchEditor = buildSetQCMatchEditor(rule.matchSamples);
+
+    const includeSampleQCCheckbox = el("input", { type: "checkbox" });
+    includeSampleQCCheckbox.checked = rule.includeSampleQC;
+    includeSampleQCCheckbox.addEventListener("change", () => {
+        rule.includeSampleQC = includeSampleQCCheckbox.checked;
+        refreshPreview();
+    });
+    const includeSampleQCToggle = el("label", { class: "checkbox-field" }, [
+        includeSampleQCCheckbox,
+        document.createTextNode(
+            "Include all sample-level QC checks in this rule",
+        ),
+    ]);
+
     const checksEditor = buildSetQCChecksEditor(rule);
     const checksSection = el("div", { class: "section" }, [
         el("h4", { text: "Columns to check" }),
@@ -740,6 +815,7 @@ function buildSetQCRuleCard(rule) {
     const body = el("div", { class: "column-body" }, [
         labeledField("Rule name", nameInput),
         labeledField("Which sample(s) does this apply to?", matchEditor),
+        includeSampleQCToggle,
         checksSection,
     ]);
 
@@ -763,9 +839,11 @@ function buildSetQCRuleCard(rule) {
         [chevron],
     );
 
-    const card = el("div", { class: "set-qc-rule-card" }, [
+    const card = el("div", { class: "set-qc-rule-card" });
+    card.append(
         el("div", { class: "column-header" }, [
             el("div", { class: "column-header-title" }, [
+                dragHandle(card, rule),
                 el("strong", { text: "Set-level QC rule" }),
                 summarySpan,
             ]),
@@ -775,9 +853,124 @@ function buildSetQCRuleCard(rule) {
             ]),
         ]),
         body,
-    ]);
+    );
+    toggleOnDoubleClick(card.querySelector(".column-header"), collapseBtn);
     updateSummary();
     return card;
+}
+
+// ---------------------------------------------------------------------------
+// Skip sample-level QC: at most one card (the config takes one matcher),
+// using the same sample matcher a set-level rule uses.
+// ---------------------------------------------------------------------------
+
+function renderSkipSampleQC() {
+    const skip = state.skipSampleQC;
+    addSkipSampleQCBtn.classList.toggle("hidden", skip.enabled);
+    if (!skip.enabled) {
+        skipSampleQCEl.replaceChildren();
+        return;
+    }
+    const removeBtn = el("button", {
+        type: "button",
+        class: "btn-remove",
+        text: "Remove",
+        onclick: () => {
+            skip.enabled = false;
+            renderSkipSampleQC();
+            refreshPreview();
+        },
+    });
+    const card = el("div", { class: "set-qc-rule-card" }, [
+        el("div", { class: "column-header" }, [
+            el("div", { class: "column-header-title" }, [
+                el("strong", { text: "Skip sample-level QC" }),
+            ]),
+            el("div", { class: "column-header-actions" }, [removeBtn]),
+        ]),
+        el("div", { class: "column-body" }, [
+            labeledField(
+                "Which sample(s) skip sample-level QC?",
+                buildSetQCMatchEditor(skip.match),
+            ),
+        ]),
+    ]);
+    skipSampleQCEl.replaceChildren(card);
+}
+
+// ---------------------------------------------------------------------------
+// Drag-to-reorder for column and set-level rule cards. A card is only
+// draggable while its handle is held, so text in its inputs can still be
+// selected with the mouse. The state array is re-read from the DOM order
+// when the drag ends.
+// ---------------------------------------------------------------------------
+
+const cardItems = new WeakMap(); // card -> the state object it renders
+const containerLists = new WeakMap(); // card container -> its state array
+let draggedCard = null;
+
+function dragHandle(card, item) {
+    cardItems.set(card, item);
+    const handle = el("span", {
+        class: "drag-handle",
+        title: "Drag to reorder",
+        text: "⠿",
+    });
+    handle.addEventListener("mousedown", () => (card.draggable = true));
+    handle.addEventListener("mouseup", () => (card.draggable = false));
+    card.addEventListener("dragstart", (event) => {
+        draggedCard = card;
+        event.dataTransfer.effectAllowed = "move";
+        // Firefox won't start a drag without some data set.
+        event.dataTransfer.setData("text/plain", "");
+        card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", () => {
+        card.draggable = false;
+        card.classList.remove("dragging");
+        draggedCard = null;
+        const container = card.parentElement;
+        const list = containerLists.get(container);
+        if (!list) return;
+        const order = [...container.children].map((c) => cardItems.get(c));
+        list.splice(0, list.length, ...order);
+        refreshPreview();
+    });
+    return handle;
+}
+
+function enableReorder(container, list) {
+    containerLists.set(container, list);
+    container.addEventListener("dragover", (event) => {
+        if (!draggedCard || draggedCard.parentElement !== container) return;
+        event.preventDefault();
+        const before = [...container.children].find((child) => {
+            if (child === draggedCard) return false;
+            const box = child.getBoundingClientRect();
+            return event.clientY < box.top + box.height / 2;
+        });
+        container.insertBefore(draggedCard, before ?? null);
+    });
+    container.addEventListener("drop", (event) => {
+        if (draggedCard?.parentElement === container) event.preventDefault();
+    });
+}
+enableReorder(columnsEl, state.columns);
+enableReorder(setQCRulesEl, state.setQCRules);
+
+// Collapses a whole form section (its header button hides its body).
+for (const section of document.querySelectorAll(".form-section")) {
+    const button = section.querySelector(".section-header .btn-collapse");
+    const body = section.querySelector(".section-body");
+    toggleOnDoubleClick(section.querySelector(".section-header"), button);
+    button.addEventListener("click", () => {
+        const collapsed = !section.classList.contains("collapsed");
+        section.classList.toggle("collapsed", collapsed);
+        body.classList.toggle("hidden", collapsed);
+        button.title = collapsed
+            ? "Expand this section"
+            : "Collapse this section";
+    });
 }
 
 function addSetQCRule(rule) {
@@ -934,9 +1127,11 @@ function buildColumnCard(col) {
         [chevron],
     );
 
-    const card = el("div", { class: "column-card" }, [
+    const card = el("div", { class: "column-card" });
+    card.append(
         el("div", { class: "column-header" }, [
             el("div", { class: "column-header-title" }, [
+                dragHandle(card, col),
                 el("strong", { text: "Column" }),
                 summarySpan,
             ]),
@@ -946,7 +1141,9 @@ function buildColumnCard(col) {
             ]),
         ]),
         body,
-    ]);
+    );
+    // :scope > -- not a nested file_parsing output's header
+    toggleOnDoubleClick(card.querySelector(":scope > .column-header"), collapseBtn);
     updateSummary();
     return card;
 }
@@ -958,17 +1155,19 @@ function addColumn(col) {
 }
 
 function clearAll() {
-    loadState([], []);
+    loadState([], [], newSkipSampleQC());
     importStatusEl.classList.add("hidden");
 }
 
-function loadState(columns, setQCRules) {
+function loadState(columns, setQCRules, skipSampleQC) {
     state.columns.length = 0;
     state.setQCRules.length = 0;
+    state.skipSampleQC = skipSampleQC;
     columnsEl.innerHTML = "";
     setQCRulesEl.innerHTML = "";
     columns.forEach(addColumn);
     setQCRules.forEach(addSetQCRule);
+    renderSkipSampleQC();
     refreshPreview();
 }
 
@@ -993,6 +1192,7 @@ function showImportStatus(heading, messages, isError) {
 function formHasContent() {
     return (
         state.setQCRules.length > 0 ||
+        state.skipSampleQC.enabled ||
         state.columns.some((c) => c.inputColumn.trim())
     );
 }
@@ -1009,7 +1209,8 @@ async function openConfigFile(file) {
         );
         return;
     }
-    const { columns, setQCRules, errors, warnings } = importConfigYAML(text);
+    const { columns, setQCRules, skipSampleQC, errors, warnings } =
+        importConfigYAML(text);
     if (errors.length) {
         showImportStatus(`${file.name} was not loaded:`, errors, true);
         return;
@@ -1022,7 +1223,7 @@ async function openConfigFile(file) {
         ))
     )
         return;
-    loadState(columns, setQCRules);
+    loadState(columns, setQCRules, skipSampleQC);
     showImportStatus(`Loaded ${file.name}.`, warnings, false);
 }
 
@@ -1036,11 +1237,18 @@ document
 document
     .getElementById("add-set-qc-btn")
     .addEventListener("click", () => addSetQCRule(newSetQCRule()));
+addSkipSampleQCBtn.addEventListener("click", () => {
+    state.skipSampleQC.enabled = true;
+    renderSkipSampleQC();
+    refreshPreview();
+});
 document
     .getElementById("start-blank-btn")
     .addEventListener("click", async () => {
         if (
-            (state.columns.length || state.setQCRules.length) &&
+            (state.columns.length ||
+                state.setQCRules.length ||
+                state.skipSampleQC.enabled) &&
             !(await confirmDialog("Clear everything and start over?", "Clear"))
         )
             return;
@@ -1085,7 +1293,7 @@ document.addEventListener("drop", (event) => {
 });
 
 downloadBtn.addEventListener("click", () => {
-    const { plain, errors } = buildConfig(state.columns, state.setQCRules);
+    const { plain, errors } = currentConfig();
     if (errors.length) return;
     const blob = new Blob([serializeYAML(plain)], { type: "text/yaml" });
     const url = URL.createObjectURL(blob);
@@ -1119,7 +1327,7 @@ async function copyToClipboard(text) {
 }
 
 copyBtn.addEventListener("click", async () => {
-    const { plain, errors } = buildConfig(state.columns, state.setQCRules);
+    const { plain, errors } = currentConfig();
     if (errors.length) return;
     try {
         await copyToClipboard(serializeYAML(plain));
@@ -1132,4 +1340,5 @@ copyBtn.addEventListener("click", async () => {
 });
 
 // Start with one blank column so the form isn't empty on first load.
+renderSkipSampleQC();
 addColumn(newColumn());

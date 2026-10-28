@@ -2,10 +2,10 @@
 Pydantic models for the YAML export config, plus the loader that turns a
 config file on disk into a validated ExportConfig.
 
-The config works as a column allow-list: if one is given, only the columns
-listed in it make it into the output. Each column can also be given a different
-output name and QC rules. `columns` can be omitted entirely if the config only exists for its `set_qc`
-(run-level) rules
+The config's `sample_qc` list (formerly `columns`, still accepted) works as a column
+allow-list: if one is given, only the columns listed in it make it into the output. Each
+column can also be given a different output name and QC rules. `sample_qc` can be
+omitted entirely if the config only exists for its `set_qc` (run-level) rules
 
 Included classes:
     - QCCondition
@@ -30,6 +30,7 @@ from typing import ClassVar
 
 import yaml
 from pydantic import (
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -183,39 +184,78 @@ class ConditionalQC(_StrictModel):
     The conditional form of `qc` has a list of conditions that apply to a given row
     depending on that rows value in the `match_column`
 
-    A row whose `match_column` value isn't a key in `cases` uses `default` if given.
-    Without a `default`, it's reported as a QC fail
+    A row's `match_column` value is looked up in `cases` first, then in `pattern_cases`,
+    then in `regex_cases`; within the last two, the first match in config order wins.
+    A row matching none of them uses `default` if given. Without a `default`, it's
+    reported as a QC fail
 
     Attributes:
         - match_column: the name of the column to match on
-        - cases: a dictionary of match values and their associated QCCondition(s)
+        - cases: exact, case-sensitive match values and their QCCondition(s)
+        - pattern_cases: case-sensitive substrings and their QCCondition(s)
+        - regex_cases: `re.search` patterns and their QCCondition(s)
         - default: the default QCCondition(s) to apply if no match was found
     """
 
     match_column: str = Field(min_length=1)
-    cases: dict[str, list[QCCondition]]
+    cases: dict[str, list[QCCondition]] = Field(default_factory=dict)
+    pattern_cases: dict[str, list[QCCondition]] = Field(default_factory=dict)
+    regex_cases: dict[str, list[QCCondition]] = Field(default_factory=dict)
     default: list[QCCondition] | None = None
 
-    @field_validator("cases")
-    @classmethod
-    def _cases_are_not_empty(
-        cls, cases: dict[str, list[QCCondition]]
-    ) -> dict[str, list[QCCondition]]:
+    @model_validator(mode="after")
+    def _cases_are_not_empty(self) -> "ConditionalQC":
         """
-        A conditional `qc` has to configure at least one case.
-
-        Args:
-            cases: the dictionary of `match_column` value to qc conditions
+        A conditional `qc` has to configure at least one case, and every regex must
+        compile.
 
         Returns:
-            `cases` unchanged
+            `self` unchanged
 
         Raises:
-            ValueError: if `cases` is empty.
+            ValueError: if `cases`, `pattern_cases`, and `regex_cases` are all empty, or
+              a `regex_cases` key isn't a valid regex.
         """
-        if not cases:
-            raise ValueError("qc.cases must not be empty")
-        return cases
+        if not (self.cases or self.pattern_cases or self.regex_cases):
+            raise ValueError(
+                "conditional qc must configure at least one of cases, pattern_cases, or regex_cases"
+            )
+        for pattern in self.regex_cases:
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                raise ValueError(f"invalid regex_cases key {pattern!r}: {e}") from e
+        return self
+
+    # conditions_for() runs once per row, so the patterns are compiled on first use.
+    # _cases_are_not_empty() has already proven they compile.
+    @functools.cached_property
+    def _compiled_regex_cases(self) -> list[tuple[re.Pattern[str], list[QCCondition]]]:
+        """
+        The `regex_cases` keys compiled, paired with their conditions, in config order.
+        """
+        return [(re.compile(k), v) for k, v in self.regex_cases.items()]
+
+    def conditions_for(self, value: str) -> list[QCCondition] | None:
+        """
+        Picks the conditions for one row's `match_column` value.
+
+        Args:
+            value: the row's value in `match_column`.
+
+        Returns:
+            The first matching case's conditions, checked exact, then pattern, then
+            regex; else `default`, which is None when not configured.
+        """
+        if value in self.cases:
+            return self.cases[value]
+        for pattern, conditions in self.pattern_cases.items():
+            if pattern in value:
+                return conditions
+        for regex, conditions in self._compiled_regex_cases:
+            if regex.search(value) is not None:
+                return conditions
+        return self.default
 
 
 def _qc_is_set(qc: list[QCCondition] | ConditionalQC) -> bool:
@@ -295,7 +335,7 @@ class FileParsingOutput(_StrictModel):
 
 class ColumnConfig(_StrictModel):
     """
-    An entry in the config's `columns` list: one column to keep in the output, with an
+    An entry in the config's `sample_qc` list: one column to keep in the output, with an
     optional output name and QC rules.
 
     Attributes:
@@ -399,6 +439,19 @@ class ColumnConfig(_StrictModel):
             The output_column if given, else the input_column.
         """
         return self.output_column or self.input_column
+
+    @property
+    def has_qc(self) -> bool:
+        """
+        Whether this column checks anything at sample level.
+
+        Returns:
+            True if the column's own `qc`, or any of its file_parsing outputs' `qc`, is
+            set.
+        """
+        if self.file_parsing is not None:
+            return any(_qc_is_set(output.qc) for output in self.file_parsing)
+        return _qc_is_set(self.qc)
 
     @property
     def contains_file_parsing(self) -> bool:
@@ -524,17 +577,40 @@ class SetQCCheck(_StrictModel):
 
     Attributes:
         - input_column: the column on which to apply the QC check
-        - qc: the qc to perform (no ConditionalQC permitted at this time)
+        - qc: the qc to perform; either a plain list[QCCondition] or the ConditionalQC
+          form
     """
 
     input_column: str = Field(min_length=1)
-    qc: list[QCCondition] = Field(min_length=1)
+    qc: list[QCCondition] | ConditionalQC
+
+    @field_validator("qc")
+    @classmethod
+    def _qc_is_not_empty(
+        cls, qc: list[QCCondition] | ConditionalQC
+    ) -> list[QCCondition] | ConditionalQC:
+        """
+        A set_qc check has to check something.
+
+        Args:
+            qc: the check's configured qc.
+
+        Returns:
+            `qc` unchanged
+
+        Raises:
+            ValueError: if `qc` is an empty list.
+        """
+        if not _qc_is_set(qc):
+            raise ValueError("set_qc check qc must not be empty")
+        return qc
 
 
 class SetQCRule(_StrictModel):
     """
     A run-level (set) QC check in which every sample identified by `match_samples`
-    must pass every check in `checks` or else the entire run is considered a QC fail.
+    must pass every check in `checks` (and, with `include_sample_qc`, every per-row
+    `qc` in `sample_qc`) or else the entire run is considered a QC fail.
 
     A rule that matches zero samples in a given run is a LIMSport error, not a QC.
 
@@ -542,11 +618,31 @@ class SetQCRule(_StrictModel):
         - rule_name: the name of the rule
         - match_samples: the samples to match
         - checks: the list of QC checks to apply to the matched samples
+        - include_sample_qc: whether a matched sample failing its per-row `qc` also
+          fails the run
     """
 
     rule_name: str = Field(min_length=1)
     match_samples: SetQCMatch
-    checks: list[SetQCCheck] = Field(min_length=1)
+    checks: list[SetQCCheck] = Field(default_factory=list)
+    include_sample_qc: bool = False
+
+    @model_validator(mode="after")
+    def _checks_something(self) -> "SetQCRule":
+        """
+        A rule needs at least one check, or include_sample_qc to check with.
+
+        Returns:
+            `self` unchanged
+
+        Raises:
+            ValueError: if `checks` is empty and `include_sample_qc` is off.
+        """
+        if not self.checks and not self.include_sample_qc:
+            raise ValueError(
+                f"set_qc rule {self.rule_name!r} must list at least one check, or set include_sample_qc: true"
+            )
+        return self
 
     @field_validator("checks")
     @classmethod
@@ -574,15 +670,42 @@ class SetQCRule(_StrictModel):
 class ExportConfig(_StrictModel):
     """
     The top-level shape of the YAML config file: a list of columns, plus optional
-    run-level (`set_qc`) checks.
+    run-level (`set_qc`) checks and samples that skip sample-level QC.
 
     Attributes:
-        - columns: the list of columns to keep in the output with any modifications/qc checks
+        - sample_qc: the list of columns to keep in the output with any modifications/qc
+          checks; read from `columns` in older configs
         - set_qc: a list of set-level qc rules to apply
+        - skip_sample_qc: the samples (e.g. negative controls) that skip per-row `qc`
+          but are still checked by `set_qc`, or None if every sample gets per-row `qc`
     """
 
-    columns: list[ColumnConfig] | None = None
+    sample_qc: list[ColumnConfig] | None = Field(
+        default=None, validation_alias=AliasChoices("sample_qc", "columns")
+    )
     set_qc: list[SetQCRule] = Field(default_factory=list)
+    skip_sample_qc: SetQCMatch | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _not_both_sample_qc_and_columns(cls, data: object) -> object:
+        """
+        `columns` is the old name for `sample_qc`, so a config can't use both.
+
+        Args:
+            data: the raw config mapping.
+
+        Returns:
+            `data` unchanged
+
+        Raises:
+            ValueError: if both `sample_qc` and `columns` are given.
+        """
+        if isinstance(data, dict) and "sample_qc" in data and "columns" in data:
+            raise ValueError(
+                "config sets both 'sample_qc' and 'columns'; 'columns' is the old name for 'sample_qc', so use only 'sample_qc'"
+            )
+        return data
 
     @field_validator("set_qc")
     @classmethod
@@ -614,33 +737,54 @@ class ExportConfig(_StrictModel):
             ValueError: if the config configures nothing, every column is excluded from
               the output, or two columns claim the same output name.
         """
-        if self.columns is None:
+        if self.sample_qc is None:
             if not self.set_qc:
                 raise ValueError(
-                    "config must configure at least one of 'columns' or 'set_qc' (an empty config does nothing)"
+                    "config must configure at least one of 'sample_qc' or 'set_qc' (an empty config does nothing)"
                 )
             return self
 
-        if not self.columns:
+        if not self.sample_qc:
             raise ValueError(
-                "config 'columns' must not be empty; omit it entirely if you don't want to perform any column operations"
+                "config 'sample_qc' must not be empty; omit it entirely if you don't want to perform any column operations"
             )
 
-        if not any(c.output for c in self.columns):
+        if not any(c.output for c in self.sample_qc):
             raise ValueError(
-                "config 'columns' must include at least one column with output=True "
+                "config 'sample_qc' must include at least one column with output=True "
                 "(an all-hidden list would produce an output table with no columns); "
-                "omit 'columns' entirely if you only want set_qc"
+                "omit 'sample_qc' entirely if you only want set_qc"
             )
 
         _reject_duplicates(
-            (c.input_column for c in self.columns), "column name(s) in config"
+            (c.input_column for c in self.sample_qc), "column name(s) in config"
         )
 
         _reject_duplicates(
-            (name for c in self.columns for name in c.generated_output_column_names),
+            (name for c in self.sample_qc for name in c.generated_output_column_names),
             "output column name(s) in config",
         )
+        return self
+
+    @model_validator(mode="after")
+    def _include_sample_qc_has_qc_to_include(self) -> "ExportConfig":
+        """
+        A set_qc rule with include_sample_qc needs some sample-level QC to include.
+
+        Returns:
+            `self` unchanged
+
+        Raises:
+            ValueError: if a rule sets include_sample_qc but no `sample_qc` column has
+              any `qc`.
+        """
+        if any(c.has_qc for c in self.sample_qc or []):
+            return self
+        names = [rule.rule_name for rule in self.set_qc if rule.include_sample_qc]
+        if names:
+            raise ValueError(
+                f"set_qc rule(s) {names} set include_sample_qc, but no column in sample_qc has qc to include"
+            )
         return self
 
 

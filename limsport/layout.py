@@ -32,7 +32,7 @@ class ExportLayout:
         match_index: the columns that are used in QC mapped to to its header index.
           ConditionalQC -> contains the columns upon which the match/qc conditions apply
           set_qc -> contains the columns that are being checked
-        config_has_columns: True when the config lists `columns`, so each row is
+        config_has_columns: True when the config lists `sample_qc`, so each row is
           expanded into QCInputs. False when there is no config or only `set_qc`.
         set_qc_prepass: True when both file_parsing and set_qc are used in the config
     """
@@ -160,6 +160,13 @@ def _validate_set_qc_check_columns(
                 input_path,
                 f"set_qc rule {rule.rule_name!r} reads column",
             )
+            if isinstance(check.qc, ConditionalQC):
+                _validate_header_reference(
+                    check.qc.match_column,
+                    column_name_indices,
+                    input_path,
+                    f"set_qc rule {rule.rule_name!r} has qc matching on column",
+                )
 
 
 def validate_file_parsing_allowed(
@@ -240,21 +247,22 @@ def build_layout(
             set_qc_prepass=False,
         )
 
-    _validate_columns_exist(config.columns or [], column_name_indices, input_path)
+    _validate_columns_exist(config.sample_qc or [], column_name_indices, input_path)
     _validate_set_qc_check_columns(config.set_qc, column_name_indices, input_path)
 
-    if config.columns is not None:
+    if config.sample_qc is not None:
         # columns will be ordered as they are in the config
-        ordered_columns = config.columns
+        ordered_columns = config.sample_qc
         # the sample ID (first input column) always leads the output unless the
         # config places it itself
         if not any(c.input_column == header[0] for c in ordered_columns):
             logger.debug(
-                "sample ID column %r not in config columns; writing it first", header[0]
+                "sample ID column %r not in config sample_qc; writing it first",
+                header[0],
             )
             ordered_columns = [ColumnConfig(input_column=header[0]), *ordered_columns]
         # to keep columns in the same order as the input:
-        # ordered_columns = sorted(config.columns, key=lambda c: column_name_indices[c.input_column][0])
+        # ordered_columns = sorted(config.sample_qc, key=lambda c: column_name_indices[c.input_column][0])
 
         # one column can contribute several output names (file_parsing), so the
         # header is flattened out of every column's generated names
@@ -268,28 +276,37 @@ def build_layout(
             for column in ordered_columns
         ]
     else:
-        # no columns (only happens if there's only set_qc)
+        # no sample_qc (only happens if there's only set_qc)
         # all input column passes through unchanged, same as no config at all
         output_header = header
         column_positions = []
-        logger.debug("no config columns; every input column passes through")
+        logger.debug("no config sample_qc; every input column passes through")
 
     # grab the match columns:
     # conditional qc -> the columns to check for matches on
     # set_qc -> the columns to perform the set qc check on
-    match_columns = _collect_conditional_qc_match_columns(config.columns or []) | {
-        check.input_column for rule in config.set_qc for check in rule.checks
-    }
+    set_qc_checks = [check for rule in config.set_qc for check in rule.checks]
+    match_columns = (
+        _collect_conditional_qc_match_columns(config.sample_qc or [])
+        | {check.input_column for check in set_qc_checks}
+        | {
+            check.qc.match_column
+            for check in set_qc_checks
+            if isinstance(check.qc, ConditionalQC)
+        }
+    )
 
     # Preprocess for set_qc if any file parsing is included in the config to avoid
     # wasteful GCP downloads
-    file_parsing_included = any(c.contains_file_parsing for c in (config.columns or []))
+    file_parsing_included = any(
+        c.contains_file_parsing for c in (config.sample_qc or [])
+    )
 
     layout = ExportLayout(
         output_header=output_header,
         column_positions=column_positions,
         match_index={name: column_name_indices[name][0] for name in match_columns},
-        config_has_columns=config.columns is not None,
+        config_has_columns=config.sample_qc is not None,
         set_qc_prepass=bool(config.set_qc) and file_parsing_included,
     )
     for column, idx in layout.column_positions:

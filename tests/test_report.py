@@ -81,6 +81,31 @@ def test_write_qc_report_blanks_operator_and_expected_when_none(tmp_path):
     assert rows[0][4] == ""  # expected
 
 
+def test_write_qc_summary_one_row_per_sample_in_order(tmp_path):
+    path = tmp_path / "summary.tsv"
+    report.write_qc_summary(
+        path, ["S1", "S2", "S1", "S3"], [_failure("S2"), _failure("S2", "status")]
+    )
+    assert table_io.get_input_header(path) == ["sample", "qc_status"]
+    assert list(table_io.iter_rows(path)) == [
+        ["S1", "PASS"],
+        ["S2", "FAIL"],
+        ["S3", "PASS"],
+    ]
+
+
+def test_write_qc_summary_marks_controls_unless_they_failed(tmp_path):
+    path = tmp_path / "summary.tsv"
+    report.write_qc_summary(
+        path, ["NTC1", "NTC2", "S1"], [_failure("NTC2")], skipped={"NTC1", "NTC2"}
+    )
+    assert list(table_io.iter_rows(path)) == [
+        ["NTC1", "CONTROL"],
+        ["NTC2", "FAIL"],
+        ["S1", "PASS"],
+    ]
+
+
 def test_log_summary_emits_info_line(caplog):
     with caplog.at_level("INFO"):
         report.log_summary(passed=3, total=5)

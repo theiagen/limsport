@@ -22,7 +22,7 @@ def _conditional_qc_scenario(tmp_path, default_block=""):
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: taxon\n"
         "  - input_column: assembly_length\n"
@@ -98,7 +98,7 @@ def test_conditional_qc_match_column_not_in_header_raises_before_output_created(
     input_tsv.write_text("sample_id\tassembly_length\nS1\t5000000\n")
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: assembly_length\n"
         "    qc:\n"
@@ -127,7 +127,7 @@ def _file_parsing_conditional_qc_scenario(tmp_path):
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: taxon\n"
         "  - input_column: data_path\n"

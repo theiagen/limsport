@@ -18,7 +18,7 @@ def _ntc_scenario(tmp_path, *, threshold, match_block='      sample_pattern: "NT
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: reads\n"
         "set_qc:\n"
@@ -96,7 +96,7 @@ def test_set_qc_matching_zero_samples_raises_before_output_created(tmp_path):
     input_tsv.write_text("sample_id\treads\nSAMPLE_A\t50000\n")
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: reads\n"
         "set_qc:\n"
@@ -119,7 +119,7 @@ def test_set_qc_check_input_column_not_in_header_raises_before_output_created(tm
     input_tsv.write_text("sample_id\tother_col\nNTC1\tx\n")
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "set_qc:\n"
         '  - rule_name: "NTC read count"\n'
@@ -143,7 +143,7 @@ def test_set_qc_check_input_column_need_not_be_in_output_columns_allow_list(tmp_
     input_tsv.write_text("sample_id\treads\nNTC1\t500\nSAMPLE_A\t50000\n")
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"  # "reads" deliberately not listed
         "set_qc:\n"
         '  - rule_name: "NTC read count"\n'
@@ -219,7 +219,7 @@ def _multi_column_ntc_config(tmp_path, *, contam_threshold):
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: reads\n"
         "  - input_column: contam_pct\n"
@@ -282,7 +282,7 @@ def test_set_qc_multiple_rules_failing_together_name_all_of_them_in_collateral_r
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: reads\n"
         "  - input_column: contam_pct\n"
@@ -327,7 +327,7 @@ def test_set_qc_does_not_affect_a_config_that_does_not_use_it(tmp_path):
     input_tsv.write_text("sample_id\tread_count\nS1\t5000\nS2\t500\n")
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: read_count\n"
         "    qc:\n"
@@ -342,7 +342,7 @@ def test_set_qc_does_not_affect_a_config_that_does_not_use_it(tmp_path):
 def test_set_qc_with_columns_omitted_passes_every_input_column_through_unchanged(
     tmp_path,
 ):
-    # a config that exists only for its set_qc rule -- no `columns:` key at
+    # a config that exists only for its set_qc rule -- no `sample_qc:` key at
     # all -- behaves like no config for column shaping, while set_qc still
     # gates the whole run.
     input_tsv = tmp_path / "input.tsv"
@@ -470,7 +470,7 @@ def test_set_qc_failure_stops_running_file_parsing_for_the_remaining_rows(tmp_pa
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: data_path\n"
         "    file_parsing:\n"
@@ -514,7 +514,7 @@ def _late_control_file_parsing_scenario(tmp_path, *, ntc_reads):
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: data_path\n"
         "    file_parsing:\n"
@@ -565,7 +565,7 @@ def test_set_qc_zero_match_runs_no_file_parsing_before_raising(tmp_path):
     )
     config = tmp_path / "config.yaml"
     config.write_text(
-        "columns:\n"
+        "sample_qc:\n"
         "  - input_column: sample_id\n"
         "  - input_column: data_path\n"
         "    file_parsing:\n"
@@ -601,3 +601,55 @@ def test_set_qc_pass_with_file_parsing_still_expands_every_row_once(tmp_path):
     assert len(rows) == 21  # 20 samples + the NTC
     assert all(row[1] == "42" for row in rows)  # every one was really parsed
     assert len(calls.read_text().splitlines()) == 21  # once each, not twice
+
+
+def _conditional_set_qc_scenario(tmp_path, *, ntc_reads):
+    """An NTC whose read cap depends on its run type, via a conditional set_qc check."""
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text(
+        "sample_id\trun_type\treads\n"
+        f"NTC1\tnextseq_2x150\t{ntc_reads}\n"
+        "SAMPLE_A\tnextseq_2x150\t50000\n"
+    )
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "sample_qc:\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: reads\n"
+        "set_qc:\n"
+        '  - rule_name: "NTC read count"\n'
+        "    match_samples:\n"
+        '      sample_pattern: "NTC"\n'
+        "    checks:\n"
+        "      - input_column: reads\n"
+        "        qc:\n"
+        "          match_column: run_type\n"
+        "          cases:\n"
+        "            miseq:\n"
+        '              - {operator: "<=", value: 100}\n'
+        "          pattern_cases:\n"
+        "            nextseq:\n"
+        '              - {operator: "<=", value: 1000}\n'
+    )
+    return input_tsv, config
+
+
+@pytest.mark.parametrize(
+    ("ntc_reads", "expected"), [(500, ["NTC1", "SAMPLE_A"]), (5000, [])]
+)
+def test_set_qc_conditional_check_picks_conditions_from_match_column(
+    tmp_path, ntc_reads, expected
+):
+    input_tsv, config = _conditional_set_qc_scenario(tmp_path, ntc_reads=ntc_reads)
+    out = tmp_path / "out.tsv"
+    pipeline.run_export(input_tsv, config, None, out, None)
+    assert [row[0] for row in table_io.iter_rows(out)] == expected
+
+
+def test_set_qc_conditional_check_match_column_must_exist(tmp_path):
+    input_tsv, config = _conditional_set_qc_scenario(tmp_path, ntc_reads=500)
+    config.write_text(
+        config.read_text().replace("match_column: run_type", "match_column: nope")
+    )
+    with pytest.raises(InputTableError, match="has qc matching on column"):
+        pipeline.run_export(input_tsv, config, None, tmp_path / "out.tsv", None)

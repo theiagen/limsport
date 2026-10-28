@@ -254,15 +254,19 @@ def _report_results(
     summary: IngestSummary,
     outcome: _QCOutcome,
     qc_report_path: Path | None,
+    output_delimiter: str,
+    qc_summary_path: Path | None,
 ) -> None:
     """
-    Logs the run summary and writes the QC report
+    Logs the run summary and writes the QC report and QC summary
 
     Args:
         config: the loaded config, or None if there wasn't one.
         summary: the finished ingest summary
         outcome: the QC result
         qc_report_path: where to write the QC failure report, or None to skip it.
+        output_delimiter: the delimiter to write the QC report and QC summary with.
+        qc_summary_path: where to write the QC summary, or None to skip it.
     """
     if config is None:
         # no config means no QC ever ran, so there's nothing to report
@@ -276,7 +280,15 @@ def _report_results(
     report.log_summary(passed=outcome.passed_rows, total=summary.candidate_rows)
     report.log_qc_failures(outcome.failures)
     if qc_report_path is not None:
-        report.write_qc_report(qc_report_path, outcome.failures)
+        report.write_qc_report(qc_report_path, outcome.failures, output_delimiter)
+    if qc_summary_path is not None:
+        report.write_qc_summary(
+            qc_summary_path,
+            summary.sample_names,
+            outcome.failures,
+            summary.skipped_samples,
+            output_delimiter,
+        )
 
 
 def run_export(
@@ -288,6 +300,8 @@ def run_export(
     output_delimiter: str = "\t",
     allow_file_parsing: bool = False,
     max_file_parsing_failures: int | None = None,
+    qc_summary_path: Path | None = None,
+    include_qc_fails: bool = False,
 ) -> None:
     """
     Runs the whole export by reading the input table, applying the config and sample
@@ -300,11 +314,15 @@ def run_export(
         samples_path: a file listing the sample names to include, or None to keep all.
         output_path: where to write the output table.
         qc_report_path: where to write the QC failure report, or None to skip it.
-        output_delimiter: the delimiter to write the output table with.
+        output_delimiter: the delimiter to write the output table, QC report, and QC
+          summary with.
         allow_file_parsing: whether the config may run file_parsing commands.
         max_file_parsing_failures: how many rows may lose their file_parsing before
           the run aborts, or None for no limit. A file that won't parse fails its
           own row's QC; this is the guard against that quietly emptying the output.
+        qc_summary_path: where to write the PASS/FAIL QC summary, or None to skip it.
+        include_qc_fails: whether rows that fail QC, including every row of a run that
+          fails set_qc, are written to the output too.
 
     Raises:
         InputTableError: if the config or a set_qc rule references a column that is
@@ -343,20 +361,23 @@ def run_export(
         logger.debug(
             "config %s: %s column(s), %d set_qc rule(s)",
             config_path,
-            "no" if config.columns is None else len(config.columns),
+            "no" if config.sample_qc is None else len(config.sample_qc),
             len(config.set_qc),
         )
     if config is not None:
         # a capability question, not a header one -- refuse before the input is
         # touched, so a column error can't mask it
-        validate_file_parsing_allowed(config.columns or [], allow_file_parsing)
+        validate_file_parsing_allowed(config.sample_qc or [], allow_file_parsing)
     layout = build_layout(config, header, input_path)
     set_qc_rules = config.set_qc if config is not None else []
+    skip_sample_qc = config.skip_sample_qc if config is not None else None
     requested_samples = (
         _load_sample_list(samples_path) if samples_path is not None else None
     )
 
-    if layout.set_qc_prepass:
+    # the pre-pass only saves work when a set_qc failure means nothing gets written
+    set_qc_prepass = layout.set_qc_prepass and not include_qc_fails
+    if set_qc_prepass:
         logger.debug("set_qc pre-pass: evaluating set_qc before any file_parsing")
         # check for set_qc failures if file parsing was included to avoid GCP downloads
         pre_summary = read_input(
@@ -366,13 +387,21 @@ def run_export(
             set_qc_rules,
             requested_samples,
             writer=None,  # set_qc only
+            skip_sample_qc=skip_sample_qc,
         )
         _warn_missing_samples(requested_samples, pre_summary)
         pre_outcome = _settle_run(set_qc_rules, pre_summary, input_path)
         if pre_outcome.run_failed:
             logger.debug("set_qc failed in the pre-pass; skipping the full read")
             _write_header_only_output(output_path, layout, output_delimiter)
-            _report_results(config, pre_summary, pre_outcome, qc_report_path)
+            _report_results(
+                config,
+                pre_summary,
+                pre_outcome,
+                qc_report_path,
+                output_delimiter,
+                qc_summary_path,
+            )
             return
 
     # keep the output staged on disk instead of memory
@@ -390,21 +419,29 @@ def run_export(
                 requested_samples,
                 writer,
                 max_file_parsing_failures,
+                skip_sample_qc,
+                include_qc_fails,
             )
 
-        if not layout.set_qc_prepass:
+        if not set_qc_prepass:
             _warn_missing_samples(requested_samples, summary)
 
         outcome = _settle_run(set_qc_rules, summary, input_path)
-        if outcome.run_failed:
+        if outcome.run_failed and not include_qc_fails:
             # a set_qc rule failed, so nothing that was staged counts
             _write_header_only_output(output_path, layout, output_delimiter)
             logger.debug("wrote header-only output to %s", output_path)
         else:
             os.replace(staging_path, output_path)
-            logger.debug("wrote %d row(s) to %s", summary.written_rows, output_path)
+            logger.debug(
+                "wrote %d row(s) to %s",
+                summary.written_rows + summary.written_failed_rows,
+                output_path,
+            )
     finally:
         # remove staging file
         staging_path.unlink(missing_ok=True)
 
-    _report_results(config, summary, outcome, qc_report_path)
+    _report_results(
+        config, summary, outcome, qc_report_path, output_delimiter, qc_summary_path
+    )

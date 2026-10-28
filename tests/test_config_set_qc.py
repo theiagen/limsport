@@ -10,7 +10,7 @@ _MINIMAL_COLUMNS = [{"input_column": "sample_id"}]
 
 
 def _set_qc_config(*rules):
-    return {"columns": _MINIMAL_COLUMNS, "set_qc": list(rules)}
+    return {"sample_qc": _MINIMAL_COLUMNS, "set_qc": list(rules)}
 
 
 def _check(**overrides):
@@ -30,7 +30,7 @@ def _rule(**overrides):
 
 
 def test_set_qc_defaults_to_empty_list():
-    config = ExportConfig.model_validate({"columns": _MINIMAL_COLUMNS})
+    config = ExportConfig.model_validate({"sample_qc": _MINIMAL_COLUMNS})
     assert config.set_qc == []
 
 
@@ -121,8 +121,61 @@ def test_set_qc_rule_requires_name():
 
 
 def test_set_qc_rule_requires_at_least_one_check():
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="include_sample_qc"):
         ExportConfig.model_validate(_set_qc_config(_rule(checks=[])))
+
+
+_COLUMN_WITH_QC = {"input_column": "reads", "qc": [{"operator": ">=", "value": 1}]}
+
+
+def test_set_qc_rule_with_include_sample_qc_needs_no_checks():
+    config = ExportConfig.model_validate(
+        {
+            "sample_qc": [_COLUMN_WITH_QC],
+            "set_qc": [_rule(checks=[], include_sample_qc=True)],
+        }
+    )
+    assert config.set_qc[0].include_sample_qc
+    assert config.set_qc[0].checks == []
+
+
+@pytest.mark.parametrize(
+    "sample_qc",
+    [
+        None,
+        [{"input_column": "sample_id"}],
+        [{"input_column": "taxon", "output": True, "qc": []}],
+    ],
+)
+def test_include_sample_qc_requires_some_sample_level_qc(sample_qc):
+    payload = {"set_qc": [_rule(include_sample_qc=True)]}
+    if sample_qc is not None:
+        payload["sample_qc"] = sample_qc
+    with pytest.raises(
+        ValidationError, match="no column in sample_qc has qc to include"
+    ):
+        ExportConfig.model_validate(payload)
+
+
+def test_include_sample_qc_counts_file_parsing_qc():
+    config = ExportConfig.model_validate(
+        {
+            "sample_qc": [
+                {
+                    "input_column": "report",
+                    "file_parsing": [
+                        {
+                            "output_column": "n50",
+                            "command": 'cat "$FILE"',
+                            "qc": [{"operator": ">=", "value": 1}],
+                        }
+                    ],
+                }
+            ],
+            "set_qc": [_rule(include_sample_qc=True)],
+        }
+    )
+    assert config.set_qc[0].include_sample_qc
 
 
 def test_set_qc_check_requires_input_column():
@@ -175,25 +228,27 @@ def test_set_qc_rejects_duplicate_rule_names():
         )
 
 
-def test_set_qc_check_qc_does_not_accept_conditional_form():
-    # a check's qc is always the plain-list form -- ConditionalQC
-    # (match_column/cases/default) isn't valid here, since "which conditions apply"
-    # is already answered by which sample matched.
-    with pytest.raises(ValidationError):
-        ExportConfig.model_validate(
-            _set_qc_config(
-                _rule(
-                    checks=[
-                        _check(
-                            qc={
-                                "match_column": "taxon",
-                                "cases": {"x": [{"operator": ">=", "value": 1}]},
-                            }
-                        )
-                    ]
-                )
+def test_set_qc_check_qc_accepts_conditional_form():
+    config = ExportConfig.model_validate(
+        _set_qc_config(
+            _rule(
+                checks=[
+                    _check(
+                        qc={
+                            "match_column": "taxon",
+                            "cases": {"x": [{"operator": ">=", "value": 1}]},
+                        }
+                    )
+                ]
             )
         )
+    )
+    assert config.set_qc[0].checks[0].qc.match_column == "taxon"
+
+
+def test_set_qc_check_qc_rejects_empty_list():
+    with pytest.raises(ValidationError, match="must not be empty"):
+        ExportConfig.model_validate(_set_qc_config(_rule(checks=[_check(qc=[])])))
 
 
 class TestSetQCMatchMatches:

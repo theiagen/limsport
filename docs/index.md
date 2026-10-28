@@ -15,13 +15,13 @@ LIMSport requires Python 3.10+.
 ## Quick start
 
 ```
-limsport --input samples.tsv --output samples.lims.tsv
+limsport --input samples.tsv --output-prefix samples
 ```
 
 If neither `--config` nor `--samples` are provided, nothing happens. To transform and/or QC the data, add a configuration file:
 
 ```
-limsport --input samples.tsv --config config.yaml --output samples.lims.tsv --qc-report qc_report.tsv
+limsport --input samples.tsv --config config.yaml --output-prefix samples
 ```
 
 See `examples/` for a demo.
@@ -31,11 +31,11 @@ See `examples/` for a demo.
 | flag                          | required | meaning                                                                                |
 | ----------------------------- | -------- | -------------------------------------------------------------------------------------- |
 | `--input`, `-i`               | yes      | input TSV (delimiters auto-detected)                                                   |
-| `--output`, `-o`              | no       | output path (default: `limsport.tsv`)                                                  |
+| `--output-prefix`, `-o`       | no       | prefix for the output (`<prefix>_lims_report`), QC failure report (`<prefix>_qc_fail_report`), and QC summary (`<prefix>_qc_summary`); the extension follows `--output-delimiter`: `.tsv`, `.csv`, else `.txt` (default: `limsport`) |
 | `--config`, `-c`              | no       | YAML configuration                                                                     |
 | `--samples`, `-s`             | no       | a file of sample names (one per line) to include; if omitted, every sample is included |
-| `--qc-report`, `-r`           | no       | QC failure report TSV path (default: `qc_report.tsv`)                                  |
-| `--delimiter`, `-d`           | no       | output delimiter (default: tab)                                                        |
+| `--output-delimiter`, `-d`    | no       | output delimiter (default: tab)                                                        |
+| `--include-qc-fails`          | no       | also write samples that fail QC to the output, including every sample of a run that fails `set_qc` (the QC summary still marks them `FAIL`) |
 | `--allow-file-parsing`        | no       | required if the config uses `file_parsing` (see below)                                 |
 | `--max-file-parsing-failures` | no       | abort once more than N rows fail `file_parsing` (default: no limit)                    |
 | `--verbose`, `-v`             | no       | log each step of the run (layout, per-sample filtering and QC, file_parsing commands) to stderr |
@@ -43,18 +43,18 @@ See `examples/` for a demo.
 
 ## The config file
 
-A config is a YAML file with two primary keys: `columns` and `set_qc`.
+A config is a YAML file with two primary keys: `sample_qc` and `set_qc`, plus the optional `skip_sample_qc`.
 
-`columns` lists every column to keep in the output, ordered to match how they appear in the config. The sample ID (the first input column) is always written as the first output column, even if it isn't listed (list it under `columns` to move, rename, or hide it with `output: false`). `columns` can be omitted entirely if a [`set_qc`](#set-level-qc) list exists. `columns: []` will be rejected.
+`sample_qc` lists every column to keep in the output, ordered to match how they appear in the config, along with each column's sample-level QC (a column can have no QC and just be kept or renamed). The sample ID (the first input column) is always written as the first output column, even if it isn't listed (list it under `sample_qc` to move, rename, or hide it with `output: false`). `sample_qc` can be omitted entirely if a [`set_qc`](#set-level-qc) list exists. `sample_qc: []` will be rejected. (`sample_qc` was previously named `columns`; configs that use `columns` still work, but a config can't use both.)
 
 `set_qc` lists a series of rules where if one fails, all samples fail the run.
 
-A config with neither `columns` nor `set_qc` is treated as malformatted and fails.
+A config with neither `sample_qc` nor `set_qc` is treated as malformatted and fails.
 
 ```yaml
 # a basic configuration example that renames a column
 
-columns:
+sample_qc:
     - input_column: sample_id # kept as-is: no rename, no qc
 
     - input_column: lot_number # kept and renamed, but never QC'd
@@ -63,7 +63,7 @@ columns:
 
 ### Config QC
 
-A sample failing a `qc` rule gets dropped from the output and reported in the log and qc_report file.
+A sample failing a `qc` rule gets dropped from the output and reported in the log and the QC failure report.
 
 Configs are considered malformatted when either (a) config columns that are not present in the input table, or (b) contain ambiguous column names. Malformatted configs cause the program to exit.
 
@@ -88,7 +88,7 @@ Cells that are not able to be cast as a number fail QC (`"non-numeric value 'NA'
 ```yaml
 # fixed threshold qc examples
 
-columns:
+sample_qc:
     - input_column: read_count
       output_column: total_reads # renamed in the output
       qc: # all of these conditions must pass for the row to be included in the output
@@ -121,7 +121,7 @@ A conditional QC shape picks which threshold list applies to a row from _another
 ```yaml
 # conditional qc example
 
-columns:
+sample_qc:
     - input_column: gambit_predicted_taxon
       output_column: predicted_taxon
 
@@ -135,13 +135,22 @@ columns:
               "Klebsiella pneumoniae":
                   - { operator: ">=", value: 5200000 }
                   - { operator: "<=", value: 5900000 }
+          pattern_cases: # optional; substring match, checked after cases
+              "Shigella":
+                  - { operator: ">=", value: 4200000 }
+          regex_cases: # optional; re.search, checked after pattern_cases
+              "^Salmonella":
+                  - { operator: ">=", value: 4400000 }
           default: # optional; without a default, samples w/o a match will fail
               - { operator: ">=", value: 1500000 }
 ```
 
-- `match_column` must be a column that exists in the input header. It doesn't need to be in the output `columns:` list.
+- `match_column` must be a column that exists in the input header. It doesn't need to be in the output `sample_qc:` list.
 - `cases` maps an exact, **case-sensitive** value of `match_column` to the `QCCondition` list to run for that row
-- A row whose `match_column` value isn't a key in `cases` uses `default` if one is configured. Without a default, the row will fail QC with the message: `no qc rule matches gambit_predicted_taxon='Vibrio cholerae' for column 'assembly_length', and no default is configured`
+- `pattern_cases` (optional) maps a case-**sensitive** substring of the `match_column` value to its `QCCondition` list, e.g. `"Shigella"` for every *Shigella* species
+- `regex_cases` (optional) maps a regular expression, checked with `re.search`, to its `QCCondition` list (use an inline `(?i)` flag for case-insensitive matching)
+- At least one of `cases`, `pattern_cases`, or `regex_cases` is required. A row is checked against `cases` first, then `pattern_cases`, then `regex_cases`, and the first match wins (in config order within `pattern_cases` and `regex_cases`), so an exact case always beats a broader pattern for the same value.
+- A row matching none of them uses `default` if one is configured. Without a default, the row will fail QC with the message: `no qc rule matches gambit_predicted_taxon='Vibrio cholerae' for column 'assembly_length', and no default is configured`
 
 #### Set-level QC
 
@@ -152,7 +161,7 @@ Every `qc` block is checked and then applied on a per-row basis. `set_qc` result
 ```yaml
 # set_qc example
 
-# a columns section is not required when set_qc is configured; this example is a valid yaml
+# a sample_qc section is not required when set_qc is configured; this example is a valid yaml
 
 set_qc:
     - rule_name: "NTC has no detected organism and low reads"
@@ -172,11 +181,23 @@ set_qc:
     - `sample_pattern`: uses a case-**sensitive** substring match against the sample name
     - `sample_regex`: uses `re.search` against the sample name
     - `samples`: an explicit, exact list of sample names
-- `checks` lists one or more `{input_column, qc}` checks, all evaluated against all matched samples.
+- `checks` lists one or more `{input_column, qc}` checks, all evaluated against all matched samples. A check's `qc` can be a plain list or the conditional form described above, e.g. a different read cap for an NTC depending on its `run_type`.
+- `include_sample_qc: true` (optional) also fails the run when a matched sample fails any of its per-row `qc` from `sample_qc`, e.g. a positive control that must meet production QC. A rule with `include_sample_qc` may leave out `checks`. A `skip_sample_qc` sample can't be matched by such a rule, since it skips per-row `qc`; LIMSport exits with an error if one is.
 
 **Every** matched sample must pass **every** check for the rule to pass. If any matched sample fails any check, the whole run is considered a QC fail.
 
 A rule that identifies zero samples in the run is itself a hard error (there's no sample to attach a QC failure to), not a QC failure -- the run aborts before any output is written. For `samples:` specifically, this applies **per name**: every sample name listed must exist in the run, not just at least one of them, so a typo'd or missing name (e.g. a dropped negative control) can't silently go unchecked.
+
+#### Skipping sample-level QC
+
+`skip_sample_qc` names the samples (usually negative controls) that skip per-row `qc` while still being checked by `set_qc`. Leave the key out to turn the feature off. It takes one of the same three match options as `match_samples`:
+
+```yaml
+skip_sample_qc:
+  sample_pattern: "NTC"
+```
+
+A skipped sample is written to the output with its values as-is, and its `qc_status` in the QC summary is `CONTROL` (or `FAIL` if a `set_qc` rule fails the run). Its `file_parsing` still runs, but a file that won't parse leaves that value blank instead of failing the row, and doesn't count toward `--max-file-parsing-failures`. Only list samples that should skip production QC, such as NTCs; a positive control left out of `skip_sample_qc` gets the same per-row `qc` as any other sample.
 
 ### `file_parsing` configuration
 
@@ -189,7 +210,7 @@ A column with `file_parsing` is incompatible with `output_column` and `qc` on th
 ```yaml
 # file parsing example
 
-columns:
+sample_qc:
     - input_column: coverage_report
       file_parsing:
           - output_column: mean_depth
@@ -242,7 +263,7 @@ first failure, which is how LIMSport behaved before.
 
 ## The QC report
 
-A QC report (default: `qc_report.tsv`) contains one row per failing sample/output pair, so a sample failing three outputs produces three rows. It has the following columns:
+A QC failure report, named `<output-prefix>_qc_fail_report` with the same extension and delimiter as the output (default: `limsport_qc_fail_report.tsv`), contains one row per failing sample/output pair, so a sample failing three outputs produces three rows. It has the following columns:
 
 | column          | explanation                                                                                                                  |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -254,11 +275,13 @@ A QC report (default: `qc_report.tsv`) contains one row per failing sample/outpu
 | `actual`        | the actual row value                                                                                                         |
 | `reason`        | the reason why it failed                                                                                                     |
 
+A QC summary, named `<output-prefix>_qc_summary` with the same extension and delimiter as the output (default: `limsport_qc_summary.tsv`), lists every sample QC ran on (after any `--samples` filter) with its `qc_status`: `PASS`, `FAIL`, or `CONTROL` for a sample in `skip_sample_qc` (see above). A sample listed more than once in the input gets one row, and is `FAIL` if any of its rows failed. Like the QC failure report, it is only written when a `--config` is given.
+
 ## Delimiter handling
 
 Delimiters are auto-detected from its header line. If auto-detection fails, LIMSport gives up.
 
-With no `--delimiter`, the output defaults to tab. Change the output delimiter with `--delimiter`
+With no `--output-delimiter`, the output defaults to tab. Change the output delimiter with `--output-delimiter`
 
 ### Repo Layout
 
