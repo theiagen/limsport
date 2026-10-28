@@ -18,10 +18,13 @@
   --border-strong: #c7c7c7;
   --text: #262626;
   --text-muted: #767676;
+  --chevron-color: #555555;
   --action-accent: var(--brand-blue);
   --accent-contrast: #ffffff;
   --danger: #a3402f;
   --danger-bg: #fbeeec;
+  --warning: #8a5a00;
+  --warning-bg: #fdf5e3;
   --code-bg: #ffffff;
   --code-text: #000000;
   --radius: calc(0.2 * var(--unit));
@@ -51,10 +54,13 @@
     --border-strong: #5d5f66;
     --text: #bfc1c6;
     --text-muted: #8c8e95;
+    --chevron-color: #a5a7ad;
     --action-accent: var(--brand-green); /* no blue equivalent in dark mode -- see the base block's comment */
     --accent-contrast: #ffffff;
     --danger: #e18579;
     --danger-bg: #3a2320;
+    --warning: #d9a440;
+    --warning-bg: #3a3020;
     --code-bg: #272a35;
     --code-text: #b6b9c3;
     --chevron-svg: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0L8 0L4 5Z' fill='%238c8e95'/%3E%3C/svg%3E");
@@ -73,10 +79,13 @@
   --border-strong: #5d5f66;
   --text: #bfc1c6;
   --text-muted: #8c8e95;
+  --chevron-color: #a5a7ad;
   --action-accent: var(--brand-green);
   --accent-contrast: #ffffff;
   --danger: #e18579;
   --danger-bg: #3a2320;
+  --warning: #d9a440;
+  --warning-bg: #3a3020;
   --code-bg: #272a35;
   --code-text: #b6b9c3;
   --chevron-svg: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0L8 0L4 5Z' fill='%238c8e95'/%3E%3C/svg%3E");
@@ -91,10 +100,13 @@
   --border-strong: #c7c7c7;
   --text: #262626;
   --text-muted: #767676;
+  --chevron-color: #555555;
   --action-accent: var(--brand-blue);
   --accent-contrast: #ffffff;
   --danger: #a3402f;
   --danger-bg: #fbeeec;
+  --warning: #8a5a00;
+  --warning-bg: #fdf5e3;
   --code-bg: #ffffff;
   --code-text: #000000;
   --chevron-svg: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0L8 0L4 5Z' fill='%23767676'/%3E%3C/svg%3E");
@@ -389,21 +401,49 @@ body.limsport-config-builder {
   justify-content: center;
   border-color: transparent;
   background: transparent;
-  padding: calc(0.35 * var(--unit));
+  padding: calc(0.5 * var(--unit));
 }
 
 .limsport-config-builder .btn-collapse .chevron {
   width: 0;
   height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--text-muted);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--chevron-color);
   transition: transform 0.15s ease;
 }
 
-.limsport-config-builder .column-card.collapsed .btn-collapse .chevron,
-.limsport-config-builder .file-parsing-output.collapsed .btn-collapse .chevron {
+.limsport-config-builder .section-header .btn-collapse .chevron {
+  border-left-width: 7px;
+  border-right-width: 7px;
+  border-top: 9px solid var(--text);
+}
+
+/* titles toggle collapse on double-click (see app.js); don't select text */
+.limsport-config-builder .column-header-title,
+.limsport-config-builder .output-header-title,
+.limsport-config-builder .section-header h3 {
+  user-select: none;
+}
+
+.limsport-config-builder .column-card.collapsed > .column-header .btn-collapse .chevron,
+.limsport-config-builder .set-qc-rule-card.collapsed > .column-header .btn-collapse .chevron,
+.limsport-config-builder .file-parsing-output.collapsed .btn-collapse .chevron,
+.limsport-config-builder .form-section.collapsed > .section-header .btn-collapse .chevron {
   transform: rotate(-90deg);
+}
+
+.limsport-config-builder .drag-handle {
+  cursor: grab;
+  color: var(--text);
+  font-size: calc(1.1 * var(--unit));
+  line-height: 1;
+  user-select: none;
+  align-self: center;
+}
+
+.limsport-config-builder .dragging {
+  opacity: 0.5;
 }
 
 .limsport-config-builder .output-header {
@@ -716,19 +756,45 @@ body.limsport-config-builder {
   margin-top: calc(0.4 * var(--unit));
 }
 
-/* .form-pane is gap:0 (see above), so this whole section needs its own
-   margin-top to separate it from the column list/+Add column button above. */
-.limsport-config-builder .set-qc-section {
+/* .form-pane is gap:0 (see above), so each section after the first needs its
+   own margin-top to separate it from the one above. */
+.limsport-config-builder .form-section,
+.limsport-config-builder .section-body {
   display: flex;
   flex-direction: column;
   gap: calc(0.6 * var(--unit));
-  margin-top: calc(1.5 * var(--unit));
   min-width: 0;
 }
 
-.limsport-config-builder .set-qc-section h3 {
+.limsport-config-builder .form-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(0.75 * var(--unit)) calc(1 * var(--unit)) calc(1 * var(--unit));
+}
+
+.limsport-config-builder .form-section.collapsed {
+  padding-bottom: calc(0.75 * var(--unit));
+}
+
+.limsport-config-builder .form-section + .form-section {
+  margin-top: calc(1 * var(--unit));
+}
+
+.limsport-config-builder .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.limsport-config-builder .section-header h3 {
   margin: 0;
   font-size: calc(1 * var(--unit));
+}
+
+/* the case matcher stacks like .set-qc-match; keep the remove button level
+   with its label instead of centered on the stack */
+.limsport-config-builder .case-header {
+  align-items: flex-start;
 }
 
 .limsport-config-builder .set-qc-match {
@@ -859,6 +925,25 @@ body.limsport-config-builder {
 .limsport-config-builder .errors-list {
   margin: 0;
   padding-left: calc(1.1 * var(--unit));
+}
+
+.limsport-config-builder .warnings {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  padding: calc(0.6 * var(--unit)) calc(0.75 * var(--unit));
+  font-size: calc(0.85 * var(--unit));
+  flex-shrink: 0;
+}
+
+.limsport-config-builder .warnings.hidden {
+  display: none;
+}
+
+.limsport-config-builder .warnings-heading {
+  margin: 0 0 calc(0.4 * var(--unit));
+  font-weight: 600;
+  color: var(--warning);
 }
 
 .limsport-config-builder .preview-actions {

@@ -5,7 +5,7 @@
  */
 
 import { load, YAMLException } from "./vendor/js-yaml.js";
-import { stateFromConfig } from "./schema.js";
+import { newSkipSampleQC, stateFromConfig } from "./schema.js";
 
 // Unquoted scalars that PyYAML (YAML 1.1, what limsport uses) and js-yaml
 // (YAML 1.2) resolve differently, so the builder would re-emit them with a
@@ -109,11 +109,16 @@ function hasComments(text, tree) {
  *   text: the file's contents.
  *
  * Returns:
- *   {columns, setQCRules, errors, warnings}. `errors` and `warnings` are
+ *   {columns, setQCRules, skipSampleQC, errors, warnings}. `errors` and `warnings` are
  *   display strings; when `errors` is non-empty, nothing should be loaded.
  */
 export function importConfigYAML(text) {
-    const empty = { columns: [], setQCRules: [], warnings: [] };
+    const empty = {
+        columns: [],
+        setQCRules: [],
+        skipSampleQC: newSkipSampleQC(),
+        warnings: [],
+    };
     let parsed;
     try {
         parsed = parseWithLines(text);
@@ -140,7 +145,9 @@ export function importConfigYAML(text) {
         }
     });
 
-    const { columns, setQCRules, errors } = stateFromConfig(parsed.value);
+    const { columns, setQCRules, skipSampleQC, errors } = stateFromConfig(
+        parsed.value,
+    );
     for (const { path, message } of errors) {
         const where = path.length ? `${formatPath(path)}: ` : "";
         located.push({
@@ -161,5 +168,5 @@ export function importConfigYAML(text) {
               "Comments in this file are not kept: the downloaded config is regenerated from the form.",
           ]
         : [];
-    return { columns, setQCRules, errors: [], warnings };
+    return { columns, setQCRules, skipSampleQC, errors: [], warnings };
 }

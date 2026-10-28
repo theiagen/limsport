@@ -43,7 +43,7 @@ export function caseFor(key, ...conditions) {
 export function setQCCheckFor(inputColumn, ...conditions) {
   const check = newSetQCCheck();
   check.inputColumn = inputColumn;
-  check.conditions = conditions;
+  check.qc.conditions = conditions;
   return check;
 }
 
@@ -52,7 +52,7 @@ export function fullExampleColumns() {
   const columns = [];
 
   const id = newColumn();
-  id.inputColumn = "entity:theiaprok_illumina_pe_v4-2-0_id";
+  id.inputColumn = "theiaprok_illumina_pe_v4-2-0_id";
   id.outputColumn = "sample_id";
   columns.push(id);
 

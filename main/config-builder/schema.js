@@ -45,8 +45,22 @@ export function newCondition() {
     };
 }
 
+// A case's matchType picks which config block it's written to: "exact" ->
+// `cases`, "pattern" -> `pattern_cases`, "regex" -> `regex_cases`.
+export const CASE_MATCH_TYPES = ["exact", "pattern", "regex"];
+const CASE_BLOCK_FOR = {
+    exact: "cases",
+    pattern: "pattern_cases",
+    regex: "regex_cases",
+};
+
 export function newCase() {
-    return { id: nextId(), key: "", conditions: [newCondition()] };
+    return {
+        id: nextId(),
+        matchType: "exact",
+        key: "",
+        conditions: [newCondition()],
+    };
 }
 
 export function newQC() {
@@ -90,7 +104,12 @@ export function newSetQCMatch() {
 }
 
 export function newSetQCCheck() {
-    return { id: nextId(), inputColumn: "", conditions: [newCondition()] };
+    // A set_qc check has no "No QC" option, so its qc starts as a fixed list.
+    return {
+        id: nextId(),
+        inputColumn: "",
+        qc: { ...newQC(), kind: "list", conditions: [newCondition()] },
+    };
 }
 
 export function newSetQCRule() {
@@ -103,7 +122,13 @@ export function newSetQCRule() {
         ruleName: "",
         matchSamples: newSetQCMatch(),
         checks: [newSetQCCheck()],
+        includeSampleQC: false,
     };
+}
+
+export function newSkipSampleQC() {
+    // enabled: false means the config has no `skip_sample_qc` key at all.
+    return { enabled: false, match: newSetQCMatch() };
 }
 
 function findDuplicates(arr) {
@@ -190,7 +215,7 @@ function buildConditionList(conditions, label, errors) {
         .filter(Boolean);
 }
 
-/** Returns a plain `qc` value (array or {match_column, cases, default}), or undefined if there's no QC. */
+/** Returns a plain `qc` value (array or {match_column, cases, pattern_cases, regex_cases, default}), or undefined if there's no QC. */
 function buildQC(qc, label, errors) {
     if (!qc || qc.kind === "none") return undefined;
 
@@ -212,13 +237,14 @@ function buildQC(qc, label, errors) {
     if (!qc.cases.length)
         errors.push(`${label}: conditional qc requires at least one case`);
 
-    const cases = {};
-    const caseKeys = [];
+    const blocks = { cases: {}, pattern_cases: {}, regex_cases: {} };
+    const caseKeys = { cases: [], pattern_cases: [], regex_cases: [] };
     qc.cases.forEach((qcCase, i) => {
+        const block = CASE_BLOCK_FOR[qcCase.matchType ?? "exact"];
         const key = (qcCase.key ?? "").trim();
         const caseLabel = `${label} case "${key || `#${i + 1}`}"`;
         if (!key) errors.push(`${caseLabel}: case key is required`);
-        caseKeys.push(key);
+        caseKeys[block].push(key);
         const conditions = buildConditionList(
             qcCase.conditions,
             caseLabel,
@@ -226,13 +252,21 @@ function buildQC(qc, label, errors) {
         );
         if (!conditions.length)
             errors.push(`${caseLabel}: needs at least one condition`);
-        if (key) cases[key] = conditions;
+        if (key) blocks[block][key] = conditions;
     });
-    const dupeKeys = findDuplicates(caseKeys.filter(Boolean));
-    if (dupeKeys.length)
-        errors.push(`${label}: duplicate case key(s): ${dupeKeys.join(", ")}`);
+    for (const [block, keys] of Object.entries(caseKeys)) {
+        const dupeKeys = findDuplicates(keys.filter(Boolean));
+        if (dupeKeys.length)
+            errors.push(
+                `${label}: duplicate ${block} key(s): ${dupeKeys.join(", ")}`,
+            );
+    }
 
-    const result = { match_column: matchColumn, cases };
+    // Empty blocks are omitted; load_config() only needs one of the three.
+    const result = { match_column: matchColumn };
+    for (const [block, entries] of Object.entries(blocks)) {
+        if (Object.keys(entries).length) result[block] = entries;
+    }
     if (qc.useDefault) {
         const def = buildConditionList(qc.default, `${label} default`, errors);
         if (def.length) result.default = def;
@@ -240,22 +274,16 @@ function buildQC(qc, label, errors) {
     return result;
 }
 
-/** Returns a plain `match` value ({sample_pattern}/{sample_regex}/{samples}), or null if invalid. */
+/** Returns a plain `match` value ({sample_pattern}/{sample_regex}/{samples}); a blank one is still returned, for the preview, alongside its error. */
 function buildSetQCMatch(match, label, errors) {
     if (match.kind === "pattern") {
         const pattern = (match.samplePattern ?? "").trim();
-        if (!pattern) {
-            errors.push(`${label}: sample_pattern is required`);
-            return null;
-        }
+        if (!pattern) errors.push(`${label}: sample_pattern is required`);
         return { sample_pattern: pattern };
     }
     if (match.kind === "regex") {
         const regex = (match.sampleRegex ?? "").trim();
-        if (!regex) {
-            errors.push(`${label}: sample_regex is required`);
-            return null;
-        }
+        if (!regex) errors.push(`${label}: sample_regex is required`);
         // Not validated client-side: JS and Python regex dialects diverge, so a
         // browser-side syntax check could reject a pattern load_config() would
         // accept (or vice versa). The real load_config() is the only gate.
@@ -266,37 +294,46 @@ function buildSetQCMatch(match, label, errors) {
         .split(/[,\n]/)
         .map((s) => s.trim())
         .filter(Boolean);
-    if (!samples.length) {
+    if (!samples.length)
         errors.push(`${label}: at least one sample name is required`);
-        return null;
-    }
     return { samples };
 }
 
-/** Returns a plain `input_column`/`qc` check within a set_qc rule, or null if it has unrecoverable errors. */
+/** Returns a plain `input_column`/`qc` check within a set_qc rule -- a best-effort draft when it has errors, like a column. */
 function buildSetQCCheck(check, label, errors) {
     const checkLabel = `${label} > column "${check.inputColumn.trim() || "( )"}"`;
     if (!check.inputColumn.trim())
         errors.push(`${checkLabel}: input_column is required`);
-    const conditions = buildConditionList(check.conditions, checkLabel, errors);
-    if (!conditions.length)
+    let qc;
+    if (check.qc.kind === "list" && !check.qc.conditions.length) {
         errors.push(`${checkLabel}: needs at least one condition`);
+    } else {
+        qc = buildQC(check.qc, checkLabel, errors);
+        if (check.qc.kind === "none")
+            errors.push(`${checkLabel}: needs a QC check`);
+    }
 
-    if (!check.inputColumn.trim() || !conditions.length) return null;
-    return { input_column: check.inputColumn.trim(), qc: conditions };
+    const out = { input_column: check.inputColumn.trim() };
+    if (qc !== undefined) out.qc = qc;
+    return out;
 }
 
-/** Returns a plain `set_qc` rule, or null if it has unrecoverable errors. */
-function buildSetQCRule(rule, idx, errors) {
+/** Returns a plain `set_qc` rule -- a best-effort draft when it has errors, so the preview grows as it's filled in. */
+function buildSetQCRule(rule, idx, errors, hasSampleQC) {
     const label = rule.ruleName.trim() || `set_qc rule #${idx + 1}`;
     if (!rule.ruleName.trim()) errors.push(`${label}: rule_name is required`);
 
     const match = buildSetQCMatch(rule.matchSamples, label, errors);
-    const checks = rule.checks
-        .map((c) => buildSetQCCheck(c, label, errors))
-        .filter(Boolean);
-    if (!rule.checks.length)
-        errors.push(`${label}: needs at least one column to check`);
+    const checks = rule.checks.map((c) => buildSetQCCheck(c, label, errors));
+    if (!rule.checks.length && !rule.includeSampleQC)
+        errors.push(
+            `${label}: needs at least one column to check, or "Include all sample-level QC checks in this rule" turned on`,
+        );
+    // same check as ExportConfig._include_sample_qc_has_qc_to_include()
+    if (rule.includeSampleQC && !hasSampleQC)
+        errors.push(
+            `${label}: "Include all sample-level QC checks in this rule" is on, but no sample-level QC column has QC to include`,
+        );
 
     const columnDupes = findDuplicates(
         rule.checks.map((c) => c.inputColumn.trim()).filter(Boolean),
@@ -306,15 +343,84 @@ function buildSetQCRule(rule, idx, errors) {
             `${label}: duplicate column(s) within this rule: ${columnDupes.join(", ")}`,
         );
 
-    if (
-        !rule.ruleName.trim() ||
-        match === null ||
-        checks.length !== rule.checks.length ||
-        !checks.length
-    ) {
+    const out = { rule_name: rule.ruleName.trim(), match_samples: match };
+    if (checks.length) out.checks = checks;
+    if (rule.includeSampleQC) out.include_sample_qc = true;
+    return out;
+}
+
+/** Returns the names in `names` that `match` (a plain matcher) selects, or null if its regex won't compile in JS. */
+function namesMatching(match, names) {
+    if (match.samples) {
+        const listed = new Set(match.samples);
+        return names.filter((n) => listed.has(n));
+    }
+    // a blank matcher (still being typed) selects nothing yet
+    if (match.sample_pattern !== undefined)
+        return match.sample_pattern
+            ? names.filter((n) => n.includes(match.sample_pattern))
+            : [];
+    if (!match.sample_regex) return [];
+    let regex;
+    try {
+        // JS and Python regex dialects differ; a pattern only Python accepts
+        // is skipped rather than guessed at.
+        regex = new RegExp(match.sample_regex);
+    } catch {
         return null;
     }
-    return { rule_name: rule.ruleName.trim(), match_samples: match, checks };
+    return names.filter((n) => regex.test(n));
+}
+
+/**
+ * Predicts which samples would be both skipped (skip_sample_qc) and pulled
+ * into a set_qc rule's include_sample_qc -- a run-time error in limsport. Only
+ * overlaps that are certain from the config alone are reported: a sample list
+ * checked against the other matcher, or two patterns where one contains the
+ * other. A regex against a pattern or regex can't be decided, so it's skipped.
+ *
+ * Returns a list of warning strings.
+ */
+function predictSkipCollisions(plainSetQC, skipMatch) {
+    const warnings = [];
+    if (!skipMatch) return warnings;
+    for (const rule of plainSetQC) {
+        if (!rule.include_sample_qc) continue;
+        const ruleMatch = rule.match_samples;
+        const name = rule.rule_name || "(unnamed rule)";
+        const rulePrefix = `The set-level QC rule "${name}" requires sample-level QC for`;
+        // A rule's `samples:` must all be in the run, so an overlap there
+        // always fails; any other overlap only fails if the sample shows up.
+        let overlap = null;
+        let certain = false;
+        if (ruleMatch.samples?.length) {
+            overlap = namesMatching(skipMatch, ruleMatch.samples);
+            certain = true;
+        } else if (skipMatch.samples?.length) {
+            overlap = namesMatching(ruleMatch, skipMatch.samples);
+        } else if (ruleMatch.sample_pattern && skipMatch.sample_pattern) {
+            const [a, b] = [ruleMatch.sample_pattern, skipMatch.sample_pattern];
+            if (a.includes(b) || b.includes(a)) {
+                const longer = a.length >= b.length ? a : b;
+                warnings.push(
+                    `${rulePrefix} samples containing "${longer}", which are marked to skip it. This may cause LIMSport to fail.`,
+                );
+            }
+            continue;
+        }
+        if (!overlap?.length) continue;
+        const matched =
+            overlap.length === 1
+                ? `"${overlap[0]}", which is marked to skip it.`
+                : `[${overlap.map((n) => `"${n}"`).join(", ")}], which are marked to skip it.`;
+        const consequence = certain
+            ? "This will cause LIMSport to fail."
+            : "This may cause LIMSport to fail.";
+        warnings.push(
+            `${rulePrefix} ${matched} ${consequence}`,
+        );
+    }
+    return warnings;
 }
 
 /**
@@ -322,9 +428,10 @@ function buildSetQCRule(rule, idx, errors) {
  * collects human-readable validation errors (mirroring the checks
  * `limsport/config.py` enforces). `plain` is still returned even when
  * there are errors so the preview pane can show a best-effort draft; only
- * `errors` should gate the download/copy actions.
+ * `errors` should gate the download/copy actions. `warnings` flag likely
+ * run-time problems that don't make the config invalid.
  */
-export function buildConfig(columns, setQCRules = []) {
+export function buildConfig(columns, setQCRules = [], skipSampleQC = null) {
     const errors = [];
     // Every name this config will actually produce in the output header, plus
     // where it came from -- lets the cross-column duplicate check below name
@@ -442,9 +549,14 @@ export function buildConfig(columns, setQCRules = []) {
         }
     }
 
-    const plainSetQC = setQCRules
-        .map((rule, idx) => buildSetQCRule(rule, idx, errors))
-        .filter(Boolean);
+    const hasSampleQC = columns.some((c) =>
+        c.isFileParsing
+            ? c.fileParsing.some((fp) => fp.qc.kind !== "none")
+            : c.qc.kind !== "none",
+    );
+    const plainSetQC = setQCRules.map((rule, idx) =>
+        buildSetQCRule(rule, idx, errors, hasSampleQC),
+    );
     const setQCNameDupes = findDuplicates(
         setQCRules.map((r) => r.ruleName.trim()).filter(Boolean),
     );
@@ -453,9 +565,17 @@ export function buildConfig(columns, setQCRules = []) {
             `Duplicate set_qc rule name(s): ${setQCNameDupes.join(", ")}`,
         );
 
-    const plain = { columns: plainColumns };
+    const plain = { sample_qc: plainColumns };
+    if (skipSampleQC?.enabled) {
+        plain.skip_sample_qc = buildSetQCMatch(
+            skipSampleQC.match,
+            "Skip sample-level QC",
+            errors,
+        );
+    }
     if (setQCRules.length) plain.set_qc = plainSetQC;
-    return { plain, errors };
+    const warnings = predictSkipCollisions(plainSetQC, plain.skip_sample_qc);
+    return { plain, errors, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -647,34 +767,43 @@ function qcFromConfig(raw, path, errors) {
         });
         return qc;
     }
-    checkKeys(raw, ["match_column", "cases", "default"], path, errors);
+    checkKeys(
+        raw,
+        ["match_column", "cases", "pattern_cases", "regex_cases", "default"],
+        path,
+        errors,
+    );
     qc.kind = "conditional";
     qc.matchColumn = readName(raw, "match_column", path, errors);
 
-    const casesPath = [...path, "cases"];
-    if (isMapping(raw.cases)) {
-        qc.cases = Object.entries(raw.cases).map(([key, conditions]) => {
-            const qcCase = newCase();
-            if (key !== key.trim()) {
-                errors.push({
-                    path: [...casesPath, key],
-                    message:
-                        "case key has leading or trailing whitespace, which the builder would drop",
-                });
+    for (const matchType of CASE_MATCH_TYPES) {
+        const block = CASE_BLOCK_FOR[matchType];
+        const blockPath = [...path, block];
+        if (isMapping(raw[block])) {
+            for (const [key, conditions] of Object.entries(raw[block])) {
+                const qcCase = newCase();
+                qcCase.matchType = matchType;
+                if (key !== key.trim()) {
+                    errors.push({
+                        path: [...blockPath, key],
+                        message:
+                            "case key has leading or trailing whitespace, which the builder would drop",
+                    });
+                }
+                qcCase.key = key.trim();
+                qcCase.conditions = conditionListFromConfig(
+                    conditions,
+                    [...blockPath, key],
+                    errors,
+                );
+                qc.cases.push(qcCase);
             }
-            qcCase.key = key.trim();
-            qcCase.conditions = conditionListFromConfig(
-                conditions,
-                [...casesPath, key],
-                errors,
-            );
-            return qcCase;
-        });
-    } else if (raw.cases !== undefined && raw.cases !== null) {
-        errors.push({
-            path: casesPath,
-            message: "expected a mapping of match value to conditions",
-        });
+        } else if (raw[block] !== undefined && raw[block] !== null) {
+            errors.push({
+                path: blockPath,
+                message: "expected a mapping of match value to conditions",
+            });
+        }
     }
 
     if (raw.default !== undefined && raw.default !== null) {
@@ -790,7 +919,7 @@ function columnFromConfig(raw, path, errors) {
     return col;
 }
 
-function setQCMatchFromConfig(raw, rule, path, errors) {
+function setQCMatchFromConfig(raw, match, path, errors) {
     if (raw === undefined || raw === null) return;
     if (!isMapping(raw)) {
         errors.push({
@@ -807,7 +936,6 @@ function setQCMatchFromConfig(raw, rule, path, errors) {
         errors.push({ path, message: `set only one of ${present.join(", ")}` });
         return;
     }
-    const match = rule.matchSamples;
     if (present[0] === "sample_pattern") {
         match.kind = "pattern";
         match.samplePattern = readName(raw, "sample_pattern", path, errors);
@@ -852,14 +980,30 @@ function setQCRuleFromConfig(raw, path, errors) {
         });
         return rule;
     }
-    checkKeys(raw, ["rule_name", "match_samples", "checks"], path, errors);
+    checkKeys(
+        raw,
+        ["rule_name", "match_samples", "checks", "include_sample_qc"],
+        path,
+        errors,
+    );
     rule.ruleName = readName(raw, "rule_name", path, errors);
     setQCMatchFromConfig(
         raw.match_samples,
-        rule,
+        rule.matchSamples,
         [...path, "match_samples"],
         errors,
     );
+    if (raw.include_sample_qc === true) {
+        rule.includeSampleQC = true;
+    } else if (
+        raw.include_sample_qc !== undefined &&
+        raw.include_sample_qc !== false
+    ) {
+        errors.push({
+            path: [...path, "include_sample_qc"],
+            message: "must be true or false",
+        });
+    }
     rule.checks = listAt(raw.checks, [...path, "checks"], errors, "checks").map(
         (rawCheck, i) => {
             const checkPath = [...path, "checks", i];
@@ -878,20 +1022,10 @@ function setQCRuleFromConfig(raw, path, errors) {
                 checkPath,
                 errors,
             );
-            if (isMapping(rawCheck.qc)) {
-                errors.push({
-                    path: [...checkPath, "qc"],
-                    message:
-                        "set-level checks take a list of conditions, not a conditional qc",
-                });
-                check.conditions = [];
-            } else {
-                check.conditions = conditionListFromConfig(
-                    rawCheck.qc,
-                    [...checkPath, "qc"],
-                    errors,
-                );
-            }
+            check.qc = qcFromConfig(rawCheck.qc, [...checkPath, "qc"], errors);
+            // A check with no qc has no "No QC" mode in the form; load it as an
+            // empty list so buildConfig() reports it.
+            if (check.qc.kind === "none") check.qc.kind = "list";
             return check;
         },
     );
@@ -906,12 +1040,17 @@ function setQCRuleFromConfig(raw, path, errors) {
  * Checks buildConfig() already makes (missing names, duplicates, ...) are
  * left to it and show up in the usual error list once loaded.
  *
- * Returns {columns, setQCRules, errors}; each error is {path, message},
+ * Returns {columns, setQCRules, skipSampleQC, errors}; each error is {path, message},
  * where path is the keys/indexes leading to the offending node.
  */
 export function stateFromConfig(obj) {
     const errors = [];
-    const result = { columns: [], setQCRules: [], errors };
+    const result = {
+        columns: [],
+        setQCRules: [],
+        skipSampleQC: newSkipSampleQC(),
+        errors,
+    };
     if (obj === undefined || obj === null) {
         errors.push({ path: [], message: "the file is empty" });
         return result;
@@ -919,24 +1058,49 @@ export function stateFromConfig(obj) {
     if (!isMapping(obj)) {
         errors.push({
             path: [],
-            message: "expected a mapping with columns: and/or set_qc:",
+            message:
+                "expected a mapping with sample_qc:, set_qc:, and/or skip_sample_qc:",
         });
         return result;
     }
-    checkKeys(obj, ["columns", "set_qc"], [], errors);
-    if (Array.isArray(obj.columns) && !obj.columns.length) {
+    checkKeys(
+        obj,
+        ["sample_qc", "columns", "set_qc", "skip_sample_qc"],
+        [],
+        errors,
+    );
+    // `columns` is limsport's old name for `sample_qc`, still accepted; the
+    // download always writes `sample_qc`.
+    if ("sample_qc" in obj && "columns" in obj) {
         errors.push({
             path: ["columns"],
             message:
-                "columns: [] is rejected by limsport; remove the key to keep every input column",
+                "columns is the old name for sample_qc; the file can't use both",
         });
     }
-    result.columns = listAt(obj.columns, ["columns"], errors, "columns").map(
-        (col, i) => columnFromConfig(col, ["columns", i], errors),
+    const columnsKey = "sample_qc" in obj ? "sample_qc" : "columns";
+    const rawColumns = obj[columnsKey];
+    if (Array.isArray(rawColumns) && !rawColumns.length) {
+        errors.push({
+            path: [columnsKey],
+            message: `${columnsKey}: [] is rejected by limsport; remove the key to keep every input column`,
+        });
+    }
+    result.columns = listAt(rawColumns, [columnsKey], errors, "columns").map(
+        (col, i) => columnFromConfig(col, [columnsKey, i], errors),
     );
     result.setQCRules = listAt(obj.set_qc, ["set_qc"], errors, "rules").map(
         (rule, i) => setQCRuleFromConfig(rule, ["set_qc", i], errors),
     );
+    if (obj.skip_sample_qc !== undefined && obj.skip_sample_qc !== null) {
+        result.skipSampleQC.enabled = true;
+        setQCMatchFromConfig(
+            obj.skip_sample_qc,
+            result.skipSampleQC.match,
+            ["skip_sample_qc"],
+            errors,
+        );
+    }
     return result;
 }
 
@@ -1001,12 +1165,15 @@ function renderQC(qc, kInd) {
     const lines = [
         `${kInd}qc:`,
         `${contentInd}match_column: ${yamlScalar(qc.match_column)}`,
-        `${contentInd}cases:`,
     ];
     const rulesInd = `${contentInd}  `;
-    for (const [key, conditions] of Object.entries(qc.cases)) {
-        lines.push(`${rulesInd}${yamlKey(key)}:`);
-        lines.push(renderConditionList(conditions, `${rulesInd}  `));
+    for (const block of ["cases", "pattern_cases", "regex_cases"]) {
+        if (!qc[block]) continue;
+        lines.push(`${contentInd}${block}:`);
+        for (const [key, conditions] of Object.entries(qc[block])) {
+            lines.push(`${rulesInd}${yamlKey(key)}:`);
+            lines.push(renderConditionList(conditions, `${rulesInd}  `));
+        }
     }
     if (qc.default) {
         lines.push(`${contentInd}default:`);
@@ -1056,25 +1223,22 @@ function renderColumn(col, dashInd) {
 // sample_pattern/sample_regex/samples are all free-form strings intended as
 // exact/substring/regex match targets against real sample names -- always
 // quoted, same "unambiguously a string" reasoning as yamlKey/rule keys.
-function renderSetQCMatch(match, kInd) {
+function renderSetQCMatch(match, kInd, key = "match_samples") {
     const contentInd = `${kInd}  `;
     if (match.sample_pattern !== undefined) {
-        return `${kInd}match_samples:\n${contentInd}sample_pattern: ${yamlKey(match.sample_pattern)}`;
+        return `${kInd}${key}:\n${contentInd}sample_pattern: ${yamlKey(match.sample_pattern)}`;
     }
     if (match.sample_regex !== undefined) {
-        return `${kInd}match_samples:\n${contentInd}sample_regex: ${yamlKey(match.sample_regex)}`;
+        return `${kInd}${key}:\n${contentInd}sample_regex: ${yamlKey(match.sample_regex)}`;
     }
     const samples = match.samples.map((s) => yamlKey(s)).join(", ");
-    return `${kInd}match_samples:\n${contentInd}samples: [${samples}]`;
+    return `${kInd}${key}:\n${contentInd}samples: [${samples}]`;
 }
 
 function renderSetQCCheck(check, dashInd) {
     const kInd = `${dashInd}  `;
-    const lines = [
-        `${dashInd}- input_column: ${yamlScalar(check.input_column)}`,
-        `${kInd}qc:`,
-    ];
-    lines.push(renderConditionList(check.qc, `${kInd}  `));
+    const lines = [`${dashInd}- input_column: ${yamlScalar(check.input_column)}`];
+    if (check.qc !== undefined) lines.push(renderQC(check.qc, kInd));
     return lines.join("\n");
 }
 
@@ -1082,33 +1246,45 @@ function renderSetQCRule(rule, dashInd) {
     const kInd = `${dashInd}  `;
     const lines = [`${dashInd}- rule_name: ${yamlKey(rule.rule_name)}`];
     lines.push(renderSetQCMatch(rule.match_samples, kInd));
-    lines.push(`${kInd}checks:`);
-    rule.checks.forEach((check) =>
-        lines.push(renderSetQCCheck(check, `${kInd}  `)),
-    );
+    if (rule.include_sample_qc) lines.push(`${kInd}include_sample_qc: true`);
+    if (rule.checks) {
+        lines.push(`${kInd}checks:`);
+        rule.checks.forEach((check) =>
+            lines.push(renderSetQCCheck(check, `${kInd}  `)),
+        );
+    }
     return lines.join("\n");
 }
 
 /** Serializes a plain ExportConfig-shaped object (as returned by buildConfig().plain) to a YAML string. */
 export function serializeYAML(plainConfig) {
     const lines = [];
-    // Omit `columns:` entirely when there are none -- an explicit
-    // `columns: []` is always rejected by the real load_config(), even when
+    // Omit `sample_qc:` entirely when there are none -- an explicit
+    // `sample_qc: []` is always rejected by the real load_config(), even when
     // set_qc is configured; only omitting the key means "pass every input
     // column through unfiltered."
-    if (plainConfig.columns.length) {
-        lines.push("columns:");
-        plainConfig.columns.forEach((col, i) => {
+    if (plainConfig.sample_qc.length) {
+        lines.push("sample_qc:");
+        plainConfig.sample_qc.forEach((col, i) => {
             if (i > 0) lines.push("");
             lines.push(renderColumn(col, "  "));
         });
     }
+    // Same order as the form's sections; each top-level key after the first
+    // gets a blank line before it.
     if (plainConfig.set_qc && plainConfig.set_qc.length) {
+        if (lines.length) lines.push("");
         lines.push("set_qc:");
         plainConfig.set_qc.forEach((rule, i) => {
             if (i > 0) lines.push("");
             lines.push(renderSetQCRule(rule, "  "));
         });
+    }
+    if (plainConfig.skip_sample_qc) {
+        if (lines.length) lines.push("");
+        lines.push(
+            renderSetQCMatch(plainConfig.skip_sample_qc, "", "skip_sample_qc"),
+        );
     }
     lines.push("");
     return lines.join("\n");

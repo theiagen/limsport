@@ -447,6 +447,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#skipping-sample-level-qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Skipping sample-level QC
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -670,6 +681,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#skipping-sample-level-qc" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Skipping sample-level QC
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -788,10 +810,10 @@
 </span></code></pre></div>
 <p>LIMSport requires Python 3.10+.</p>
 <h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>limsport --input samples.tsv --output samples.lims.tsv
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>limsport --input samples.tsv --output-prefix samples
 </span></code></pre></div>
 <p>If neither <code>--config</code> nor <code>--samples</code> are provided, nothing happens. To transform and/or QC the data, add a configuration file:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>limsport --input samples.tsv --config config.yaml --output samples.lims.tsv --qc-report qc_report.tsv
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>limsport --input samples.tsv --config config.yaml --output-prefix samples
 </span></code></pre></div>
 <p>See <code>examples/</code> for a demo.</p>
 <h2 id="cli-reference">CLI reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h2>
@@ -810,9 +832,9 @@
 <td>input TSV (delimiters auto-detected)</td>
 </tr>
 <tr>
-<td><code>--output</code>, <code>-o</code></td>
+<td><code>--output-prefix</code>, <code>-o</code></td>
 <td>no</td>
-<td>output path (default: <code>limsport.tsv</code>)</td>
+<td>prefix for the output (<code>&lt;prefix&gt;_lims_report</code>), QC failure report (<code>&lt;prefix&gt;_qc_fail_report</code>), and QC summary (<code>&lt;prefix&gt;_qc_summary</code>); the extension follows <code>--output-delimiter</code>: <code>.tsv</code>, <code>.csv</code>, else <code>.txt</code> (default: <code>limsport</code>)</td>
 </tr>
 <tr>
 <td><code>--config</code>, <code>-c</code></td>
@@ -825,14 +847,14 @@
 <td>a file of sample names (one per line) to include; if omitted, every sample is included</td>
 </tr>
 <tr>
-<td><code>--qc-report</code>, <code>-r</code></td>
-<td>no</td>
-<td>QC failure report TSV path (default: <code>qc_report.tsv</code>)</td>
-</tr>
-<tr>
-<td><code>--delimiter</code>, <code>-d</code></td>
+<td><code>--output-delimiter</code>, <code>-d</code></td>
 <td>no</td>
 <td>output delimiter (default: tab)</td>
+</tr>
+<tr>
+<td><code>--include-qc-fails</code></td>
+<td>no</td>
+<td>also write samples that fail QC to the output, including every sample of a run that fails <code>set_qc</code> (the QC summary still marks them <code>FAIL</code>)</td>
 </tr>
 <tr>
 <td><code>--allow-file-parsing</code></td>
@@ -857,20 +879,20 @@
 </tbody>
 </table>
 <h2 id="the-config-file">The config file<a class="headerlink" href="#the-config-file" title="Permanent link">&para;</a></h2>
-<p>A config is a YAML file with two primary keys: <code>columns</code> and <code>set_qc</code>.</p>
-<p><code>columns</code> lists every column to keep in the output, ordered to match how they appear in the config. The sample ID (the first input column) is always written as the first output column, even if it isn't listed (list it under <code>columns</code> to move, rename, or hide it with <code>output: false</code>). <code>columns</code> can be omitted entirely if a <a href="#set-level-qc"><code>set_qc</code></a> list exists. <code>columns: []</code> will be rejected.</p>
+<p>A config is a YAML file with two primary keys: <code>sample_qc</code> and <code>set_qc</code>, plus the optional <code>skip_sample_qc</code>.</p>
+<p><code>sample_qc</code> lists every column to keep in the output, ordered to match how they appear in the config, along with each column's sample-level QC (a column can have no QC and just be kept or renamed). The sample ID (the first input column) is always written as the first output column, even if it isn't listed (list it under <code>sample_qc</code> to move, rename, or hide it with <code>output: false</code>). <code>sample_qc</code> can be omitted entirely if a <a href="#set-level-qc"><code>set_qc</code></a> list exists. <code>sample_qc: []</code> will be rejected. (<code>sample_qc</code> was previously named <code>columns</code>; configs that use <code>columns</code> still work, but a config can't use both.)</p>
 <p><code>set_qc</code> lists a series of rules where if one fails, all samples fail the run.</p>
-<p>A config with neither <code>columns</code> nor <code>set_qc</code> is treated as malformatted and fails.</p>
+<p>A config with neither <code>sample_qc</code> nor <code>set_qc</code> is treated as malformatted and fails.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># a basic configuration example that renames a column</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">sample_qc</span><span class="p">:</span>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sample_id</span><span class="w"> </span><span class="c1"># kept as-is: no rename, no qc</span>
 </span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lot_number</span><span class="w"> </span><span class="c1"># kept and renamed, but never QC'd</span>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">      </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lot</span>
 </span></code></pre></div>
 <h3 id="config-qc">Config QC<a class="headerlink" href="#config-qc" title="Permanent link">&para;</a></h3>
-<p>A sample failing a <code>qc</code> rule gets dropped from the output and reported in the log and qc_report file.</p>
+<p>A sample failing a <code>qc</code> rule gets dropped from the output and reported in the log and the QC failure report.</p>
 <p>Configs are considered malformatted when either (a) config columns that are not present in the input table, or (b) contain ambiguous column names. Malformatted configs cause the program to exit.</p>
 <h4 id="qc-operators">QC operators<a class="headerlink" href="#qc-operators" title="Permanent link">&para;</a></h4>
 <table>
@@ -932,7 +954,7 @@
 <p>Cells that are not able to be cast as a number fail QC (<code>"non-numeric value 'NA' cannot be compared with &gt;= 1000"</code>).</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># fixed threshold qc examples</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nt">sample_qc</span><span class="p">:</span>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read_count</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">total_reads</span><span class="w"> </span><span class="c1"># renamed in the output</span>
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">      </span><span class="nt">qc</span><span class="p">:</span><span class="w"> </span><span class="c1"># all of these conditions must pass for the row to be included in the output</span>
@@ -960,7 +982,7 @@
 <p>A conditional QC shape picks which threshold list applies to a row from <em>another column's value in that same row</em>, e.g. different genome size bounds per predicted organism instead of one bound that has to fit every organism in the batch:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># conditional qc example</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nt">columns</span><span class="p">:</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nt">sample_qc</span><span class="p">:</span>
 </span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gambit_predicted_taxon</span>
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">      </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">predicted_taxon</span>
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
@@ -974,20 +996,29 @@
 </span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">              </span><span class="s">"Klebsiella</span><span class="nv"> </span><span class="s">pneumoniae"</span><span class="p p-Indicator">:</span>
 </span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">                  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">5200000</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">                  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&lt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">5900000</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">          </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="c1"># optional; without a default, samples w/o a match will fail</span>
-</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">1500000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">          </span><span class="nt">pattern_cases</span><span class="p">:</span><span class="w"> </span><span class="c1"># optional; substring match, checked after cases</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">              </span><span class="s">"Shigella"</span><span class="p p-Indicator">:</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">                  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">4200000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">          </span><span class="nt">regex_cases</span><span class="p">:</span><span class="w"> </span><span class="c1"># optional; re.search, checked after pattern_cases</span>
+</span><span id="__span-5-21"><a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">              </span><span class="s">"^Salmonella"</span><span class="p p-Indicator">:</span>
+</span><span id="__span-5-22"><a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="w">                  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">4400000</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">          </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="c1"># optional; without a default, samples w/o a match will fail</span>
+</span><span id="__span-5-24"><a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">1500000</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </span></code></pre></div>
 <ul>
-<li><code>match_column</code> must be a column that exists in the input header. It doesn't need to be in the output <code>columns:</code> list.</li>
+<li><code>match_column</code> must be a column that exists in the input header. It doesn't need to be in the output <code>sample_qc:</code> list.</li>
 <li><code>cases</code> maps an exact, <strong>case-sensitive</strong> value of <code>match_column</code> to the <code>QCCondition</code> list to run for that row</li>
-<li>A row whose <code>match_column</code> value isn't a key in <code>cases</code> uses <code>default</code> if one is configured. Without a default, the row will fail QC with the message: <code>no qc rule matches gambit_predicted_taxon='Vibrio cholerae' for column 'assembly_length', and no default is configured</code></li>
+<li><code>pattern_cases</code> (optional) maps a case-<strong>sensitive</strong> substring of the <code>match_column</code> value to its <code>QCCondition</code> list, e.g. <code>"Shigella"</code> for every <em>Shigella</em> species</li>
+<li><code>regex_cases</code> (optional) maps a regular expression, checked with <code>re.search</code>, to its <code>QCCondition</code> list (use an inline <code>(?i)</code> flag for case-insensitive matching)</li>
+<li>At least one of <code>cases</code>, <code>pattern_cases</code>, or <code>regex_cases</code> is required. A row is checked against <code>cases</code> first, then <code>pattern_cases</code>, then <code>regex_cases</code>, and the first match wins (in config order within <code>pattern_cases</code> and <code>regex_cases</code>), so an exact case always beats a broader pattern for the same value.</li>
+<li>A row matching none of them uses <code>default</code> if one is configured. Without a default, the row will fail QC with the message: <code>no qc rule matches gambit_predicted_taxon='Vibrio cholerae' for column 'assembly_length', and no default is configured</code></li>
 </ul>
 <h4 id="set-level-qc">Set-level QC<a class="headerlink" href="#set-level-qc" title="Permanent link">&para;</a></h4>
 <p>Every <code>qc</code> block is checked and then applied on a per-row basis. <code>set_qc</code> results are applied on the entire run.</p>
 <p><code>set_qc</code> checks specific sample(s) (e.g. a negative control) for specified metrics, and if any of its checks fail, <strong>the entire run fails</strong>.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># set_qc example</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># a columns section is not required when set_qc is configured; this example is a valid yaml</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># a sample_qc section is not required when set_qc is configured; this example is a valid yaml</span>
 </span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="nt">set_qc</span><span class="p">:</span>
 </span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">rule_name</span><span class="p">:</span><span class="w"> </span><span class="s">"NTC</span><span class="nv"> </span><span class="s">has</span><span class="nv"> </span><span class="s">no</span><span class="nv"> </span><span class="s">detected</span><span class="nv"> </span><span class="s">organism</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">low</span><span class="nv"> </span><span class="s">reads"</span>
@@ -1009,35 +1040,42 @@
 <li><code>samples</code>: an explicit, exact list of sample names</li>
 </ul>
 </li>
-<li><code>checks</code> lists one or more <code>{input_column, qc}</code> checks, all evaluated against all matched samples.</li>
+<li><code>checks</code> lists one or more <code>{input_column, qc}</code> checks, all evaluated against all matched samples. A check's <code>qc</code> can be a plain list or the conditional form described above, e.g. a different read cap for an NTC depending on its <code>run_type</code>.</li>
+<li><code>include_sample_qc: true</code> (optional) also fails the run when a matched sample fails any of its per-row <code>qc</code> from <code>sample_qc</code>, e.g. a positive control that must meet production QC. A rule with <code>include_sample_qc</code> may leave out <code>checks</code>. A <code>skip_sample_qc</code> sample can't be matched by such a rule, since it skips per-row <code>qc</code>; LIMSport exits with an error if one is.</li>
 </ul>
 <p><strong>Every</strong> matched sample must pass <strong>every</strong> check for the rule to pass. If any matched sample fails any check, the whole run is considered a QC fail.</p>
 <p>A rule that identifies zero samples in the run is itself a hard error (there's no sample to attach a QC failure to), not a QC failure -- the run aborts before any output is written. For <code>samples:</code> specifically, this applies <strong>per name</strong>: every sample name listed must exist in the run, not just at least one of them, so a typo'd or missing name (e.g. a dropped negative control) can't silently go unchecked.</p>
+<h4 id="skipping-sample-level-qc">Skipping sample-level QC<a class="headerlink" href="#skipping-sample-level-qc" title="Permanent link">&para;</a></h4>
+<p><code>skip_sample_qc</code> names the samples (usually negative controls) that skip per-row <code>qc</code> while still being checked by <code>set_qc</code>. Leave the key out to turn the feature off. It takes one of the same three match options as <code>match_samples</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">skip_sample_qc</span><span class="p">:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">sample_pattern</span><span class="p">:</span><span class="w"> </span><span class="s">"NTC"</span>
+</span></code></pre></div>
+<p>A skipped sample is written to the output with its values as-is, and its <code>qc_status</code> in the QC summary is <code>CONTROL</code> (or <code>FAIL</code> if a <code>set_qc</code> rule fails the run). Its <code>file_parsing</code> still runs, but a file that won't parse leaves that value blank instead of failing the row, and doesn't count toward <code>--max-file-parsing-failures</code>. Only list samples that should skip production QC, such as NTCs; a positive control left out of <code>skip_sample_qc</code> gets the same per-row <code>qc</code> as any other sample.</p>
 <h3 id="file_parsing-configuration"><code>file_parsing</code> configuration<a class="headerlink" href="#file_parsing-configuration" title="Permanent link">&para;</a></h3>
 <p>A column marked with <code>file_parsing</code> treats the row's value as a file path.</p>
 <p><code>file_parsing</code> contains a list of one or more named outputs, each with its own command run against that file. The result of the command will become the output column's value.</p>
 <p>A column with <code>file_parsing</code> is incompatible with <code>output_column</code> and <code>qc</code> on the same level. Invalid configuration errors will occur. All QC and output naming must occur within the <code>file_parsing</code> list.</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># file parsing example</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nt">columns</span><span class="p">:</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coverage_report</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">      </span><span class="nt">file_parsing</span><span class="p">:</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mean_depth</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $7}' "$FILE"</span>
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">            </span><span class="nt">qc</span><span class="p">:</span>
-</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">30</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>
-</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coverage_pct</span>
-</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $6}' "$FILE"</span>
-</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">            </span><span class="nt">qc</span><span class="p">:</span>
-</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">95</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>
-</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mean_mapq</span>
-</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $9}' "$FILE"</span>
-</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">            </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w"> </span><span class="c1"># each output can set its own timeout</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># file parsing example</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nt">sample_qc</span><span class="p">:</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">input_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coverage_report</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">      </span><span class="nt">file_parsing</span><span class="p">:</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mean_depth</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $7}' "$FILE"</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">            </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">30</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coverage_pct</span>
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $6}' "$FILE"</span>
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">            </span><span class="nt">qc</span><span class="p">:</span>
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> operator</span><span class="p">:</span><span class="w"> </span><span class="s">"&gt;="</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">95</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>
+</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">output_column</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mean_mapq</span>
+</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="w">            </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="w">                </span><span class="no">awk -F'\t' '$1 == "chr1" {print $9}' "$FILE"</span>
+</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a><span class="w">            </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w"> </span><span class="c1"># each output can set its own timeout</span>
 </span></code></pre></div>
 <p>The command is run via <code>bash -c</code>. Anything in your local environment can be used.</p>
 <p>You can access the file in the command with a bash variable: <code>"$FILE"</code>.</p>
@@ -1062,7 +1100,7 @@ how much genuinely bad data you'll tolerate, while the guard asks whether anythi
 worked at all. <code>--max-file-parsing-failures</code> defaults to no limit; <code>0</code> aborts on the
 first failure, which is how LIMSport behaved before.</p>
 <h2 id="the-qc-report">The QC report<a class="headerlink" href="#the-qc-report" title="Permanent link">&para;</a></h2>
-<p>A QC report (default: <code>qc_report.tsv</code>) contains one row per failing sample/output pair, so a sample failing three outputs produces three rows. It has the following columns:</p>
+<p>A QC failure report, named <code>&lt;output-prefix&gt;_qc_fail_report</code> with the same extension and delimiter as the output (default: <code>limsport_qc_fail_report.tsv</code>), contains one row per failing sample/output pair, so a sample failing three outputs produces three rows. It has the following columns:</p>
 <table>
 <thead>
 <tr>
@@ -1101,21 +1139,22 @@ first failure, which is how LIMSport behaved before.</p>
 </tr>
 </tbody>
 </table>
+<p>A QC summary, named <code>&lt;output-prefix&gt;_qc_summary</code> with the same extension and delimiter as the output (default: <code>limsport_qc_summary.tsv</code>), lists every sample QC ran on (after any <code>--samples</code> filter) with its <code>qc_status</code>: <code>PASS</code>, <code>FAIL</code>, or <code>CONTROL</code> for a sample in <code>skip_sample_qc</code> (see above). A sample listed more than once in the input gets one row, and is <code>FAIL</code> if any of its rows failed. Like the QC failure report, it is only written when a <code>--config</code> is given.</p>
 <h2 id="delimiter-handling">Delimiter handling<a class="headerlink" href="#delimiter-handling" title="Permanent link">&para;</a></h2>
 <p>Delimiters are auto-detected from its header line. If auto-detection fails, LIMSport gives up.</p>
-<p>With no <code>--delimiter</code>, the output defaults to tab. Change the output delimiter with <code>--delimiter</code></p>
+<p>With no <code>--output-delimiter</code>, the output defaults to tab. Change the output delimiter with <code>--output-delimiter</code></p>
 <h3 id="repo-layout">Repo Layout<a class="headerlink" href="#repo-layout" title="Permanent link">&para;</a></h3>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>limsport/
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>├── cli.py           argparse entry point; flag parsing, exit codes
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>├── config.py        pydantic models for the YAML config + its loader
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>├── table_io.py      TSV/delimited I/O: read/write, delimiter detection
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>├── qc.py            pure QC evaluation (cell + condition -&gt; pass/fail/why)
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>├── file_parsing.py  file_parsing: cloud localization, bash execution
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>├── layout.py        validates the config against the input header, plans the output
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>├── ingest.py        reads the rows: sample filter, QC, writes the passers
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>├── pipeline.py      orchestrates one export: wires the above together
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>├── report.py        turns QC results into log lines and the report TSV
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>└── exceptions.py    the LIMSportError hierarchy cli.py catches
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>limsport/
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>├── cli.py           argparse entry point; flag parsing, exit codes
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>├── config.py        pydantic models for the YAML config + its loader
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>├── table_io.py      TSV/delimited I/O: read/write, delimiter detection
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>├── qc.py            pure QC evaluation (cell + condition -&gt; pass/fail/why)
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>├── file_parsing.py  file_parsing: cloud localization, bash execution
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>├── layout.py        validates the config against the input header, plans the output
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>├── ingest.py        reads the rows: sample filter, QC, writes the passers
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>├── pipeline.py      orchestrates one export: wires the above together
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>├── report.py        turns QC results into log lines and the report TSV
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>└── exceptions.py    the LIMSportError hierarchy cli.py catches
 </span></code></pre></div>
 
 
