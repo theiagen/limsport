@@ -52,7 +52,8 @@ def _run(tmp_path, input_tsv, config, **kwargs):
     return (
         list(table_io.iter_rows(out)),
         list(table_io.iter_rows(report_path)),
-        list(table_io.iter_rows(summary_path)),
+        # status only; report tests cover the rationale column
+        [row[:2] for row in table_io.iter_rows(summary_path)],
     )
 
 
@@ -109,7 +110,7 @@ def test_skipped_sample_file_parsing_failure_is_blank_and_not_counted(tmp_path):
         allow_file_parsing=True,
         max_file_parsing_failures=0,
     )
-    assert rows == [["NTC1", ""], ["SAMPLE_A", "42"]]
+    assert rows == [["NTC1", "", "PASS"], ["SAMPLE_A", "42", "PASS"]]
     assert report_rows == []
     assert summary == [["NTC1", "CONTROL"], ["SAMPLE_A", "PASS"]]
 
@@ -131,11 +132,15 @@ def test_include_qc_fails_writes_every_row_of_a_set_qc_failed_run(tmp_path):
         *_control_scenario(tmp_path, ntc_reads=5000),
         include_qc_fails=True,
     )
-    assert rows == [["NTC1", "5000"], ["SAMPLE_A", "50000"], ["SAMPLE_B", "10"]]
+    assert rows == [
+        ["NTC1", "5000", "FAIL"],
+        ["SAMPLE_A", "50000", "FAIL"],
+        ["SAMPLE_B", "10", "FAIL"],
+    ]
     assert all(status == "FAIL" for _, status in summary)
 
 
-def test_include_qc_fails_skips_the_set_qc_prepass_and_writes_parsed_values(tmp_path):
+def test_include_qc_fails_writes_parsed_values_of_a_set_qc_failed_run(tmp_path):
     data = tmp_path / "data.txt"
     data.write_text("42\n")
     input_tsv = tmp_path / "input.tsv"
@@ -162,7 +167,7 @@ def test_include_qc_fails_skips_the_set_qc_prepass_and_writes_parsed_values(tmp_
     rows, _, summary = _run(
         tmp_path, input_tsv, config, allow_file_parsing=True, include_qc_fails=True
     )
-    assert rows == [["SAMPLE_A", "42"], ["NTC1", "42"]]
+    assert rows == [["SAMPLE_A", "42", "FAIL"], ["NTC1", "42", "FAIL"]]
     assert summary == [["SAMPLE_A", "FAIL"], ["NTC1", "FAIL"]]
 
 
@@ -187,7 +192,7 @@ def test_include_qc_fails_blanks_values_file_parsing_could_not_produce(tmp_path)
     rows, _, summary = _run(
         tmp_path, input_tsv, config, allow_file_parsing=True, include_qc_fails=True
     )
-    assert rows == [["SAMPLE_A", ""], ["SAMPLE_B", "42"]]
+    assert rows == [["SAMPLE_A", "", "FAIL"], ["SAMPLE_B", "42", "PASS"]]
     assert summary == [["SAMPLE_A", "FAIL"], ["SAMPLE_B", "PASS"]]
 
 
@@ -249,7 +254,7 @@ def test_include_sample_qc_on_a_skipped_sample_raises(tmp_path):
         )
 
 
-def test_include_sample_qc_checks_file_parsed_values_after_the_prepass(tmp_path):
+def test_include_sample_qc_checks_file_parsed_values(tmp_path):
     low = tmp_path / "low.txt"
     low.write_text("5\n")
     high = tmp_path / "high.txt"
@@ -276,5 +281,8 @@ def test_include_sample_qc_checks_file_parsed_values_after_the_prepass(tmp_path)
         tmp_path, input_tsv, config, allow_file_parsing=True
     )
     assert rows == []
-    assert ["PC1", "data_path", "extracted"] in [row[:3] for row in report_rows]
+    # reported once, though it is both PC1's own failure and the rule's
+    assert [row[:3] for row in report_rows].count(
+        ["PC1", "data_path", "extracted"]
+    ) == 1
     assert summary == [["SAMPLE_A", "FAIL"], ["PC1", "FAIL"]]

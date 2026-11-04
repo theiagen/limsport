@@ -136,14 +136,16 @@ def _whole_run_failures(
 
     Every sample fails, not only the offending one: the sample(s) that violated a
     set_qc rule keep their real, full-detail failures, and every other sample in the
-    run gets one collateral row naming the rule(s) that failed the run.
+    run gets one collateral row naming the rule(s) that failed the run. Every sample's
+    own per-row failures are kept too.
 
     Args:
         run_failed_rules: the set_qc rules that collected at least one failure.
         summary: the finished summary, read for its failures and sample names.
 
     Returns:
-        Every failure to log and report, the offending samples' first.
+        Every failure to log and report: the offending samples' set_qc failures first,
+        then each sample's per-row failures and collateral row, in input order.
     """
     failures: list[qc.QCFailure] = []
     offending_samples: set[str] = set()
@@ -156,7 +158,16 @@ def _whole_run_failures(
         failures.extend(rule_failures)
         offending_samples.update(f.sample for f in rule_failures)
 
-    for sample in summary.sample_names:
+    # a sample matched by an include_sample_qc rule has its row failures in both
+    # set_qc_failures and row_failures; skip the ones already reported above
+    reported = {id(f) for f in failures}
+    row_failures_by_sample: dict[str, list[qc.QCFailure]] = {}
+    for f in summary.row_failures:
+        if id(f) not in reported:
+            row_failures_by_sample.setdefault(f.sample, []).append(f)
+
+    for sample in dict.fromkeys(summary.sample_names):
+        failures.extend(row_failures_by_sample.get(sample, []))
         if sample in offending_samples:
             # already has its own full-detail failure above
             continue
@@ -200,8 +211,7 @@ def _apply_qc_verdict(
         else "all rules passed",
     )
     if run_failed_rules:
-        # A set_qc rule failed, so the entire run fails QC. The run-level verdict
-        # replaces anything written
+        # A set_qc rule failed, so the entire run fails QC
         return _QCOutcome(
             failures=_whole_run_failures(run_failed_rules, summary), run_failed=True
         )
@@ -225,6 +235,32 @@ def _write_header_only_output(
     )
 
 
+def _write_run_failed_output(
+    staging_path: Path, output_path: Path, layout: ExportLayout, output_delimiter: str
+) -> None:
+    """
+    Writes the staged rows of a run that set_qc failed, each marked FAIL.
+
+    Rows staged before the failing set_qc check carry their own row-level verdict, so
+    every row's QC status is overwritten rather than trusted.
+
+    Args:
+        staging_path: the staged output, whose last column is QC_STATUS_COLUMN.
+        output_path: where to write the output table.
+        layout: read for its output header.
+        output_delimiter: the delimiter the staging file was written with.
+    """
+    table_io.write_tsv(
+        output_path,
+        layout.output_header,
+        (
+            [*row[:-1], "FAIL"]
+            for row in table_io.iter_rows(staging_path, output_delimiter)
+        ),
+        delimiter=output_delimiter,
+    )
+
+
 def _settle_run(
     set_qc_rules: list[SetQCRule], summary: IngestSummary, input_path: Path
 ) -> _QCOutcome:
@@ -244,7 +280,6 @@ def _settle_run(
         FileParsingError: if file_parsing failed on every row it ran against.
     """
     _check_set_qc_matched_samples(set_qc_rules, summary, input_path)
-    # a no-op after the pre-pass, which expands no rows and so parses no files
     _check_file_parsing_produced_something(summary, input_path)
     return _apply_qc_verdict(set_qc_rules, summary)
 
@@ -375,35 +410,6 @@ def run_export(
         _load_sample_list(samples_path) if samples_path is not None else None
     )
 
-    # the pre-pass only saves work when a set_qc failure means nothing gets written
-    set_qc_prepass = layout.set_qc_prepass and not include_qc_fails
-    if set_qc_prepass:
-        logger.debug("set_qc pre-pass: evaluating set_qc before any file_parsing")
-        # check for set_qc failures if file parsing was included to avoid GCP downloads
-        pre_summary = read_input(
-            input_path,
-            input_delimiter,
-            layout,
-            set_qc_rules,
-            requested_samples,
-            writer=None,  # set_qc only
-            skip_sample_qc=skip_sample_qc,
-        )
-        _warn_missing_samples(requested_samples, pre_summary)
-        pre_outcome = _settle_run(set_qc_rules, pre_summary, input_path)
-        if pre_outcome.run_failed:
-            logger.debug("set_qc failed in the pre-pass; skipping the full read")
-            _write_header_only_output(output_path, layout, output_delimiter)
-            _report_results(
-                config,
-                pre_summary,
-                pre_outcome,
-                qc_report_path,
-                output_delimiter,
-                qc_summary_path,
-            )
-            return
-
     # keep the output staged on disk instead of memory
     staging_path = output_path.with_name(output_path.name + ".tmp")
     logger.debug("staging output rows in %s", staging_path)
@@ -423,14 +429,22 @@ def run_export(
                 include_qc_fails,
             )
 
-        if not set_qc_prepass:
-            _warn_missing_samples(requested_samples, summary)
+        _warn_missing_samples(requested_samples, summary)
 
         outcome = _settle_run(set_qc_rules, summary, input_path)
         if outcome.run_failed and not include_qc_fails:
             # a set_qc rule failed, so nothing that was staged counts
             _write_header_only_output(output_path, layout, output_delimiter)
             logger.debug("wrote header-only output to %s", output_path)
+        elif outcome.run_failed:
+            _write_run_failed_output(
+                staging_path, output_path, layout, output_delimiter
+            )
+            logger.debug(
+                "wrote %d row(s) marked FAIL to %s",
+                summary.written_rows + summary.written_failed_rows,
+                output_path,
+            )
         else:
             os.replace(staging_path, output_path)
             logger.debug(

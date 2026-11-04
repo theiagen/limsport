@@ -68,7 +68,13 @@ def test_config_reorders_output_columns_and_drops_columns(tmp_path):
     out = tmp_path / "out.tsv"
     pipeline.run_export(input_basic(tmp_path), config_basic(tmp_path), None, out, None)
     header = table_io.get_input_header(out)
-    assert header == ["sample_id", "total_reads", "Status", "notes"]
+    assert header == [
+        "sample_id",
+        "total_reads",
+        "Status",
+        "notes",
+        "limsport_qc_status",
+    ]
     rows = list(table_io.iter_rows(out))
     assert len(rows) == 5
 
@@ -93,7 +99,13 @@ def test_config_order_wins_over_input_order_when_they_differ(tmp_path):
     out = tmp_path / "out.tsv"
     pipeline.run_export(input_basic(tmp_path), config, None, out, None)
     header = table_io.get_input_header(out)
-    assert header == ["status", "sample_id", "notes", "total_reads"]
+    assert header == [
+        "status",
+        "sample_id",
+        "notes",
+        "total_reads",
+        "limsport_qc_status",
+    ]
 
 
 def test_sample_id_column_is_output_first_when_config_omits_it(tmp_path):
@@ -104,7 +116,7 @@ def test_sample_id_column_is_output_first_when_config_omits_it(tmp_path):
     out = tmp_path / "out.tsv"
     pipeline.run_export(input_basic(tmp_path), config, None, out, None)
     header = table_io.get_input_header(out)
-    assert header == ["sample_id", "status", "read_count"]
+    assert header == ["sample_id", "status", "read_count", "limsport_qc_status"]
 
 
 def test_missing_config_column_raises_before_output_created(tmp_path):
@@ -154,7 +166,7 @@ def test_output_false_column_qcs_rows_but_is_excluded_from_output(tmp_path):
         input_basic(tmp_path), config_qc_range_output_hidden(tmp_path), None, out, None
     )
     header = table_io.get_input_header(out)
-    assert header == ["sample_id", "status"]
+    assert header == ["sample_id", "status", "limsport_qc_status"]
     rows = list(table_io.iter_rows(out))
     passing_samples = {row[0] for row in rows}
     # read_count still gates rows even though it's dropped from the output:

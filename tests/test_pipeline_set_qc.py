@@ -156,10 +156,9 @@ def test_set_qc_check_input_column_need_not_be_in_output_columns_allow_list(tmp_
     )
     out = tmp_path / "out.tsv"
     pipeline.run_export(input_tsv, config, None, out, None)
-    rows = list(
-        table_io.iter_rows(out, delimiter="\t")
-    )  # single output column: can't auto-detect
-    assert rows == [["NTC1"], ["SAMPLE_A"]]  # "reads" isn't in the output
+    rows = list(table_io.iter_rows(out))
+    # "reads" isn't in the output
+    assert rows == [["NTC1", "PASS"], ["SAMPLE_A", "PASS"]]
 
 
 def test_set_qc_samples_matcher_identifies_by_exact_name(tmp_path):
@@ -366,8 +365,8 @@ def test_set_qc_with_columns_omitted_passes_every_input_column_through_unchanged
     pipeline.run_export(input_tsv, config, None, out, None)
     rows = list(table_io.iter_rows(out))
     assert rows == [
-        ["NTC1", "500", "blank control"],
-        ["SAMPLE_A", "50000", "real sample"],
+        ["NTC1", "500", "blank control", "PASS"],
+        ["SAMPLE_A", "50000", "real sample", "PASS"],
     ]
 
 
@@ -454,11 +453,13 @@ def test_set_qc_is_empty_fails_the_run_when_a_negative_control_has_contamination
     assert report_rows["NTC1"][6] == "value 'Escherichia coli' is not empty"
 
 
-def test_set_qc_failure_stops_running_file_parsing_for_the_remaining_rows(tmp_path):
-    # Once a set_qc rule fails, the run can only produce a header, so no later row
-    # should be expanded -- which for file_parsing means no more subprocesses.
+def test_set_qc_failure_still_runs_sample_level_qc_on_every_row(tmp_path):
+    # Every sample's own QC results are reported even after the run has failed
+    # set_qc, so every later row is still expanded and checked.
     data = tmp_path / "data.txt"
     data.write_text("42\n")
+    low = tmp_path / "low.txt"
+    low.write_text("5\n")
     calls = tmp_path / "calls.log"
 
     # NTC1 is the first row and violates the rule immediately
@@ -466,7 +467,7 @@ def test_set_qc_failure_stops_running_file_parsing_for_the_remaining_rows(tmp_pa
     input_tsv.write_text(
         "sample_id\tdata_path\treads\n"
         f"NTC1\t{data}\t9999\n"
-        + "".join(f"SAMPLE_{i:03d}\t{data}\t10\n" for i in range(20))
+        + "".join(f"SAMPLE_{i:03d}\t{low if i == 5 else data}\t10\n" for i in range(20))
     )
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -477,6 +478,8 @@ def test_set_qc_failure_stops_running_file_parsing_for_the_remaining_rows(tmp_pa
         "      - output_column: extracted\n"
         "        command: |\n"
         f'          echo call >> {calls}; cat "$FILE"\n'
+        "        qc:\n"
+        '          - {operator: ">=", value: 10}\n'
         "set_qc:\n"
         '  - rule_name: "NTC reads are low"\n'
         "    match_samples:\n"
@@ -492,11 +495,13 @@ def test_set_qc_failure_stops_running_file_parsing_for_the_remaining_rows(tmp_pa
         input_tsv, config, None, out, qc_report, allow_file_parsing=True
     )
 
-    # the whole run failed, so no rows and no file_parsing work at all
+    # the whole run failed, so no rows, but every row was still parsed once
     assert list(table_io.iter_rows(out)) == []
-    assert not calls.exists() or calls.read_text() == ""
-    # every sample is still accounted for: NTC1 in detail, the rest collateral
-    assert len(list(table_io.iter_rows(qc_report))) == 21
+    assert len(calls.read_text().splitlines()) == 21
+    report_rows = list(table_io.iter_rows(qc_report))
+    # NTC1's set_qc detail, SAMPLE_005's own failure, and 20 collateral rows
+    assert len(report_rows) == 22
+    assert ["SAMPLE_005", "data_path", "extracted"] in [r[:3] for r in report_rows]
 
 
 def _late_control_file_parsing_scenario(tmp_path, *, ntc_reads):
@@ -533,28 +538,8 @@ def _late_control_file_parsing_scenario(tmp_path, *, ntc_reads):
     return input_tsv, config, calls
 
 
-def test_set_qc_failure_on_the_last_row_still_runs_no_file_parsing(tmp_path):
-    # The point of the set_qc pre-pass: a control at the END of the input must not
-    # cost a single subprocess, even though its failure isn't known until the last
-    # row is read. Without the pre-pass, all 20 rows before it are expanded first.
-    input_tsv, config, calls = _late_control_file_parsing_scenario(
-        tmp_path, ntc_reads=9999
-    )
-    out = tmp_path / "out.tsv"
-    qc_report = tmp_path / "qc_report.tsv"
-    pipeline.run_export(
-        input_tsv, config, None, out, qc_report, allow_file_parsing=True
-    )
-
-    assert not calls.exists() or calls.read_text() == ""
-    assert list(table_io.iter_rows(out)) == []
-    # 1 detail row for NTC1 + 20 collateral rows
-    assert len(list(table_io.iter_rows(qc_report))) == 21
-
-
-def test_set_qc_zero_match_runs_no_file_parsing_before_raising(tmp_path):
-    # A rule matching no sample is a hard error, and it must not cost any
-    # file_parsing work either -- it's only detectable once the input is read.
+def test_set_qc_zero_match_raises_without_writing_output(tmp_path):
+    # A rule matching no sample is a hard error, only detectable once the input is read.
     data = tmp_path / "data.txt"
     data.write_text("42\n")
     calls = tmp_path / "calls.log"
@@ -584,13 +569,11 @@ def test_set_qc_zero_match_runs_no_file_parsing_before_raising(tmp_path):
     out = tmp_path / "out.tsv"
     with pytest.raises(InputTableError, match="matched no samples"):
         pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
-    assert not calls.exists() or calls.read_text() == ""
     assert not out.exists()
 
 
 def test_set_qc_pass_with_file_parsing_still_expands_every_row_once(tmp_path):
-    # The pre-pass must not change the outcome when set_qc passes: every row is
-    # still expanded exactly once -- not twice -- and reaches the output.
+    # every row is expanded exactly once and reaches the output
     input_tsv, config, calls = _late_control_file_parsing_scenario(
         tmp_path, ntc_reads=500
     )

@@ -37,9 +37,8 @@ class IngestSummary:
         seen_samples: a set of every sample name encountered
         set_qc_matched: each set_qc rule name mapped to the samples it matched.
         set_qc_failures: each set_qc rule name mapped to the failures it collected.
-        set_qc_failed: True once any set_qc check has failed to prevent any further processing
-        row_failures: per-row QC failures. Discarded when a set_qc rule fails the run,
-          since the run-level verdict replaces them.
+        row_failures: per-row QC failures, reported whether or not a set_qc rule fails
+          the run.
         last_parse_failure: the most recent file_parsing failure reason, quoted in the
           error when parsing fails too often or fails outright.
         total_rows: the number of rows in the input.
@@ -60,7 +59,6 @@ class IngestSummary:
     seen_samples: set[str] = field(default_factory=set)
     set_qc_matched: dict[str, list[str]] = field(default_factory=dict)
     set_qc_failures: dict[str, list[qc.QCFailure]] = field(default_factory=dict)
-    set_qc_failed: bool = False
     row_failures: list[qc.QCFailure] = field(default_factory=list)
     last_parse_failure: str = ""
     total_rows: int = 0
@@ -210,13 +208,11 @@ def read_input(
     """
     Reads every input row, QCs it, and writes the passing ones straight to `writer`.
 
-    When `writer=None`, this is a set_qc-only pre-pass where only set_qc is evaluated.
-
     Each row/QC pass is written immediately to a temp file that is finalized after all
     processing is complete with no set_qc failures.
 
-    If a set_qc check fails, all subsequent rows skip expansion and QC entirely, unless
-    `include_qc_fails` is set, in which case every row is still expanded and written.
+    Every row gets per-row QC even after a set_qc check fails, so every sample's own
+    failures are reported.
 
     Samples matched by `skip_sample_qc` skip per-row QC: they are still checked by
     set_qc, and are written without their own file_parsing failures counting against
@@ -224,6 +220,9 @@ def read_input(
 
     A set_qc rule with `include_sample_qc` also fails the run when a sample it matches
     fails per-row QC.
+
+    When `layout.has_qc_status`, each written row ends with its own PASS/FAIL verdict;
+    a run that fails set_qc is marked FAIL afterward by the caller.
 
     Args:
         input_path: the input table to read.
@@ -234,8 +233,7 @@ def read_input(
         requested_samples: the sample names to keep, or None to keep all.
         max_file_parsing_failures: how many rows may fail file_parsing before
           the run aborts, or None for no limit.
-        writer: an open row writer from table_io.open_row_writer(), or None to
-          evaluate set_qc only and write nothing.
+        writer: an open row writer from table_io.open_row_writer().
         skip_sample_qc: the samples that skip per-row QC, or None for none.
         include_qc_fails: whether rows that fail QC are written too.
 
@@ -252,9 +250,6 @@ def read_input(
         set_qc_failures={rule.rule_name: [] for rule in set_qc_rules},
     )
 
-    # read_input runs twice when set_qc has a pre-pass, so tag the pre-pass's lines
-    read_tag = "[set_qc pre-pass] " if writer is None else ""
-
     for row in table_io.iter_rows(input_path, input_delimiter):
         # sample name should always be in the first column -- potentially modify this
         # to be configurable in the future
@@ -265,7 +260,7 @@ def read_input(
             summary.seen_samples.add(sample)
             if sample not in requested_samples:
                 # skip samples not specified
-                logger.debug("%s%s: skipped, not in --samples", read_tag, sample)
+                logger.debug("%s: skipped, not in --samples", sample)
                 continue
         summary.candidate_rows += 1
         summary.sample_names.append(sample)
@@ -283,9 +278,6 @@ def read_input(
         # the include_sample_qc rules matching this sample, settled after row QC
         sample_qc_rules: list[SetQCRule] = []
 
-        # Always evaluated, even once doomed: every rule still needs its full
-        # matched-sample list for pipeline._check_set_qc_matched_samples(), and every failing
-        # sample still earns its own full-detail report row.
         for rule in set_qc_rules:
             if not rule.match_samples.applies_to(sample):
                 continue
@@ -316,30 +308,18 @@ def read_input(
             ]
             rule_outcome = qc.evaluate_row(rule_qc_inputs, sample)
             logger.debug(
-                "%s%s: set_qc rule %r %s",
-                read_tag,
+                "%s: set_qc rule %r %s",
                 sample,
                 rule.rule_name,
                 "passed" if rule_outcome.passed else "failed",
             )
             if not rule_outcome.passed:
                 summary.set_qc_failures[rule.rule_name].extend(rule_outcome.failures)
-                summary.set_qc_failed = True
-
-        if writer is None or (summary.set_qc_failed and not include_qc_fails):
-            # a set_qc-only pre-pass, or a run that can no longer produce output
-            if writer is not None:
-                logger.debug(
-                    "%s%s: row QC skipped, run already failed set_qc",
-                    read_tag,
-                    sample,
-                )
-            continue
 
         if not layout.config_has_columns:
             # pass-through: no QC configured, so the raw cells are the output row
-            logger.debug("%s%s: written unchanged", read_tag, sample)
-            writer.writerow(row)
+            logger.debug("%s: written unchanged", sample)
+            writer.writerow([*row, "PASS"] if layout.has_qc_status else row)
             summary.written_rows += 1
             continue
 
@@ -350,10 +330,8 @@ def read_input(
 
         if skips_sample_qc:
             # a file that won't parse is left blank rather than counted as a failure
-            logger.debug(
-                "%s%s: in skip_sample_qc, row QC skipped, written", read_tag, sample
-            )
-            writer.writerow(_output_row(qc_inputs))
+            logger.debug("%s: in skip_sample_qc, row QC skipped, written", sample)
+            writer.writerow([*_output_row(qc_inputs), "PASS"])
             summary.written_rows += 1
             continue
         summary.expanded_rows += 1
@@ -388,27 +366,24 @@ def read_input(
         if not row_outcome.passed:
             for rule in sample_qc_rules:
                 logger.debug(
-                    "%s%s: set_qc rule %r failed on sample-level qc",
-                    read_tag,
+                    "%s: set_qc rule %r failed on sample-level qc",
                     sample,
                     rule.rule_name,
                 )
                 summary.set_qc_failures[rule.rule_name].extend(row_outcome.failures)
-                summary.set_qc_failed = True
             logger.debug(
-                "%s%s: failed QC on %s%s",
-                read_tag,
+                "%s: failed QC on %s%s",
                 sample,
                 [f.output_column or f.input_column for f in row_outcome.failures],
                 ", written" if include_qc_fails else "",
             )
             if include_qc_fails:
-                writer.writerow(_output_row(qc_inputs))
+                writer.writerow([*_output_row(qc_inputs), "FAIL"])
                 summary.written_failed_rows += 1
             continue
-        logger.debug("%s%s: passed QC, written", read_tag, sample)
+        logger.debug("%s: passed QC, written", sample)
         # write output to temp file
-        writer.writerow(_output_row(qc_inputs))
+        writer.writerow([*_output_row(qc_inputs), "PASS"])
         summary.written_rows += 1
 
     return summary

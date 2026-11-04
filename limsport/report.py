@@ -1,7 +1,7 @@
 """
 Turns QC results human-readable by using log lines on stderr, a QC failure report (one
 row per failing sample/column pair), and a QC summary (one PASS/FAIL/CONTROL row per
-sample).
+sample, with the reasons for any failure).
 
 External methods:
     - log_summary()
@@ -23,7 +23,7 @@ from .qc import REPORT_HEADER, QCFailure
 
 logger = logging.getLogger("limsport")
 
-SUMMARY_HEADER = ["sample", "qc_status"]
+SUMMARY_HEADER = ["sample", "qc_status", "rationale"]
 
 
 def log_summary(passed: int, total: int) -> None:
@@ -126,7 +126,7 @@ def write_qc_report(
     )
 
 
-def _qc_status(sample: str, failed: set[str], skipped: Collection[str]) -> str:
+def _qc_status(sample: str, failed: Collection[str], skipped: Collection[str]) -> str:
     """
     Picks one sample's QC summary status.
 
@@ -146,6 +146,25 @@ def _qc_status(sample: str, failed: set[str], skipped: Collection[str]) -> str:
     return "PASS"
 
 
+def _rationale(failures: list[QCFailure]) -> str:
+    """
+    Joins one sample's failures into a single QC summary cell.
+
+    Args:
+        failures: the sample's failures, in the order they were found.
+
+    Returns:
+        Each failure as "<column>: <reason>" (just the reason when no column failed,
+        as in a run-level set_qc failure), separated by "; ". Empty with no failures.
+    """
+    return "; ".join(
+        f"{fail.output_column or fail.input_column}: {fail.reason}"
+        if fail.output_column or fail.input_column
+        else fail.reason
+        for fail in failures
+    )
+
+
 def write_qc_summary(
     path: Path,
     samples: list[str],
@@ -154,7 +173,7 @@ def write_qc_summary(
     delimiter: str = "\t",
 ) -> None:
     """
-    Writes one PASS/FAIL/CONTROL row per sample
+    Writes one PASS/FAIL/CONTROL row per sample and why it failed
 
     Args:
         path: where to write the QC summary.
@@ -163,12 +182,18 @@ def write_qc_summary(
         skipped: the samples that skipped per-row QC (skip_sample_qc).
         delimiter: the delimiter to join cells with; defaults to a tab.
     """
-    failed = {fail.sample for fail in failures}
+    failures_by_sample: dict[str, list[QCFailure]] = {}
+    for fail in failures:
+        failures_by_sample.setdefault(fail.sample, []).append(fail)
     table_io.write_tsv(
         path,
         SUMMARY_HEADER,
         (
-            [sample, _qc_status(sample, failed, skipped)]
+            [
+                sample,
+                _qc_status(sample, failures_by_sample.keys(), skipped),
+                _rationale(failures_by_sample.get(sample, [])),
+            ]
             for sample in dict.fromkeys(samples)
         ),
         delimiter,

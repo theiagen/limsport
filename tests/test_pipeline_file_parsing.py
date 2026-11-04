@@ -38,11 +38,11 @@ def test_file_parsing_result_flows_through_qc_and_output(tmp_path):
 
     header = table_io.get_input_header(out)
     rows = list(table_io.iter_rows(out))
-    assert header == ["sample_id", "extracted"]
+    assert header == ["sample_id", "extracted", "limsport_qc_status"]
     # The parsed value ("123", extracted from the file) is what's output and
     # what QC saw -- not the raw file path, and the sample passes because
     # the QC rule (`= "123"`) is checked against the parsed result.
-    assert rows == [["SAMPLE_001", "123"]]
+    assert rows == [["SAMPLE_001", "123", "PASS"]]
 
 
 def _mixed_scenario(tmp_path, command, extra_qc=""):
@@ -110,7 +110,7 @@ def test_file_parsing_failure_drops_only_the_failing_row(tmp_path):
     )
 
     # the whole point: one unreadable file no longer costs you every other sample
-    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123"]]
+    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123", "PASS"]]
     report_rows = list(table_io.iter_rows(qc_report))
     assert [r[0] for r in report_rows] == ["SAMPLE_BAD"]
 
@@ -123,7 +123,7 @@ def test_file_parsing_failure_fails_the_row_even_with_no_qc_configured(tmp_path)
 
     pipeline.run_export(input_tsv, config, None, out, None, allow_file_parsing=True)
 
-    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123"]]
+    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123", "PASS"]]
 
 
 def test_file_parsing_failure_reports_the_path_it_could_not_parse(tmp_path):
@@ -201,7 +201,7 @@ def test_max_file_parsing_failures_tolerates_up_to_the_limit(tmp_path):
         allow_file_parsing=True,
         max_file_parsing_failures=1,
     )
-    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123"]]
+    assert list(table_io.iter_rows(out)) == [["SAMPLE_GOOD", "123", "PASS"]]
 
 
 def test_missing_cloud_tool_still_aborts_the_whole_run(tmp_path, monkeypatch):
@@ -328,8 +328,14 @@ def test_file_parsing_multi_output_produces_multiple_columns_from_one_source(tmp
 
     header = table_io.get_input_header(out)
     rows = list(table_io.iter_rows(out))
-    assert header == ["sample_id", "mean_depth", "coverage_pct", "mean_mapq"]
-    assert rows == [["SAMPLE_001", "42.5", "99.98", "60.0"]]
+    assert header == [
+        "sample_id",
+        "mean_depth",
+        "coverage_pct",
+        "mean_mapq",
+        "limsport_qc_status",
+    ]
+    assert rows == [["SAMPLE_001", "42.5", "99.98", "60.0", "PASS"]]
 
 
 def test_file_parsing_multi_output_qc_applies_independently_per_output(tmp_path):

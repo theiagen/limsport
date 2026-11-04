@@ -291,7 +291,7 @@ def test_file_parsing_with_flag_succeeds(tmp_path):
     )
     assert rc == 0
     rows = list(table_io.iter_rows(out))
-    assert rows == [["SAMPLE_001", "hello"]]
+    assert rows == [["SAMPLE_001", "hello", "PASS"]]
 
 
 @pytest.mark.parametrize(
@@ -326,13 +326,22 @@ def test_qc_summary_lists_every_sample_with_its_status(tmp_path):
     assert table_io.get_input_header(summary_path, delimiter=",") == [
         "sample",
         "qc_status",
+        "rationale",
     ]
     assert list(table_io.iter_rows(summary_path, ",")) == [
-        ["SAMPLE_001", "PASS"],
-        ["SAMPLE_002", "FAIL"],
-        ["SAMPLE_003", "FAIL"],
-        ["SAMPLE_004", "FAIL"],
-        ["SAMPLE_005", "FAIL"],
+        ["SAMPLE_001", "PASS", ""],
+        ["SAMPLE_002", "FAIL", "read_count: 500.0 >= 1000 is False"],
+        ["SAMPLE_003", "FAIL", "read_count: 2000000.0 <= 1000000 is False"],
+        [
+            "SAMPLE_004",
+            "FAIL",
+            "status: value 'FAIL' != 'PASS' (case insensitive: False)",
+        ],
+        [
+            "SAMPLE_005",
+            "FAIL",
+            "read_count: non-numeric value 'NA' cannot be compared with >= 1000",
+        ],
     ]
 
 

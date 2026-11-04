@@ -1,11 +1,11 @@
-sample	qc_status
-19050801924	FAIL
-461023	FAIL
-03-98DDCS	FAIL
-CL2021-00283104	FAIL
-155734	FAIL
-480757	FAIL
-SAMN24249320	FAIL
-369711	FAIL
-NTC1	FAIL
-PC1	FAIL
+sample	qc_status	rationale
+19050801924	FAIL	run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
+461023	FAIL	coverage: non-numeric value 'NA' cannot be compared with >= 30; run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
+03-98DDCS	FAIL	read_pairs: missing value; run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
+CL2021-00283104	FAIL	n50: 10000.0 > 15000 is False; contig_count: 853.0 <= 300 is False; coverage: 20.98 >= 30 is False; quast_n50: 10000.0 >= 50000 is False; run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
+155734	FAIL	run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
+480757	FAIL	coverage: 28.62 >= 30 is False; run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
+SAMN24249320	FAIL	mean_quality: missing value; run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
+369711	FAIL	assembly_length: no qc rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured; quast_n50: no qc rule matches gambit_predicted_taxon='Salmonella enterica' for file_parsing output 'quast_n50' (column 'quast_report'), and no default is configured; run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']
+NTC1	FAIL	raw_read_count: 5000.0 <= 1000 is False
+PC1	FAIL	run failed QC due to set_qc rule(s): ['NTC has no organism flagged and low raw read count']

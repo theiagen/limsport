@@ -19,6 +19,9 @@ from .exceptions import ConfigError, InputTableError
 
 logger = logging.getLogger("limsport")
 
+# appended to the output whenever a config is given, so QC ran on every row
+QC_STATUS_COLUMN = "limsport_qc_status"
+
 
 @dataclass(frozen=True)
 class ExportLayout:
@@ -34,14 +37,15 @@ class ExportLayout:
           set_qc -> contains the columns that are being checked
         config_has_columns: True when the config lists `sample_qc`, so each row is
           expanded into QCInputs. False when there is no config or only `set_qc`.
-        set_qc_prepass: True when both file_parsing and set_qc are used in the config
+        has_qc_status: True when the output header ends with QC_STATUS_COLUMN, so
+          every written row ends with its PASS/FAIL verdict. False with no config.
     """
 
     output_header: list[str]
     column_positions: list[tuple[ColumnConfig, int]]
     match_index: dict[str, int]
     config_has_columns: bool
-    set_qc_prepass: bool
+    has_qc_status: bool
 
 
 def _build_column_name_index(header: list[str]) -> dict[str, list[int]]:
@@ -244,7 +248,7 @@ def build_layout(
             column_positions=[],
             match_index={},
             config_has_columns=False,
-            set_qc_prepass=False,
+            has_qc_status=False,
         )
 
     _validate_columns_exist(config.sample_qc or [], column_name_indices, input_path)
@@ -296,18 +300,12 @@ def build_layout(
         }
     )
 
-    # Preprocess for set_qc if any file parsing is included in the config to avoid
-    # wasteful GCP downloads
-    file_parsing_included = any(
-        c.contains_file_parsing for c in (config.sample_qc or [])
-    )
-
     layout = ExportLayout(
-        output_header=output_header,
+        output_header=[*output_header, QC_STATUS_COLUMN],
         column_positions=column_positions,
         match_index={name: column_name_indices[name][0] for name in match_columns},
         config_has_columns=config.sample_qc is not None,
-        set_qc_prepass=bool(config.set_qc) and file_parsing_included,
+        has_qc_status=True,
     )
     for column, idx in layout.column_positions:
         logger.debug(

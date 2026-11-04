@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 echo "=== successful run ==="
+echo "   include-qc-fails   "
 echo ""
 
 limsport \
@@ -8,6 +9,7 @@ limsport \
     --config configs/config.yaml \
     --samples inputs/samples.txt \
     --output-prefix outputs/output \
+    --include-qc-fails \
     --allow-file-parsing
 
 echo ""
