@@ -63,7 +63,7 @@ sample_qc:
 
 ### Config QC
 
-A sample failing a `qc` rule gets dropped from the output and reported in the log and the QC failure report.
+A sample failing a `qc` rule gets dropped from the output (unless `--include-qc-fails` is set) and reported in the log and the QC failure report. When a `--config` is given, the output ends with a `limsport_qc_status` column marking each row `PASS` or `FAIL` (`FAIL` only shows up with `--include-qc-fails`, since failing rows are otherwise left out).
 
 Configs are considered malformatted when either (a) config columns that are not present in the input table, or (b) contain ambiguous column names. Malformatted configs cause the program to exit.
 
@@ -186,6 +186,8 @@ set_qc:
 
 **Every** matched sample must pass **every** check for the rule to pass. If any matched sample fails any check, the whole run is considered a QC fail.
 
+Sample-level QC still runs on every sample when a `set_qc` rule fails the run, so each sample's own failures are reported alongside the run-level failure (see [The QC report](#the-qc-report)). This means `file_parsing` commands and `gs://` downloads also run for every sample in a failed run.
+
 A rule that identifies zero samples in the run is itself a hard error (there's no sample to attach a QC failure to), not a QC failure -- the run aborts before any output is written. For `samples:` specifically, this applies **per name**: every sample name listed must exist in the run, not just at least one of them, so a typo'd or missing name (e.g. a dropped negative control) can't silently go unchecked.
 
 #### Skipping sample-level QC
@@ -275,7 +277,9 @@ A QC failure report, named `<output-prefix>_qc_fail_report` with the same extens
 | `actual`        | the actual row value                                                                                                         |
 | `reason`        | the reason why it failed                                                                                                     |
 
-A QC summary, named `<output-prefix>_qc_summary` with the same extension and delimiter as the output (default: `limsport_qc_summary.tsv`), lists every sample QC ran on (after any `--samples` filter) with its `qc_status`: `PASS`, `FAIL`, or `CONTROL` for a sample in `skip_sample_qc` (see above). A sample listed more than once in the input gets one row, and is `FAIL` if any of its rows failed. Like the QC failure report, it is only written when a `--config` is given.
+When a `set_qc` rule fails the run, every sample fails QC. A sample that broke the rule gets a row for each `set_qc` check it failed, and every other sample gets one row with only `reason` filled in, naming the rule(s) that failed the run. Each sample's own sample-level failures are listed as well, so a sample can have both kinds of rows. The output is header-only unless `--include-qc-fails` is set, in which case every row is written and marked `FAIL`.
+
+A QC summary, named `<output-prefix>_qc_summary` with the same extension and delimiter as the output (default: `limsport_qc_summary.tsv`), lists every sample QC ran on (after any `--samples` filter) with its `qc_status`: `PASS`, `FAIL`, or `CONTROL` for a sample in `skip_sample_qc` (see above). The `rationale` column lists why a sample failed, as `<column>: <reason>` for each failure separated by `; ` (a run-level `set_qc` failure is just the reason), and is blank for `PASS` and `CONTROL` samples. A sample listed more than once in the input gets one row, and is `FAIL` if any of its rows failed. Like the QC failure report, it is only written when a `--config` is given.
 
 ## Delimiter handling
 
