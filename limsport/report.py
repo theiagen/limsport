@@ -26,15 +26,24 @@ logger = logging.getLogger("limsport")
 SUMMARY_HEADER = ["sample", "qc_status", "rationale"]
 
 
-def log_summary(passed: int, total: int) -> None:
+def log_summary(passed: int, total: int, controls: int = 0) -> None:
     """
     Logs how many samples passed QC.
 
     Args:
         passed: the number of samples that passed every QC rule.
-        total: the number of samples QC was run against.
+        total: the number of samples QC was run against, not counting controls.
+        controls: the number of skip_sample_qc samples, which have no row verdict.
     """
-    logger.info("%d/%d samples passed QC", passed, total)
+    if controls:
+        logger.info(
+            "%d/%d samples passed QC (%d control(s) skipped sample-level QC)",
+            passed,
+            total,
+            controls,
+        )
+    else:
+        logger.info("%d/%d samples passed QC", passed, total)
 
 
 def log_no_qc_summary(included: int, total: int) -> None:
@@ -57,7 +66,7 @@ def log_nothing_to_do() -> None:
 
 def log_file_parsing_failures(failed: int, total: int) -> None:
     """
-    Warns that some rows were dropped because their file wouldn't parse.
+    Warns that some rows failed QC because their file wouldn't parse.
 
     Logged separately from the QC summary because it usually means a broken path or
     an unreadable file, not a sample that genuinely failed its thresholds.
@@ -67,7 +76,7 @@ def log_file_parsing_failures(failed: int, total: int) -> None:
         total: the number of rows QC was run against.
     """
     logger.warning(
-        "%d/%d samples dropped: file_parsing could not produce a value (see the QC report for each reason)",
+        "%d/%d samples failed QC: file_parsing could not produce a value (see the QC report for each reason)",
         failed,
         total,
     )
@@ -81,7 +90,10 @@ def log_qc_failures(failures: list[QCFailure]) -> None:
         failures: every failure found across every sample.
     """
     for failure in failures:
-        if failure.output_column != failure.input_column:
+        if not failure.input_column:
+            # a run-level set_qc failure names no column
+            logger.warning("%s: failed QC (%s)", failure.sample, failure.reason)
+        elif failure.output_column != failure.input_column:
             # only mention the rename when there is one
             logger.warning(
                 "%s: column %r (output %r) failed QC (%s)",

@@ -1,9 +1,8 @@
 """
 This module performs QC evaluation; given a cell's raw string value and a configured condition/column/sample, it will decide if that row passes or fails and why.
 
-Three classes are included:
+Two classes are included:
     - QCFailure
-    - QCResult
     - QCInput
 
 These are stand-ins for when "this output could not be checked":
@@ -13,17 +12,17 @@ These are stand-ins for when "this output could not be checked":
 
 Included external methods:
     - evaluate_condition()
+    - evaluate_qc_input()
     - evaluate_row()
 
 Included constants:
-    - REPORT_HEADER -- the --qc-report TSV's columns, in QCFailure.to_list() order
+    - REPORT_HEADER -- the QC failure report's columns, in QCFailure.to_list() order
 """
 
+import math
 import operator as op
 from dataclasses import dataclass
 from typing import NamedTuple
-
-from pydantic import BaseModel
 
 from .config import QCCondition, QCOperator
 
@@ -37,7 +36,7 @@ _COMPARISON_OPS = {
 }
 
 
-# The --qc-report TSV's columns. Kept here because QCFailure.to_list() emits its
+# The QC failure report's columns. Kept here because QCFailure.to_list() emits its
 # cells in this exact order; the two have to be changed together.
 REPORT_HEADER = [
     "sample",
@@ -50,10 +49,11 @@ REPORT_HEADER = [
 ]
 
 
-class QCFailure(BaseModel):
+@dataclass(frozen=True)
+class QCFailure:
     """
     One sample's failing check on one output, reported both as a log line and a row in
-    the --qc-report TSV.
+    the QC failure report.
 
     `operator`, `expected`, and `actual` can all be None
 
@@ -88,24 +88,6 @@ class QCFailure(BaseModel):
             self.actual or "",
             self.reason,
         ]
-
-
-class QCResult(NamedTuple):
-    """
-    The result of evaluating every configured QC rule against one sample's row.
-
-    Attributes:
-        failures: a list of any QCFailure objects; empty when the sample passed.
-    """
-
-    failures: list[QCFailure]
-
-    @property
-    def passed(self) -> bool:
-        """
-        True when the row cleared every QC condition it was checked against.
-        """
-        return not self.failures
 
 
 @dataclass(frozen=True)
@@ -215,10 +197,7 @@ def _remove_case(value: str, case_insensitive: bool) -> str:
     Returns:
         The folded string, or `value` untouched when case_insensitive is False.
     """
-    if case_insensitive:
-        return value.casefold()
-    else:
-        return value
+    return value.casefold() if case_insensitive else value
 
 
 def _evaluate_contains(
@@ -298,15 +277,15 @@ def evaluate_condition(
 
     # numeric checks
     try:
-        # cast the raw value to a float
         raw_number = float(raw_value)
     except ValueError:
-        # cells that can't be cast to a numbers are QC fails
+        raw_number = math.nan
+    # float() also accepts "inf" and "nan", which no threshold should pass
+    if not math.isfinite(raw_number):
         return False, (
             f"non-numeric value {raw_value!r} cannot be compared with {condition.operator.value} {condition.value}"
         )
 
-    # double-check, shouldn't ever be false
     assert condition.value is not None
 
     # cast the config value, so "5" and 5.0 compare equal
@@ -354,7 +333,7 @@ def evaluate_qc_input(qc_input: QCInput, sample: str) -> QCFailure | None:
     return None
 
 
-def evaluate_row(qc_inputs: list[QCInput], sample: str) -> QCResult:
+def evaluate_row(qc_inputs: list[QCInput], sample: str) -> list[QCFailure]:
     """
     Checks every QC-configured QCInput for one sample's row.
 
@@ -363,7 +342,7 @@ def evaluate_row(qc_inputs: list[QCInput], sample: str) -> QCResult:
         sample: the sample name
 
     Returns:
-        A QCResult holding the pass/fail verdict and a list of every failure found.
+        Every failure found; empty when the row passed.
     """
     failures: list[QCFailure] = []
     for qc_input in qc_inputs:
@@ -378,4 +357,4 @@ def evaluate_row(qc_inputs: list[QCInput], sample: str) -> QCResult:
         if failure is not None:
             failures.append(failure)
 
-    return QCResult(failures=failures)
+    return failures

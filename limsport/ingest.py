@@ -43,7 +43,8 @@ class IngestSummary:
           error when parsing fails too often or fails outright.
         total_rows: the number of rows in the input.
         candidate_rows: the number of rows surviving the sample-list filter, before QC.
-        written_rows: how many passing or negative-control rows were written to the
+        written_rows: how many rows that passed QC were written to the staging file.
+        written_control_rows: how many skip_sample_qc rows were written to the
           staging file.
         written_failed_rows: how many rows that failed QC were written to the staging
           file because of `include_qc_fails`.
@@ -64,6 +65,7 @@ class IngestSummary:
     total_rows: int = 0
     candidate_rows: int = 0
     written_rows: int = 0
+    written_control_rows: int = 0
     written_failed_rows: int = 0
     parse_failed_rows: int = 0
     expanded_rows: int = 0
@@ -91,10 +93,8 @@ def _select_qc_conditions(
         conditional `qc` matched no rule and has no default.
     """
     if isinstance(qc_value, list):
-        # it's a list[QCCondition] already, return it
         return qc_value
 
-    # we have a ConditonalQC object
     match_value = match_values[qc_value.match_column]
     conditions = qc_value.conditions_for(match_value)
     if conditions is not None:
@@ -103,7 +103,6 @@ def _select_qc_conditions(
     return qc.NoMatchingRule(
         f"no qc rule matches {qc_value.match_column}={match_value!r} for {column}, and no default is configured"
     )
-    # return [] if unmatched conditionals should pass qc
 
 
 def _build_qc_inputs(
@@ -194,6 +193,74 @@ def _output_row(qc_inputs: list[qc.QCInput]) -> list[str]:
     ]
 
 
+def _evaluate_set_qc(
+    set_qc_rules: list[SetQCRule],
+    sample: str,
+    match_values: dict[str, str],
+    skips_sample_qc: bool,
+    summary: IngestSummary,
+    input_path: Path,
+) -> list[SetQCRule]:
+    """
+    Runs every set_qc rule that matches this sample, recording matches and failures
+    on `summary`.
+
+    Args:
+        set_qc_rules: the config's run-level rules.
+        sample: the row's sample name.
+        match_values: this row's value for every column in the layout's match_index.
+        skips_sample_qc: whether the sample is matched by skip_sample_qc.
+        summary: the running summary to record into.
+        input_path: the input table's path, used in the error message.
+
+    Returns:
+        The matching rules with `include_sample_qc`, which the row's own QC result
+        still has to be applied to.
+
+    Raises:
+        InputTableError: if a skip_sample_qc sample is matched by a rule with
+          `include_sample_qc`, which would need the per-row QC the sample skips.
+    """
+    sample_qc_rules: list[SetQCRule] = []
+    for rule in set_qc_rules:
+        if not rule.match_samples.applies_to(sample):
+            continue
+        summary.set_qc_matched[rule.rule_name].append(sample)
+        if rule.include_sample_qc:
+            if skips_sample_qc:
+                raise InputTableError(
+                    f"{input_path}: {sample} is matched by skip_sample_qc, but "
+                    f"set_qc rule {rule.rule_name!r} matches it with "
+                    f"include_sample_qc"
+                )
+            sample_qc_rules.append(rule)
+        rule_qc_inputs = [
+            qc.QCInput(
+                check.input_column,
+                # a set_qc check is only ever read, never output, so the
+                # input and output names are the same
+                check.input_column,
+                match_values[check.input_column],
+                _select_qc_conditions(
+                    check.qc,
+                    match_values,
+                    f"set_qc rule {rule.rule_name!r} column {check.input_column!r}",
+                ),
+                output=False,
+            )
+            for check in rule.checks
+        ]
+        rule_failures = qc.evaluate_row(rule_qc_inputs, sample)
+        logger.debug(
+            "%s: set_qc rule %r %s",
+            sample,
+            rule.rule_name,
+            "failed" if rule_failures else "passed",
+        )
+        summary.set_qc_failures[rule.rule_name].extend(rule_failures)
+    return sample_qc_rules
+
+
 def read_input(
     input_path: Path,
     input_delimiter: str,
@@ -231,9 +298,9 @@ def read_input(
         set_qc_rules: the config's run-level rules, or an empty list when there
           are none (or no config).
         requested_samples: the sample names to keep, or None to keep all.
+        writer: an open row writer from table_io.open_row_writer().
         max_file_parsing_failures: how many rows may fail file_parsing before
           the run aborts, or None for no limit.
-        writer: an open row writer from table_io.open_row_writer().
         skip_sample_qc: the samples that skip per-row QC, or None for none.
         include_qc_fails: whether rows that fail QC are written too.
 
@@ -242,7 +309,7 @@ def read_input(
 
     Raises:
         InputTableError: if a skip_sample_qc sample is matched by a set_qc rule with
-          `include_sample_qc`, which would need the per-row QC the sample skips.
+          `include_sample_qc`.
         FileParsingError: if more than `max_file_parsing_failures` rows fail to parse.
     """
     summary = IngestSummary(
@@ -253,7 +320,7 @@ def read_input(
     for row in table_io.iter_rows(input_path, input_delimiter):
         # sample name should always be in the first column -- potentially modify this
         # to be configurable in the future
-        sample = row[0] if row else ""
+        sample = row[0].strip()
         summary.total_rows += 1
 
         if requested_samples is not None:
@@ -275,52 +342,18 @@ def read_input(
         # while a set_qc check treats the match_value as the column being checked.
         match_values = {name: row[idx] for name, idx in layout.match_index.items()}
 
-        # the include_sample_qc rules matching this sample, settled after row QC
-        sample_qc_rules: list[SetQCRule] = []
-
-        for rule in set_qc_rules:
-            if not rule.match_samples.applies_to(sample):
-                continue
-            summary.set_qc_matched[rule.rule_name].append(sample)
-            if rule.include_sample_qc:
-                if skips_sample_qc:
-                    raise InputTableError(
-                        f"{input_path}: {sample} is matched by skip_sample_qc, but "
-                        f"set_qc rule {rule.rule_name!r} matches it with "
-                        f"include_sample_qc"
-                    )
-                sample_qc_rules.append(rule)
-            rule_qc_inputs = [
-                qc.QCInput(
-                    check.input_column,
-                    # a set_qc check is only ever read, never output, so the
-                    # input and output names are the same
-                    check.input_column,
-                    match_values[check.input_column],
-                    _select_qc_conditions(
-                        check.qc,
-                        match_values,
-                        f"set_qc rule {rule.rule_name!r} column {check.input_column!r}",
-                    ),
-                    output=False,
-                )
-                for check in rule.checks
-            ]
-            rule_outcome = qc.evaluate_row(rule_qc_inputs, sample)
-            logger.debug(
-                "%s: set_qc rule %r %s",
-                sample,
-                rule.rule_name,
-                "passed" if rule_outcome.passed else "failed",
-            )
-            if not rule_outcome.passed:
-                summary.set_qc_failures[rule.rule_name].extend(rule_outcome.failures)
+        sample_qc_rules = _evaluate_set_qc(
+            set_qc_rules, sample, match_values, skips_sample_qc, summary, input_path
+        )
 
         if not layout.config_has_columns:
             # pass-through: no QC configured, so the raw cells are the output row
             logger.debug("%s: written unchanged", sample)
             writer.writerow([*row, "PASS"] if layout.has_qc_status else row)
-            summary.written_rows += 1
+            if skips_sample_qc:
+                summary.written_control_rows += 1
+            else:
+                summary.written_rows += 1
             continue
 
         # build list of qc inputs (perform file parsing as indicated)
@@ -332,7 +365,7 @@ def read_input(
             # a file that won't parse is left blank rather than counted as a failure
             logger.debug("%s: in skip_sample_qc, row QC skipped, written", sample)
             writer.writerow([*_output_row(qc_inputs), "PASS"])
-            summary.written_rows += 1
+            summary.written_control_rows += 1
             continue
         summary.expanded_rows += 1
 
@@ -361,20 +394,20 @@ def read_input(
                 )
 
         # perform comparisons
-        row_outcome = qc.evaluate_row(qc_inputs, sample)
-        summary.row_failures.extend(row_outcome.failures)
-        if not row_outcome.passed:
+        row_failures = qc.evaluate_row(qc_inputs, sample)
+        summary.row_failures.extend(row_failures)
+        if row_failures:
             for rule in sample_qc_rules:
                 logger.debug(
                     "%s: set_qc rule %r failed on sample-level qc",
                     sample,
                     rule.rule_name,
                 )
-                summary.set_qc_failures[rule.rule_name].extend(row_outcome.failures)
+                summary.set_qc_failures[rule.rule_name].extend(row_failures)
             logger.debug(
                 "%s: failed QC on %s%s",
                 sample,
-                [f.output_column or f.input_column for f in row_outcome.failures],
+                [f.output_column or f.input_column for f in row_failures],
                 ", written" if include_qc_fails else "",
             )
             if include_qc_fails:
@@ -382,7 +415,6 @@ def read_input(
                 summary.written_failed_rows += 1
             continue
         logger.debug("%s: passed QC, written", sample)
-        # write output to temp file
         writer.writerow([*_output_row(qc_inputs), "PASS"])
         summary.written_rows += 1
 

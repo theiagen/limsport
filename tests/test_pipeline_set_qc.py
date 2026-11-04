@@ -636,3 +636,49 @@ def test_set_qc_conditional_check_match_column_must_exist(tmp_path):
     )
     with pytest.raises(InputTableError, match="has qc matching on column"):
         pipeline.run_export(input_tsv, config, None, tmp_path / "out.tsv", None)
+
+
+def test_failure_matched_by_two_include_sample_qc_rules_is_reported_once(tmp_path):
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text("sample_id\treads\nA\t50\nB\t10\n")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "sample_qc:\n"
+        "  - input_column: reads\n"
+        '    qc: [{operator: ">=", value: 20}]\n'
+        "set_qc:\n"
+        "  - rule_name: r1\n"
+        "    match_samples: {samples: [B]}\n"
+        "    include_sample_qc: true\n"
+        "  - rule_name: r2\n"
+        "    match_samples: {sample_pattern: B}\n"
+        "    include_sample_qc: true\n"
+    )
+    qc_report = tmp_path / "qc_report.tsv"
+    pipeline.run_export(input_tsv, config, None, tmp_path / "out.tsv", qc_report)
+    samples = [row[0] for row in table_io.iter_rows(qc_report)]
+    assert samples == ["B", "A"]
+
+
+def test_set_qc_only_config_rejects_input_with_a_qc_status_column(tmp_path):
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text("sample_id\treads\tlimsport_qc_status\nNTC1\t500\tPASS\n")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "set_qc:\n"
+        "  - rule_name: r\n"
+        "    match_samples: {sample_pattern: NTC}\n"
+        '    checks: [{input_column: reads, qc: [{operator: "<", value: 1000}]}]\n'
+    )
+    with pytest.raises(InputTableError, match="limsport_qc_status"):
+        pipeline.run_export(input_tsv, config, None, tmp_path / "out.tsv", None)
+
+
+def test_sample_names_are_stripped_before_matching(tmp_path):
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text("sample_id\treads\nA \t5\nB\t6\n")
+    samples = tmp_path / "samples.txt"
+    samples.write_text("A\n")
+    out = tmp_path / "out.tsv"
+    pipeline.run_export(input_tsv, None, samples, out, None)
+    assert [row[0] for row in table_io.iter_rows(out)] == ["A "]

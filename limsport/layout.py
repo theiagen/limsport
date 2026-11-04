@@ -11,10 +11,12 @@ External methods:
 """
 
 import logging
+from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import ColumnConfig, ConditionalQC, ExportConfig, SetQCRule
+from .config import ColumnConfig, ConditionalQC, ExportConfig
 from .exceptions import ConfigError, InputTableError
 
 logger = logging.getLogger("limsport")
@@ -32,7 +34,7 @@ class ExportLayout:
         output_header: the output table's header row
         column_positions: each configured column paired with the header index it
           reads from.
-        match_index: the columns that are used in QC mapped to to its header index.
+        match_index: the columns that are used in QC mapped to its header index.
           ConditionalQC -> contains the columns upon which the match/qc conditions apply
           set_qc -> contains the columns that are being checked
         config_has_columns: True when the config lists `sample_qc`, so each row is
@@ -96,80 +98,44 @@ def _validate_header_reference(
         )
 
 
-def _validate_columns_exist(
-    columns: list[ColumnConfig],
-    column_name_indices: dict[str, list[int]],
-    input_path: Path,
-) -> None:
+def _column_references(config: ExportConfig) -> Iterator[tuple[str, str, bool]]:
     """
-    Checks before any output is written if the config references a column that doesn't
-    exist or exists more than once.
+    Walks every input column the config names, sample_qc first, then set_qc.
 
     Args:
-        columns: every column the config configures, including their qc matches
-          and file_parsing outputs.
-        column_name_indices: the input header's name-to-indices index.
-        input_path: the input table's path, used in the error message.
+        config: the loaded config.
 
-    Raises:
-        InputTableError: if any referenced column is missing from the input header,
-          or appears more than once.
+    Yields:
+        (column name, how the config referenced it for error messages, whether its
+        value is read from each row for conditional QC or a set_qc check).
     """
-    for column in columns:
-        _validate_header_reference(
-            column.input_column,
-            column_name_indices,
-            input_path,
-            "config references column",
-        )
+    for column in config.sample_qc or []:
+        yield column.input_column, "config references column", False
         if isinstance(column.qc, ConditionalQC):
-            _validate_header_reference(
+            yield (
                 column.qc.match_column,
-                column_name_indices,
-                input_path,
                 f"column {column.input_column!r} has qc matching on column",
+                True,
             )
-        if column.file_parsing is not None:
-            for output in column.file_parsing:
-                if isinstance(output.qc, ConditionalQC):
-                    _validate_header_reference(
-                        output.qc.match_column,
-                        column_name_indices,
-                        input_path,
-                        f"file_parsing output {output.output_column!r} on column {column.input_column!r} has qc matching on column",
-                    )
-
-
-def _validate_set_qc_check_columns(
-    set_qc: list[SetQCRule], column_name_indices: dict[str, list[int]], input_path: Path
-) -> None:
-    """
-    Checks before any output is written if a set_qc rule references a column that
-    doesn't exist or exists more than once.
-
-    Args:
-        set_qc: every set_qc rule in the config.
-        column_name_indices: the input header's name-to-indices index.
-        input_path: the input table's path, used in the error message.
-
-    Raises:
-        InputTableError: if a rule reads a column that is missing from the input
-          header, or appears more than once.
-    """
-    for rule in set_qc:
+        for output in column.file_parsing or []:
+            if isinstance(output.qc, ConditionalQC):
+                yield (
+                    output.qc.match_column,
+                    f"file_parsing output {output.output_column!r} on column {column.input_column!r} has qc matching on column",
+                    True,
+                )
+    for rule in config.set_qc:
         for check in rule.checks:
-            _validate_header_reference(
+            yield (
                 check.input_column,
-                column_name_indices,
-                input_path,
                 f"set_qc rule {rule.rule_name!r} reads column",
+                True,
             )
             if isinstance(check.qc, ConditionalQC):
-                _validate_header_reference(
+                yield (
                     check.qc.match_column,
-                    column_name_indices,
-                    input_path,
                     f"set_qc rule {rule.rule_name!r} has qc matching on column",
+                    True,
                 )
 
 
@@ -195,29 +161,6 @@ def validate_file_parsing_allowed(
         )
 
 
-def _collect_conditional_qc_match_columns(columns: list[ColumnConfig]) -> set[str]:
-    """
-    Every column name referenced as a conditional-qc match column
-
-    Args:
-        columns: every column the config configures, including their file_parsing
-          outputs. An empty list if not conditional QC.
-
-    Returns:
-        The set of match column names, which must be read from each row even when they
-        aren't output themselves.
-    """
-    matches: set[str] = set()
-    for c in columns:
-        if isinstance(c.qc, ConditionalQC):
-            matches.add(c.qc.match_column)
-        if c.file_parsing is not None:
-            for output in c.file_parsing:
-                if isinstance(output.qc, ConditionalQC):
-                    matches.add(output.qc.match_column)
-    return matches
-
-
 def build_layout(
     config: ExportConfig | None,
     header: list[str],
@@ -237,7 +180,8 @@ def build_layout(
 
     Raises:
         InputTableError: if the config or a set_qc rule references a column that is
-          missing or duplicated in the header.
+          missing or duplicated in the header, or the output header would repeat a
+          column name.
     """
     column_name_indices = _build_column_name_index(header)
 
@@ -251,8 +195,9 @@ def build_layout(
             has_qc_status=False,
         )
 
-    _validate_columns_exist(config.sample_qc or [], column_name_indices, input_path)
-    _validate_set_qc_check_columns(config.set_qc, column_name_indices, input_path)
+    references = list(_column_references(config))
+    for name, description, _ in references:
+        _validate_header_reference(name, column_name_indices, input_path, description)
 
     if config.sample_qc is not None:
         # columns will be ordered as they are in the config
@@ -265,8 +210,6 @@ def build_layout(
                 header[0],
             )
             ordered_columns = [ColumnConfig(input_column=header[0]), *ordered_columns]
-        # to keep columns in the same order as the input:
-        # ordered_columns = sorted(config.sample_qc, key=lambda c: column_name_indices[c.input_column][0])
 
         # one column can contribute several output names (file_parsing), so the
         # header is flattened out of every column's generated names
@@ -279,31 +222,38 @@ def build_layout(
             (column, column_name_indices[column.input_column][0])
             for column in ordered_columns
         ]
+        # config.py rejects duplicates within sample_qc, but can't see the sample ID
+        # column added above or QC_STATUS_COLUMN
+        duplicates = sorted(
+            name
+            for name, count in Counter([*output_header, QC_STATUS_COLUMN]).items()
+            if count > 1
+        )
+        if duplicates:
+            raise InputTableError(
+                f"{input_path}: output header would repeat column name(s) {duplicates}; "
+                f"rename them with output_column"
+            )
     else:
         # no sample_qc (only happens if there's only set_qc)
         # all input column passes through unchanged, same as no config at all
+        if QC_STATUS_COLUMN in header:
+            raise InputTableError(
+                f"{input_path}: input already has a {QC_STATUS_COLUMN!r} column, which "
+                f"the output adds itself"
+            )
         output_header = header
         column_positions = []
         logger.debug("no config sample_qc; every input column passes through")
 
-    # grab the match columns:
-    # conditional qc -> the columns to check for matches on
-    # set_qc -> the columns to perform the set qc check on
-    set_qc_checks = [check for rule in config.set_qc for check in rule.checks]
-    match_columns = (
-        _collect_conditional_qc_match_columns(config.sample_qc or [])
-        | {check.input_column for check in set_qc_checks}
-        | {
-            check.qc.match_column
-            for check in set_qc_checks
-            if isinstance(check.qc, ConditionalQC)
-        }
-    )
-
     layout = ExportLayout(
         output_header=[*output_header, QC_STATUS_COLUMN],
         column_positions=column_positions,
-        match_index={name: column_name_indices[name][0] for name in match_columns},
+        match_index={
+            name: column_name_indices[name][0]
+            for name, _, read_per_row in references
+            if read_per_row
+        },
         config_has_columns=config.sample_qc is not None,
         has_qc_status=True,
     )

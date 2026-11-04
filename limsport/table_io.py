@@ -32,7 +32,7 @@ def detect_delimiter(path: Path) -> str:
     Raises:
         InputTableError: if the file is empty, or none can be identified confidently.
     """
-    with path.open(newline="", encoding="utf-8") as f:
+    with path.open(newline="", encoding="utf-8-sig") as f:
         header_line = f.readline()
     if not header_line:
         raise InputTableError(f"{path}: file is empty, cannot detect a delimiter")
@@ -60,7 +60,7 @@ def get_input_header(path: Path, delimiter: str | None = None) -> list[str]:
         InputTableError: if `delimiter` is None and one cannot be detected.
     """
     delimiter = delimiter or detect_delimiter(path)
-    with path.open(newline="", encoding="utf-8") as f:
+    with path.open(newline="", encoding="utf-8-sig") as f:
         return next(csv.reader(f, delimiter=delimiter))
 
 
@@ -74,20 +74,20 @@ def iter_rows(path: Path, delimiter: str | None = None) -> Iterator[list[str]]:
 
     Yields:
         One data row's raw string cells, padded with empty strings when the row
-        has less fields than the header.
+        has less fields than the header. Blank lines are skipped.
 
     Raises:
         InputTableError: if a row has more fields than the header, or if
           `delimiter` is None and one cannot be detected.
     """
-    delimiter = delimiter or detect_delimiter(
-        path
-    )  # detect_delimiter here only runs in the pytests
-
-    with path.open(newline="", encoding="utf-8") as f:
+    # only the tests call this without a delimiter
+    delimiter = delimiter or detect_delimiter(path)
+    with path.open(newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f, delimiter=delimiter)
         width = len(next(reader))  # skip header
         for row in reader:
+            if not row:
+                continue
             if len(row) < width:
                 # pad row if it's not the right length (potentially stripped whitespace?)
                 row = row + [""] * (width - len(row))

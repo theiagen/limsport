@@ -46,7 +46,7 @@ def _load_sample_list(path: Path) -> set[str]:
     Returns:
         The sample names, stripped of surrounding whitespace, with blank lines dropped.
     """
-    names = {line.strip() for line in path.read_text().splitlines()}
+    names = {line.strip() for line in path.read_text(encoding="utf-8-sig").splitlines()}
     names.discard("")  # remove blank lines
     logger.debug("loaded %d sample name(s) from %s", len(names), path)
     return names
@@ -153,14 +153,16 @@ def _whole_run_failures(
     # identical for every collateral row, so build it once rather than per sample
     collateral_reason = f"run failed QC due to set_qc rule(s): {failing_rule_names}"
 
+    # include_sample_qc rules share the matched sample's row failure objects, so a
+    # failure can sit in several rules' lists and in row_failures; report it once
+    reported: set[int] = set()
     for rule in run_failed_rules:
-        rule_failures = summary.set_qc_failures[rule.rule_name]
-        failures.extend(rule_failures)
-        offending_samples.update(f.sample for f in rule_failures)
+        for f in summary.set_qc_failures[rule.rule_name]:
+            if id(f) not in reported:
+                reported.add(id(f))
+                failures.append(f)
+                offending_samples.add(f.sample)
 
-    # a sample matched by an include_sample_qc rule has its row failures in both
-    # set_qc_failures and row_failures; skip the ones already reported above
-    reported = {id(f) for f in failures}
     row_failures_by_sample: dict[str, list[qc.QCFailure]] = {}
     for f in summary.row_failures:
         if id(f) not in reported:
@@ -204,12 +206,13 @@ def _apply_qc_verdict(
     run_failed_rules = [
         rule for rule in set_qc_rules if summary.set_qc_failures[rule.rule_name]
     ]
-    logger.info(
-        "set_qc verdict: %s",
-        [r.rule_name for r in run_failed_rules]
-        if run_failed_rules
-        else "all rules passed",
-    )
+    if set_qc_rules:
+        logger.info(
+            "set_qc verdict: %s",
+            [r.rule_name for r in run_failed_rules]
+            if run_failed_rules
+            else "all rules passed",
+        )
     if run_failed_rules:
         # A set_qc rule failed, so the entire run fails QC
         return _QCOutcome(
@@ -217,22 +220,6 @@ def _apply_qc_verdict(
         )
 
     return _QCOutcome(failures=summary.row_failures, passed_rows=summary.written_rows)
-
-
-def _write_header_only_output(
-    output_path: Path, layout: ExportLayout, output_delimiter: str
-) -> None:
-    """
-    Writes the output table a failed run gets: the header, and no rows.
-
-    Args:
-        output_path: where to write the output table.
-        layout: read for its output header.
-        output_delimiter: the delimiter to write with.
-    """
-    table_io.write_tsv(
-        output_path, layout.output_header, [], delimiter=output_delimiter
-    )
 
 
 def _write_run_failed_output(
@@ -261,29 +248,6 @@ def _write_run_failed_output(
     )
 
 
-def _settle_run(
-    set_qc_rules: list[SetQCRule], summary: IngestSummary, input_path: Path
-) -> _QCOutcome:
-    """
-    Runs the checks that need the whole input read, then returns the run's verdict.
-
-    Args:
-        set_qc_rules: the config's run-level rules, or an empty list.
-        summary: the finished read of the input.
-        input_path: the input table's path, used in the error messages.
-
-    Returns:
-        The failures to report, and how many rows count as passing.
-
-    Raises:
-        InputTableError: if a set_qc rule matched no sample it named.
-        FileParsingError: if file_parsing failed on every row it ran against.
-    """
-    _check_set_qc_matched_samples(set_qc_rules, summary, input_path)
-    _check_file_parsing_produced_something(summary, input_path)
-    return _apply_qc_verdict(set_qc_rules, summary)
-
-
 def _report_results(
     config: ExportConfig | None,
     summary: IngestSummary,
@@ -293,7 +257,8 @@ def _report_results(
     qc_summary_path: Path | None,
 ) -> None:
     """
-    Logs the run summary and writes the QC report and QC summary
+    Logs the run summary and writes the QC report and QC summary (header-only when
+    there is no config)
 
     Args:
         config: the loaded config, or None if there wasn't one.
@@ -304,15 +269,23 @@ def _report_results(
         qc_summary_path: where to write the QC summary, or None to skip it.
     """
     if config is None:
-        # no config means no QC ever ran, so there's nothing to report
+        # no QC ran, but downstream tasks still expect every report file to exist
         report.log_no_qc_summary(summary.candidate_rows, summary.total_rows)
+        if qc_report_path is not None:
+            report.write_qc_report(qc_report_path, [], output_delimiter)
+        if qc_summary_path is not None:
+            report.write_qc_summary(qc_summary_path, [], [], (), output_delimiter)
         return
 
     if summary.parse_failed_rows:
         report.log_file_parsing_failures(
             summary.parse_failed_rows, summary.candidate_rows
         )
-    report.log_summary(passed=outcome.passed_rows, total=summary.candidate_rows)
+    report.log_summary(
+        passed=outcome.passed_rows,
+        total=summary.candidate_rows - summary.written_control_rows,
+        controls=summary.written_control_rows,
+    )
     report.log_qc_failures(outcome.failures)
     if qc_report_path is not None:
         report.write_qc_report(qc_report_path, outcome.failures, output_delimiter)
@@ -370,7 +343,6 @@ def run_export(
         ToolNotFoundError: if a file_parsing path needs a cloud CLI that isn't
           installed.
     """
-    # auto-detect delimiter
     input_delimiter = table_io.detect_delimiter(input_path)
     logger.debug("input %s: detected delimiter %r", input_path, input_delimiter)
 
@@ -399,7 +371,6 @@ def run_export(
             "no" if config.sample_qc is None else len(config.sample_qc),
             len(config.set_qc),
         )
-    if config is not None:
         # a capability question, not a header one -- refuse before the input is
         # touched, so a column error can't mask it
         validate_file_parsing_allowed(config.sample_qc or [], allow_file_parsing)
@@ -431,10 +402,14 @@ def run_export(
 
         _warn_missing_samples(requested_samples, summary)
 
-        outcome = _settle_run(set_qc_rules, summary, input_path)
+        _check_set_qc_matched_samples(set_qc_rules, summary, input_path)
+        _check_file_parsing_produced_something(summary, input_path)
+        outcome = _apply_qc_verdict(set_qc_rules, summary)
         if outcome.run_failed and not include_qc_fails:
             # a set_qc rule failed, so nothing that was staged counts
-            _write_header_only_output(output_path, layout, output_delimiter)
+            table_io.write_tsv(
+                output_path, layout.output_header, [], delimiter=output_delimiter
+            )
             logger.debug("wrote header-only output to %s", output_path)
         elif outcome.run_failed:
             _write_run_failed_output(
@@ -442,18 +417,21 @@ def run_export(
             )
             logger.debug(
                 "wrote %d row(s) marked FAIL to %s",
-                summary.written_rows + summary.written_failed_rows,
+                summary.written_rows
+                + summary.written_control_rows
+                + summary.written_failed_rows,
                 output_path,
             )
         else:
             os.replace(staging_path, output_path)
             logger.debug(
                 "wrote %d row(s) to %s",
-                summary.written_rows + summary.written_failed_rows,
+                summary.written_rows
+                + summary.written_control_rows
+                + summary.written_failed_rows,
                 output_path,
             )
     finally:
-        # remove staging file
         staging_path.unlink(missing_ok=True)
 
     _report_results(

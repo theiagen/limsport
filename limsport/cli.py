@@ -4,6 +4,7 @@ argparse entry point for the `limsport` command
 External methods:
     - existing_file()
     - non_negative_int()
+    - delimiter()
     - output_path()
     - build_parser()
     - main()
@@ -62,6 +63,28 @@ def non_negative_int(value: str) -> int:
     return number
 
 
+def delimiter(value: str) -> str:
+    """
+    Reads the output delimiter, turning a typed backslash-t into a real tab.
+
+    Args:
+        value: the delimiter given on the command line.
+
+    Returns:
+        The single delimiter character.
+
+    Raises:
+        argparse.ArgumentTypeError: if it isn't exactly one character.
+    """
+    # a shell passes '\t' through as a backslash and a t, not a tab
+    value = value.replace("\\t", "\t")
+    if len(value) != 1:
+        raise argparse.ArgumentTypeError(
+            f"must be a single character (or \\t for a tab): {value!r}"
+        )
+    return value
+
+
 def output_path(prefix: str, delimiter: str, suffix: str = "") -> Path:
     """
     Names an output file from its prefix and the output delimiter.
@@ -118,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-delimiter",
         "-d",
-        type=str,
+        type=delimiter,
         default="\t",
         help="output delimiter (default: '\\t')",
     )
@@ -177,16 +200,22 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         pipeline.run_export(
-            args.input,
-            args.config,
-            args.samples,
-            output_path(args.output_prefix, args.output_delimiter, "_lims_report"),
-            output_path(args.output_prefix, args.output_delimiter, "_qc_fail_report"),
-            args.output_delimiter,
-            args.allow_file_parsing,
-            args.max_file_parsing_failures,
-            output_path(args.output_prefix, args.output_delimiter, "_qc_summary"),
-            args.include_qc_fails,
+            input_path=args.input,
+            config_path=args.config,
+            samples_path=args.samples,
+            output_path=output_path(
+                args.output_prefix, args.output_delimiter, "_lims_report"
+            ),
+            qc_report_path=output_path(
+                args.output_prefix, args.output_delimiter, "_qc_fail_report"
+            ),
+            output_delimiter=args.output_delimiter,
+            allow_file_parsing=args.allow_file_parsing,
+            max_file_parsing_failures=args.max_file_parsing_failures,
+            qc_summary_path=output_path(
+                args.output_prefix, args.output_delimiter, "_qc_summary"
+            ),
+            include_qc_fails=args.include_qc_fails,
         )
     except (LIMSportError, OSError) as e:
         # LIMSportError covers config/input-table domain errors (see

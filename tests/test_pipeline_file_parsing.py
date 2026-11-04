@@ -162,7 +162,7 @@ def test_file_parsing_warns_about_the_rows_it_dropped(tmp_path, caplog):
             allow_file_parsing=True,
         )
     assert any(
-        "1/2 samples dropped" in r.message and "file_parsing" in r.message
+        "1/2 samples failed QC" in r.message and "file_parsing" in r.message
         for r in caplog.records
     )
 

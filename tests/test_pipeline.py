@@ -472,13 +472,13 @@ def test_no_config_writes_no_qc_report_even_if_path_given(tmp_path):
     assert not qc_report.exists()
 
 
-def test_samples_only_no_config_writes_no_qc_report_even_if_path_given(tmp_path):
+def test_samples_only_no_config_writes_header_only_qc_report(tmp_path):
     out = tmp_path / "out.tsv"
     qc_report = tmp_path / "qc_report.tsv"
     pipeline.run_export(
         input_basic(tmp_path), None, samples_subset(tmp_path), out, qc_report
     )
-    assert not qc_report.exists()
+    assert list(table_io.iter_rows(qc_report)) == []
 
 
 def test_config_given_still_writes_qc_report(tmp_path):
@@ -501,3 +501,14 @@ def test_config_with_no_qc_rules_still_writes_header_only_report(tmp_path):
     )
     assert qc_report.exists()
     assert list(table_io.iter_rows(qc_report)) == []
+
+
+def test_rename_colliding_with_the_added_sample_id_column_raises(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "sample_qc:\n  - input_column: status\n    output_column: sample_id\n"
+    )
+    out = tmp_path / "out.tsv"
+    with pytest.raises(InputTableError, match="sample_id"):
+        pipeline.run_export(input_basic(tmp_path), config, None, out, None)
+    assert not out.exists()

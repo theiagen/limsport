@@ -454,19 +454,6 @@ class ColumnConfig(_StrictModel):
         return _qc_is_set(self.qc)
 
     @property
-    def contains_file_parsing(self) -> bool:
-        """
-        Whether producing this column's output value(s) are generated via file parsing
-
-        Used because `file_parsing` spawns a subprocess (and maybe a download) per cell,
-        which is used to determine if a pre-process of set_qc would be beneficial.
-
-        Returns:
-            True if this column has file parsing, which is computationally expensive
-        """
-        return self.file_parsing is not None
-
-    @property
     def generated_output_column_names(self) -> list[str]:
         """
         Every output name this column contributes to the output header.
@@ -507,7 +494,6 @@ class SetQCMatch(_StrictModel):
         Raises:
             ValueError: if the match doesn't name exactly one usable method.
         """
-        # make list of provided methods
         given = [
             name
             for name, value in (
@@ -525,7 +511,6 @@ class SetQCMatch(_StrictModel):
             raise ValueError("set_qc match.samples must not be empty")
         if self.sample_regex is not None:
             try:
-                # make sure regex is valid
                 re.compile(self.sample_regex)
             except re.error as e:
                 raise ValueError(
@@ -806,7 +791,6 @@ def load_config(path: Path) -> ExportConfig:
     except yaml.YAMLError as e:
         raise ConfigError(f"{path}: invalid YAML: {e}") from e
 
-    # try to validate config
     try:
         return ExportConfig.model_validate(raw)
     except ValidationError as e:

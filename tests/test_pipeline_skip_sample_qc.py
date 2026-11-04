@@ -286,3 +286,12 @@ def test_include_sample_qc_checks_file_parsed_values(tmp_path):
         ["PC1", "data_path", "extracted"]
     ) == 1
     assert summary == [["SAMPLE_A", "FAIL"], ["PC1", "FAIL"]]
+
+
+def test_controls_are_not_counted_as_passing_samples(tmp_path, caplog):
+    with caplog.at_level("INFO"):
+        _run(tmp_path, *_control_scenario(tmp_path))
+    assert any(
+        "1/2 samples passed QC (1 control(s) skipped sample-level QC)" in r.message
+        for r in caplog.records
+    )

@@ -169,3 +169,11 @@ def test_log_missing_samples(caplog):
     with caplog.at_level("WARNING"):
         report.log_missing_samples({"SAMPLE_999"})
     assert any("SAMPLE_999" in r.message for r in caplog.records)
+
+
+def test_log_qc_failures_omits_column_for_run_level_failure(caplog):
+    with caplog.at_level("WARNING"):
+        report.log_qc_failures(
+            [_failure("S1", "", output_column="", reason="run failed QC")]
+        )
+    assert caplog.records[0].message == "S1: failed QC (run failed QC)"

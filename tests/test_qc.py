@@ -344,16 +344,15 @@ def test_evaluate_row_aggregates_failures_across_qc_inputs():
         QCInput("status", "status", "FAIL", [status_qc]),
     ]
     outcome = evaluate_row(qc_inputs, "S1")
-    assert outcome.passed is False
-    assert {f.input_column for f in outcome.failures} == {"read_count", "status"}
+    assert outcome
+    assert {f.input_column for f in outcome} == {"read_count", "status"}
 
 
 def test_evaluate_row_all_pass():
     read_count_qc = _condition(">=", 1000)
     qc_inputs = [QCInput("read_count", "read_count", "5000", [read_count_qc])]
     outcome = evaluate_row(qc_inputs, "S1")
-    assert outcome.passed is True
-    assert outcome.failures == []
+    assert outcome == []
 
 
 def test_evaluate_row_multiple_outputs_from_one_source_column_report_independently():
@@ -367,9 +366,9 @@ def test_evaluate_row_multiple_outputs_from_one_source_column_report_independent
         QCInput("coverage_tsv", "mean_mapq", "60", [mapq_qc]),
     ]
     outcome = evaluate_row(qc_inputs, "S1")
-    assert outcome.passed is False
-    assert len(outcome.failures) == 1
-    assert outcome.failures[0].output_column == "mean_depth"
+    assert outcome
+    assert len(outcome) == 1
+    assert outcome[0].output_column == "mean_depth"
 
 
 def _unmatched_qc_input(reason="no matching rule"):
@@ -389,8 +388,8 @@ def test_evaluate_row_reports_unmatched_conditional_qc_input_as_a_failure():
     # ALTERNATIVE, this test needs to change too (NoMatchingRule would never be
     # returned, so this scenario can't arise this way anymore).
     outcome = evaluate_row([_unmatched_qc_input()], "S1")
-    assert outcome.passed is False
-    failure = outcome.failures[0]
+    assert outcome
+    failure = outcome[0]
     assert failure.input_column == "assembly_length"
     assert failure.actual == "5000000"
     assert failure.reason == "no matching rule"
@@ -405,6 +404,13 @@ def test_evaluate_row_unmatched_conditional_qc_input_does_not_suppress_others():
         QCInput("read_count", "read_count", "5000", [passing_qc]),
     ]
     outcome = evaluate_row(qc_inputs, "S1")
-    assert outcome.passed is False
-    assert len(outcome.failures) == 1
-    assert outcome.failures[0].input_column == "assembly_length"
+    assert outcome
+    assert len(outcome) == 1
+    assert outcome[0].input_column == "assembly_length"
+
+
+@pytest.mark.parametrize("cell", ["inf", "-Infinity", "nan"])
+def test_non_finite_numbers_fail_numeric_qc(cell):
+    passed, reason = evaluate_condition(cell, QCCondition(operator=">=", value=20))
+    assert not passed
+    assert "non-numeric" in reason

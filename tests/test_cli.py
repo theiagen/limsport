@@ -366,3 +366,45 @@ def test_max_file_parsing_failures_rejects_bad_values(value, capsys):
             ["--input", __file__, "--max-file-parsing-failures", value]
         )
     assert "--max-file-parsing-failures" in capsys.readouterr().err
+
+
+def test_backslash_t_delimiter_is_a_real_tab(tmp_path):
+    rc = cli.main(
+        [
+            "--input",
+            str(input_basic(tmp_path)),
+            "--output-prefix",
+            str(tmp_path / "out"),
+            "--output-delimiter",
+            "\\t",
+            "--samples",
+            str(samples_subset(tmp_path)),
+        ]
+    )
+    assert rc == 0
+    out = tmp_path / "out_lims_report.tsv"
+    assert out.read_text().splitlines()[0] == "sample_id\tread_count\tstatus\tnotes"
+
+
+def test_multi_character_delimiter_exits_2(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        cli.main(["--input", str(input_basic(tmp_path)), "--output-delimiter", "ab"])
+    assert e.value.code == 2
+
+
+def test_no_config_run_writes_header_only_reports(tmp_path):
+    rc = cli.main(
+        [
+            "--input",
+            str(input_basic(tmp_path)),
+            "--samples",
+            str(samples_subset(tmp_path)),
+            "--output-prefix",
+            str(tmp_path / "out"),
+        ]
+    )
+    assert rc == 0
+    assert (tmp_path / "out_qc_fail_report.tsv").read_text().count("\n") == 1
+    assert (tmp_path / "out_qc_summary.tsv").read_text() == (
+        "sample\tqc_status\trationale\n"
+    )

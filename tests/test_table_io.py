@@ -89,3 +89,15 @@ def test_write_read_round_trip_with_quotes(tmp_path):
     table_io.write_tsv(path, header, rows)
     assert table_io.get_input_header(path) == header
     assert list(table_io.iter_rows(path)) == rows
+
+
+def test_iter_rows_skips_blank_lines(tmp_path):
+    path = tmp_path / "blank.tsv"
+    path.write_text("sample\tcov\nA\t50\n\nB\t10\n\n")
+    assert list(table_io.iter_rows(path)) == [["A", "50"], ["B", "10"]]
+
+
+def test_header_strips_utf8_byte_order_mark(tmp_path):
+    path = tmp_path / "bom.tsv"
+    path.write_bytes(b"\xef\xbb\xbfsample\tcov\nA\t50\n")
+    assert table_io.get_input_header(path) == ["sample", "cov"]
