@@ -10,6 +10,7 @@ import {
     newSetQCRule,
     newSetQCCheck,
     newSkipSampleQC,
+    skipMatchesFromRules,
     buildConfig,
     serializeYAML,
 } from "./schema.js";
@@ -24,6 +25,7 @@ const state = {
 const columnsEl = document.getElementById("columns");
 const setQCRulesEl = document.getElementById("set-qc-rules");
 const skipSampleQCEl = document.getElementById("skip-sample-qc");
+const skipFromRulesEl = document.getElementById("skip-sample-qc-from-rules");
 const addSkipSampleQCBtn = document.getElementById("add-skip-sample-qc-btn");
 const previewEl = document.getElementById("preview");
 const errorsEl = document.getElementById("errors");
@@ -103,6 +105,7 @@ function currentConfig() {
 function refreshPreview() {
     const { plain, errors, warnings } = currentConfig();
     previewEl.textContent = serializeYAML(plain);
+    renderSkipFromRules();
 
     // warnings never disable download: the config is valid, it just may
     // fail at run time
@@ -896,6 +899,50 @@ function renderSkipSampleQC() {
         ]),
     ]);
     skipSampleQCEl.replaceChildren(card);
+}
+
+function describeMatch(match) {
+    if (match.sample_pattern !== undefined)
+        return `Sample name contains "${match.sample_pattern}"`;
+    if (match.sample_regex !== undefined)
+        return `Sample name matches the regex "${match.sample_regex}"`;
+    return `Sample(s) ${match.samples.join(", ")}`;
+}
+
+// Read-only: these entries follow their rules, and only the rule's "Include
+// all sample-level QC checks" box adds or removes them. Kept apart from the
+// card above so re-rendering on every edit doesn't steal its inputs' focus.
+function renderSkipFromRules() {
+    const entries = skipMatchesFromRules(state.setQCRules);
+    if (!entries.length) {
+        skipFromRulesEl.replaceChildren();
+        return;
+    }
+    const list = el(
+        "ul",
+        { class: "skip-from-rules-list" },
+        entries.map(({ match, ruleName }) =>
+            el("li", {
+                text: `${describeMatch(match)} (from the set-level QC rule "${ruleName}")`,
+            }),
+        ),
+    );
+    skipFromRulesEl.replaceChildren(
+        el("div", { class: "set-qc-rule-card" }, [
+            el("div", { class: "column-header" }, [
+                el("div", { class: "column-header-title" }, [
+                    el("strong", { text: "Added by set-level QC rules" }),
+                ]),
+            ]),
+            el("div", { class: "column-body" }, [
+                el("p", {
+                    class: "hint",
+                    text: 'Check "Include all sample-level QC checks in this rule" on a rule to remove its samples from this list.',
+                }),
+                list,
+            ]),
+        ]),
+    );
 }
 
 // ---------------------------------------------------------------------------

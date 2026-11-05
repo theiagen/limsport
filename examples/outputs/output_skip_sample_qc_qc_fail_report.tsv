@@ -1,0 +1,2 @@
+sample	input_column	output_column	operator	expected	actual	reason
+03-98DDCS	fastq_scan_num_reads_clean_pairs	read_pairs	>=	250000		missing value

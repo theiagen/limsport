@@ -52,8 +52,8 @@ def _run(tmp_path, input_tsv, config, **kwargs):
     return (
         list(table_io.iter_rows(out)),
         list(table_io.iter_rows(report_path)),
-        # status only; report tests cover the rationale column
-        [row[:2] for row in table_io.iter_rows(summary_path)],
+        # statuses only; report tests cover the rationale column
+        [row[:3] for row in table_io.iter_rows(summary_path)],
     )
 
 
@@ -62,7 +62,7 @@ def test_without_skip_sample_qc_the_ntc_fails_row_qc(tmp_path):
         tmp_path, *_control_scenario(tmp_path, skip_sample_qc=False)
     )
     assert [row[0] for row in rows] == ["SAMPLE_A"]
-    assert ["NTC1", "FAIL"] in summary
+    assert ["NTC1", "FAIL", "PASS"] in summary
 
 
 def test_skipped_sample_skips_row_qc_and_is_written(tmp_path):
@@ -70,9 +70,9 @@ def test_skipped_sample_skips_row_qc_and_is_written(tmp_path):
     assert [row[0] for row in rows] == ["NTC1", "SAMPLE_A"]
     assert [row[0] for row in report_rows] == ["SAMPLE_B"]
     assert summary == [
-        ["NTC1", "CONTROL"],
-        ["SAMPLE_A", "PASS"],
-        ["SAMPLE_B", "FAIL"],
+        ["NTC1", "SKIPPED", "PASS"],
+        ["SAMPLE_A", "PASS", "PASS"],
+        ["SAMPLE_B", "FAIL", "PASS"],
     ]
 
 
@@ -82,7 +82,11 @@ def test_skipped_sample_still_fails_set_qc(tmp_path):
     )
     assert rows == []
     assert report_rows[0][:2] == ["NTC1", "reads"]
-    assert all(status == "FAIL" for _, status in summary)
+    assert summary == [
+        ["NTC1", "SKIPPED", "FAIL"],
+        ["SAMPLE_A", "PASS", "FAIL"],
+        ["SAMPLE_B", "FAIL", "FAIL"],
+    ]
 
 
 def test_skipped_sample_file_parsing_failure_is_blank_and_not_counted(tmp_path):
@@ -112,7 +116,7 @@ def test_skipped_sample_file_parsing_failure_is_blank_and_not_counted(tmp_path):
     )
     assert rows == [["NTC1", "", "PASS"], ["SAMPLE_A", "42", "PASS"]]
     assert report_rows == []
-    assert summary == [["NTC1", "CONTROL"], ["SAMPLE_A", "PASS"]]
+    assert summary == [["NTC1", "SKIPPED", "SKIPPED"], ["SAMPLE_A", "PASS", "SKIPPED"]]
 
 
 def test_include_qc_fails_writes_failing_rows(tmp_path):
@@ -123,7 +127,11 @@ def test_include_qc_fails_writes_failing_rows(tmp_path):
     )
     assert [row[0] for row in rows] == ["NTC1", "SAMPLE_A", "SAMPLE_B"]
     assert [row[0] for row in report_rows] == ["NTC1", "SAMPLE_B"]
-    assert summary == [["NTC1", "FAIL"], ["SAMPLE_A", "PASS"], ["SAMPLE_B", "FAIL"]]
+    assert summary == [
+        ["NTC1", "FAIL", "PASS"],
+        ["SAMPLE_A", "PASS", "PASS"],
+        ["SAMPLE_B", "FAIL", "PASS"],
+    ]
 
 
 def test_include_qc_fails_writes_every_row_of_a_set_qc_failed_run(tmp_path):
@@ -137,7 +145,11 @@ def test_include_qc_fails_writes_every_row_of_a_set_qc_failed_run(tmp_path):
         ["SAMPLE_A", "50000", "FAIL"],
         ["SAMPLE_B", "10", "FAIL"],
     ]
-    assert all(status == "FAIL" for _, status in summary)
+    assert summary == [
+        ["NTC1", "SKIPPED", "FAIL"],
+        ["SAMPLE_A", "PASS", "FAIL"],
+        ["SAMPLE_B", "FAIL", "FAIL"],
+    ]
 
 
 def test_include_qc_fails_writes_parsed_values_of_a_set_qc_failed_run(tmp_path):
@@ -168,7 +180,7 @@ def test_include_qc_fails_writes_parsed_values_of_a_set_qc_failed_run(tmp_path):
         tmp_path, input_tsv, config, allow_file_parsing=True, include_qc_fails=True
     )
     assert rows == [["SAMPLE_A", "42", "FAIL"], ["NTC1", "42", "FAIL"]]
-    assert summary == [["SAMPLE_A", "FAIL"], ["NTC1", "FAIL"]]
+    assert summary == [["SAMPLE_A", "PASS", "FAIL"], ["NTC1", "PASS", "FAIL"]]
 
 
 def test_include_qc_fails_blanks_values_file_parsing_could_not_produce(tmp_path):
@@ -193,7 +205,7 @@ def test_include_qc_fails_blanks_values_file_parsing_could_not_produce(tmp_path)
         tmp_path, input_tsv, config, allow_file_parsing=True, include_qc_fails=True
     )
     assert rows == [["SAMPLE_A", "", "FAIL"], ["SAMPLE_B", "42", "PASS"]]
-    assert summary == [["SAMPLE_A", "FAIL"], ["SAMPLE_B", "PASS"]]
+    assert summary == [["SAMPLE_A", "FAIL", "SKIPPED"], ["SAMPLE_B", "PASS", "SKIPPED"]]
 
 
 def test_skip_sample_qc_rejects_two_match_methods():
@@ -203,6 +215,35 @@ def test_skip_sample_qc_rejects_two_match_methods():
                 "sample_qc": [{"input_column": "sample_id"}],
                 "skip_sample_qc": {"sample_pattern": "NTC", "samples": ["NTC1"]},
             }
+        )
+
+
+def test_skip_sample_qc_list_skips_a_sample_matched_by_any_entry(tmp_path):
+    input_tsv = tmp_path / "input.tsv"
+    input_tsv.write_text("sample_id\treads\nNTC1\t5\nPC1\t5\nSAMPLE_A\t5\n")
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "sample_qc:\n"
+        "  - input_column: sample_id\n"
+        "  - input_column: reads\n"
+        "    qc:\n"
+        '      - {operator: ">=", value: 1000}\n'
+        "skip_sample_qc:\n"
+        '  - sample_pattern: "NTC"\n'
+        '  - samples: ["PC1"]\n'
+    )
+    _, _, summary = _run(tmp_path, input_tsv, config)
+    assert summary == [
+        ["NTC1", "SKIPPED", "SKIPPED"],
+        ["PC1", "SKIPPED", "SKIPPED"],
+        ["SAMPLE_A", "FAIL", "SKIPPED"],
+    ]
+
+
+def test_skip_sample_qc_rejects_an_empty_list():
+    with pytest.raises(ValidationError, match="matches no samples"):
+        ExportConfig.model_validate(
+            {"sample_qc": [{"input_column": "sample_id"}], "skip_sample_qc": []}
         )
 
 
@@ -237,13 +278,21 @@ def test_include_sample_qc_failure_fails_the_run(tmp_path):
     assert rows == []
     assert report_rows[0][:2] == ["PC1", "reads"]
     assert "PC passes production qc" in report_rows[1][-1]
-    assert all(status == "FAIL" for _, status in summary)
+    assert summary == [
+        ["PC1", "FAIL", "FAIL"],
+        ["SAMPLE_A", "PASS", "FAIL"],
+        ["SAMPLE_B", "FAIL", "FAIL"],
+    ]
 
 
 def test_include_sample_qc_pass_leaves_other_samples_to_their_own_qc(tmp_path):
     rows, _, summary = _run(tmp_path, *_sample_qc_scenario(tmp_path, pc_reads=5000))
     assert [row[0] for row in rows] == ["PC1", "SAMPLE_A"]
-    assert summary == [["PC1", "PASS"], ["SAMPLE_A", "PASS"], ["SAMPLE_B", "FAIL"]]
+    assert summary == [
+        ["PC1", "PASS", "PASS"],
+        ["SAMPLE_A", "PASS", "PASS"],
+        ["SAMPLE_B", "FAIL", "PASS"],
+    ]
 
 
 def test_include_sample_qc_on_a_skipped_sample_raises(tmp_path):
@@ -285,13 +334,13 @@ def test_include_sample_qc_checks_file_parsed_values(tmp_path):
     assert [row[:3] for row in report_rows].count(
         ["PC1", "data_path", "extracted"]
     ) == 1
-    assert summary == [["SAMPLE_A", "FAIL"], ["PC1", "FAIL"]]
+    assert summary == [["SAMPLE_A", "PASS", "FAIL"], ["PC1", "FAIL", "FAIL"]]
 
 
 def test_controls_are_not_counted_as_passing_samples(tmp_path, caplog):
     with caplog.at_level("INFO"):
         _run(tmp_path, *_control_scenario(tmp_path))
     assert any(
-        "1/2 samples passed QC (1 control(s) skipped sample-level QC)" in r.message
+        "1/2 samples passed QC (1 sample(s) skipped sample-level QC)" in r.message
         for r in caplog.records
     )

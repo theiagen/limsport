@@ -84,30 +84,50 @@ def test_write_qc_report_blanks_operator_and_expected_when_none(tmp_path):
 def test_write_qc_summary_one_row_per_sample_in_order(tmp_path):
     path = tmp_path / "summary.tsv"
     report.write_qc_summary(
-        path, ["S1", "S2", "S1", "S3"], [_failure("S2"), _failure("S2", "status")]
+        path,
+        ["S1", "S2", "S1", "S3"],
+        [_failure("S2"), _failure("S2", "status")],
+        sample_qc_failed={"S2"},
     )
-    assert table_io.get_input_header(path) == ["sample", "qc_status", "rationale"]
+    assert table_io.get_input_header(path) == [
+        "sample",
+        "sample_qc_status",
+        "set_qc_status",
+        "rationale",
+    ]
     assert list(table_io.iter_rows(path)) == [
-        ["S1", "PASS", ""],
+        ["S1", "PASS", "SKIPPED", ""],
         [
             "S2",
             "FAIL",
+            "SKIPPED",
             "read_count: 500.0 >= 1000 is False; status: 500.0 >= 1000 is False",
         ],
-        ["S3", "PASS", ""],
+        ["S3", "PASS", "SKIPPED", ""],
     ]
 
 
-def test_write_qc_summary_marks_controls_unless_they_failed(tmp_path):
+def test_write_qc_summary_skipped_sample_is_skipped_whatever_set_qc_says(tmp_path):
     path = tmp_path / "summary.tsv"
-    report.write_qc_summary(
-        path, ["NTC1", "NTC2", "S1"], [_failure("NTC2")], skipped={"NTC1", "NTC2"}
-    )
-    assert list(table_io.iter_rows(path)) == [
-        ["NTC1", "CONTROL", ""],
-        ["NTC2", "FAIL", "read_count: 500.0 >= 1000 is False"],
-        ["S1", "PASS", ""],
-    ]
+    ntc_failure = _failure("NTC2")
+    for set_qc_status in ("PASS", "FAIL"):
+        report.write_qc_summary(
+            path,
+            ["NTC1", "NTC2", "S1"],
+            [ntc_failure] if set_qc_status == "FAIL" else [],
+            skipped={"NTC1", "NTC2"},
+            set_qc_status=set_qc_status,
+        )
+        assert list(table_io.iter_rows(path)) == [
+            ["NTC1", "SKIPPED", set_qc_status, ""],
+            [
+                "NTC2",
+                "SKIPPED",
+                set_qc_status,
+                "read_count: 500.0 >= 1000 is False" if set_qc_status == "FAIL" else "",
+            ],
+            ["S1", "PASS", set_qc_status, ""],
+        ]
 
 
 def test_write_qc_summary_rationale_is_the_bare_reason_for_a_run_level_failure(
@@ -115,9 +135,9 @@ def test_write_qc_summary_rationale_is_the_bare_reason_for_a_run_level_failure(
 ):
     path = tmp_path / "summary.tsv"
     run_failed = _failure("S1", "", reason="run failed QC due to set_qc rule(s): ['r']")
-    report.write_qc_summary(path, ["S1"], [run_failed])
+    report.write_qc_summary(path, ["S1"], [run_failed], set_qc_status="FAIL")
     assert list(table_io.iter_rows(path)) == [
-        ["S1", "FAIL", "run failed QC due to set_qc rule(s): ['r']"]
+        ["S1", "PASS", "FAIL", "run failed QC due to set_qc rule(s): ['r']"]
     ]
 
 

@@ -1,0 +1,10 @@
+sample_id	predicted_taxon	coverage	read_pairs	limsport_qc_status
+19050801924	Escherichia coli	78.07	833786	PASS
+461023	Escherichia coli	NA	1092456	PASS
+CL2021-00283104	Escherichia coli	20.98	659155	PASS
+155734	Klebsiella pneumoniae	417.06	11736220	PASS
+480757	Escherichia coli	28.62	486303	PASS
+SAMN24249320	Pseudomonas aeruginosa	71.7	1146148	PASS
+369711	Salmonella enterica	400.74	9292822	PASS
+NTC1	Escherichia coli	50.0	500000	PASS
+PC1	Escherichia coli	55.0	550000	PASS

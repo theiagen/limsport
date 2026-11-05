@@ -22,3 +22,13 @@ limsport \
     --samples inputs/samples.txt \
     --output-prefix outputs/output_ntc_contaminated \
     --allow-file-parsing
+
+echo ""
+echo "=== skip sample-level qc ==="
+echo ""
+
+limsport \
+    --input inputs/theiaprok_illumina_pe.tsv \
+    --config configs/config_skip_sample_qc.yaml \
+    --samples inputs/samples.txt \
+    --output-prefix outputs/output_skip_sample_qc

@@ -296,6 +296,14 @@ def _report_results(
             outcome.failures,
             summary.skipped_samples,
             output_delimiter,
+            sample_qc_failed={fail.sample for fail in summary.row_failures},
+            set_qc_status=(
+                "SKIPPED"
+                if not config.set_qc
+                else "FAIL"
+                if outcome.run_failed
+                else "PASS"
+            ),
         )
 
 

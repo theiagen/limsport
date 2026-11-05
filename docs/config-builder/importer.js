@@ -145,9 +145,13 @@ export function importConfigYAML(text) {
         }
     });
 
-    const { columns, setQCRules, skipSampleQC, errors } = stateFromConfig(
-        parsed.value,
-    );
+    const {
+        columns,
+        setQCRules,
+        skipSampleQC,
+        errors,
+        warnings: stateWarnings,
+    } = stateFromConfig(parsed.value);
     for (const { path, message } of errors) {
         const where = path.length ? `${formatPath(path)}: ` : "";
         located.push({
@@ -168,5 +172,6 @@ export function importConfigYAML(text) {
               "Comments in this file are not kept: the downloaded config is regenerated from the form.",
           ]
         : [];
+    warnings.push(...stateWarnings);
     return { columns, setQCRules, skipSampleQC, errors: [], warnings };
 }

@@ -55,9 +55,10 @@ config when ready!
         </div>
         <div class="section-body">
           <p class="hint">
-            Samples (e.g. negative controls) that skip sample-level QC but are still checked by set-level QC rules
+            Samples (e.g. negative controls) that skip sample-level QC but are still checked by set-level QC rules. The samples of every set-level QC rule without "Include all sample-level QC checks in this rule" are added here automatically
           </p>
           <div id="skip-sample-qc"></div>
+          <div id="skip-sample-qc-from-rules"></div>
           <button type="button" id="add-skip-sample-qc-btn" class="btn-add btn-add-set-qc">+ Add samples to skip</button>
         </div>
       </div>

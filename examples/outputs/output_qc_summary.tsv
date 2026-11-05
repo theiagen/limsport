@@ -1,11 +1,11 @@
-sample	qc_status	rationale
-19050801924	PASS	
-461023	FAIL	coverage: non-numeric value 'NA' cannot be compared with >= 30
-03-98DDCS	FAIL	read_pairs: missing value
-CL2021-00283104	FAIL	n50: 10000.0 > 15000 is False; contig_count: 853.0 <= 300 is False; coverage: 20.98 >= 30 is False; quast_n50: 10000.0 >= 50000 is False
-155734	PASS	
-480757	FAIL	coverage: 28.62 >= 30 is False
-SAMN24249320	FAIL	mean_quality: missing value
-369711	FAIL	assembly_length: no qc rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured; quast_n50: no qc rule matches gambit_predicted_taxon='Salmonella enterica' for file_parsing output 'quast_n50' (column 'quast_report'), and no default is configured
-NTC1	PASS	
-PC1	PASS	
+sample	sample_qc_status	set_qc_status	rationale
+19050801924	PASS	PASS	
+461023	FAIL	PASS	coverage: non-numeric value 'NA' cannot be compared with >= 30
+03-98DDCS	FAIL	PASS	read_pairs: missing value
+CL2021-00283104	FAIL	PASS	n50: 10000.0 > 15000 is False; contig_count: 853.0 <= 300 is False; coverage: 20.98 >= 30 is False; quast_n50: 10000.0 >= 50000 is False
+155734	PASS	PASS	
+480757	FAIL	PASS	coverage: 28.62 >= 30 is False
+SAMN24249320	FAIL	PASS	mean_quality: missing value
+369711	FAIL	PASS	assembly_length: no qc rule matches gambit_predicted_taxon='Salmonella enterica' for column 'assembly_length', and no default is configured; quast_n50: no qc rule matches gambit_predicted_taxon='Salmonella enterica' for file_parsing output 'quast_n50' (column 'quast_report'), and no default is configured
+NTC1	SKIPPED	PASS	
+PC1	SKIPPED	PASS	

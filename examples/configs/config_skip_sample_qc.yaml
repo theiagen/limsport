@@ -1,0 +1,47 @@
+sample_qc:
+  - input_column: "theiaprok_illumina_pe_v4-2-0_id"
+    output_column: sample_id
+
+  - input_column: gambit_predicted_taxon
+    output_column: predicted_taxon
+
+  - input_column: est_coverage_clean
+    output_column: coverage
+    qc:
+      - {operator: ">=", value: 30}
+
+  - input_column: fastq_scan_num_reads_clean_pairs
+    output_column: read_pairs
+    qc:
+      - {operator: ">=", value: 250000}
+
+set_qc:
+  - rule_name: "NTC low raw read count"
+    match_samples:
+      sample_pattern: "NTC"
+    checks:
+      - input_column: raw_read_count
+        qc:
+          - {operator: "<=", value: 1000}
+
+  - rule_name: "PC passes production QC and is confirmed E. coli"
+    match_samples:
+      sample_regex: "^PC-?\\d*$"
+    include_sample_qc: true
+    checks:
+      - input_column: screening_notes
+        qc:
+          - {operator: contains, value: "Escherichia coli", case_insensitive: true}
+
+  - rule_name: "No cross-contamination flagged in real samples"
+    match_samples:
+      samples: ["19050801924", "461023", "CL2021-00283104"]
+    checks:
+      - input_column: screening_notes
+        qc:
+          - {operator: does_not_contain, value: "contaminant", case_insensitive: true}
+
+skip_sample_qc:
+  - samples: ["480757"]
+  - sample_pattern: "NTC"
+  - samples: ["19050801924", "461023", "CL2021-00283104"]

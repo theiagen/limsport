@@ -1,7 +1,7 @@
 """
 Turns QC results human-readable by using log lines on stderr, a QC failure report (one
-row per failing sample/column pair), and a QC summary (one PASS/FAIL/CONTROL row per
-sample, with the reasons for any failure).
+row per failing sample/column pair), and a QC summary (one row per sample with its
+sample-level and set-level QC status, and the reasons for any failure).
 
 External methods:
     - log_summary()
@@ -23,7 +23,7 @@ from .qc import REPORT_HEADER, QCFailure
 
 logger = logging.getLogger("limsport")
 
-SUMMARY_HEADER = ["sample", "qc_status", "rationale"]
+SUMMARY_HEADER = ["sample", "sample_qc_status", "set_qc_status", "rationale"]
 
 
 def log_summary(passed: int, total: int, controls: int = 0) -> None:
@@ -37,7 +37,7 @@ def log_summary(passed: int, total: int, controls: int = 0) -> None:
     """
     if controls:
         logger.info(
-            "%d/%d samples passed QC (%d control(s) skipped sample-level QC)",
+            "%d/%d samples passed QC (%d sample(s) skipped sample-level QC)",
             passed,
             total,
             controls,
@@ -138,23 +138,25 @@ def write_qc_report(
     )
 
 
-def _qc_status(sample: str, failed: Collection[str], skipped: Collection[str]) -> str:
+def _sample_qc_status(
+    sample: str, sample_qc_failed: Collection[str], skipped: Collection[str]
+) -> str:
     """
-    Picks one sample's QC summary status.
+    Picks one sample's sample-level QC status; set_qc is reported separately.
 
     Args:
         sample: the sample name.
-        failed: every sample with at least one failure.
+        sample_qc_failed: every sample with at least one per-row `qc` failure.
         skipped: the samples that skipped per-row QC (skip_sample_qc).
 
     Returns:
-        FAIL for a sample with any failure (a failed set_qc rule fails skipped samples
-        too), CONTROL for a skipped sample, and PASS otherwise.
+        SKIPPED for a skipped sample, FAIL for a sample with a per-row failure, and
+        PASS otherwise.
     """
-    if sample in failed:
-        return "FAIL"
     if sample in skipped:
-        return "CONTROL"
+        return "SKIPPED"
+    if sample in sample_qc_failed:
+        return "FAIL"
     return "PASS"
 
 
@@ -183,16 +185,23 @@ def write_qc_summary(
     failures: list[QCFailure],
     skipped: Collection[str] = (),
     delimiter: str = "\t",
+    sample_qc_failed: Collection[str] = (),
+    set_qc_status: str = "SKIPPED",
 ) -> None:
     """
-    Writes one PASS/FAIL/CONTROL row per sample and why it failed
+    Writes one row per sample with its sample-level and set-level QC status, and why
+    it failed.
 
     Args:
         path: where to write the QC summary.
         samples: every sample QC ran on, in input order; repeats are written once.
-        failures: every failure; a sample with any failure is FAIL.
+        failures: every failure, sample-level and set_qc; each sample's are joined
+          into its rationale.
         skipped: the samples that skipped per-row QC (skip_sample_qc).
         delimiter: the delimiter to join cells with; defaults to a tab.
+        sample_qc_failed: the samples with at least one per-row `qc` failure.
+        set_qc_status: the run's set_qc verdict, the same for every sample: PASS,
+          FAIL, or SKIPPED when the config has no set_qc rules.
     """
     failures_by_sample: dict[str, list[QCFailure]] = {}
     for fail in failures:
@@ -203,7 +212,8 @@ def write_qc_summary(
         (
             [
                 sample,
-                _qc_status(sample, failures_by_sample.keys(), skipped),
+                _sample_qc_status(sample, sample_qc_failed, skipped),
+                set_qc_status,
                 _rationale(failures_by_sample.get(sample, [])),
             ]
             for sample in dict.fromkeys(samples)

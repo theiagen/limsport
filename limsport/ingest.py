@@ -269,7 +269,7 @@ def read_input(
     requested_samples: set[str] | None,
     writer,
     max_file_parsing_failures: int | None = None,
-    skip_sample_qc: SetQCMatch | None = None,
+    skip_sample_qc: list[SetQCMatch] | None = None,
     include_qc_fails: bool = False,
 ) -> IngestSummary:
     """
@@ -301,7 +301,7 @@ def read_input(
         writer: an open row writer from table_io.open_row_writer().
         max_file_parsing_failures: how many rows may fail file_parsing before
           the run aborts, or None for no limit.
-        skip_sample_qc: the samples that skip per-row QC, or None for none.
+        skip_sample_qc: the matchers for samples that skip per-row QC, or None for none.
         include_qc_fails: whether rows that fail QC are written too.
 
     Returns:
@@ -331,8 +331,8 @@ def read_input(
                 continue
         summary.candidate_rows += 1
         summary.sample_names.append(sample)
-        skips_sample_qc = skip_sample_qc is not None and skip_sample_qc.applies_to(
-            sample
+        skips_sample_qc = skip_sample_qc is not None and any(
+            match.applies_to(sample) for match in skip_sample_qc
         )
         if skips_sample_qc:
             summary.skipped_samples.add(sample)

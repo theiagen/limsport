@@ -325,21 +325,29 @@ def test_qc_summary_lists_every_sample_with_its_status(tmp_path):
     summary_path = tmp_path / "out_qc_summary.csv"
     assert table_io.get_input_header(summary_path, delimiter=",") == [
         "sample",
-        "qc_status",
+        "sample_qc_status",
+        "set_qc_status",
         "rationale",
     ]
     assert list(table_io.iter_rows(summary_path, ",")) == [
-        ["SAMPLE_001", "PASS", ""],
-        ["SAMPLE_002", "FAIL", "read_count: 500.0 >= 1000 is False"],
-        ["SAMPLE_003", "FAIL", "read_count: 2000000.0 <= 1000000 is False"],
+        ["SAMPLE_001", "PASS", "SKIPPED", ""],
+        ["SAMPLE_002", "FAIL", "SKIPPED", "read_count: 500.0 >= 1000 is False"],
+        [
+            "SAMPLE_003",
+            "FAIL",
+            "SKIPPED",
+            "read_count: 2000000.0 <= 1000000 is False",
+        ],
         [
             "SAMPLE_004",
             "FAIL",
+            "SKIPPED",
             "status: value 'FAIL' != 'PASS' (case insensitive: False)",
         ],
         [
             "SAMPLE_005",
             "FAIL",
+            "SKIPPED",
             "read_count: non-numeric value 'NA' cannot be compared with >= 1000",
         ],
     ]
@@ -406,5 +414,5 @@ def test_no_config_run_writes_header_only_reports(tmp_path):
     assert rc == 0
     assert (tmp_path / "out_qc_fail_report.tsv").read_text().count("\n") == 1
     assert (tmp_path / "out_qc_summary.tsv").read_text() == (
-        "sample\tqc_status\trationale\n"
+        "sample\tsample_qc_status\tset_qc_status\trationale\n"
     )

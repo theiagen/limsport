@@ -962,7 +962,9 @@ test("new features: match-type cases, conditional set_qc, include_sample_qc, and
 test("new features: importing the reference loads every feature and re-downloads identical to it", () => {
   const imported = importConfigYAML(NEW_FEATURES_YAML);
   assert.deepEqual(imported.errors, []);
-  assert.equal(imported.skipSampleQC.enabled, true);
+  // skip_sample_qc's "NTC" is the NTC rule's own matcher, so the rule adds it
+  assert.equal(imported.skipSampleQC.enabled, false);
+  assert.deepEqual(imported.warnings, []);
   assert.deepEqual(
     imported.columns[1].qc.cases.map((c) => [c.matchType, c.key]),
     [["exact", "Escherichia coli"], ["pattern", "Shigella"], ["regex", "^Salmonella"]]
@@ -1122,4 +1124,72 @@ test("collisions: no warning when nothing overlaps, the matcher is blank, the ru
   const off = skipFor("samples", "NTC1");
   off.enabled = false;
   assert.deepEqual(collisionWarnings(includeRule("PC", "samples", "NTC1"), off).warnings, []);
+});
+
+// ---------------------------------------------------------------------------
+// set_qc rules without include_sample_qc add their samples to skip_sample_qc
+// ---------------------------------------------------------------------------
+
+test("skip from rules: a rule with the box off adds its samples, and checking the box removes them", () => {
+  const rule = includeRule("PC", "regex", "^PC");
+  rule.includeSampleQC = false;
+  rule.checks[0] = newSetQCCheck();
+  rule.checks[0].inputColumn = "reads";
+  rule.checks[0].qc.conditions[0].value = "1";
+  const skip = skipFor("pattern", "NTC");
+  const { plain, errors } = buildConfig([columnWithQC()], [rule], skip);
+  assert.deepEqual(errors, []);
+  const yaml = serializeYAML(plain);
+  assert.match(yaml, /^skip_sample_qc:\n {2}- sample_pattern: "NTC"\n {2}- sample_regex: "\^PC"$/m);
+  const result = loadAndDump(writeTemp("skip-list.yaml", yaml));
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).skip_sample_qc, [
+    { sample_pattern: "NTC", sample_regex: null, samples: null },
+    { sample_pattern: null, sample_regex: "^PC", samples: null },
+  ]);
+
+  rule.includeSampleQC = true;
+  assert.match(serializeYAML(buildConfig([columnWithQC()], [rule], skip).plain), /^skip_sample_qc:\n {2}sample_pattern: "NTC"$/m);
+  skip.enabled = false;
+  assert.equal(buildConfig([columnWithQC()], [rule], skip).plain.skip_sample_qc, undefined);
+});
+
+test("skip from rules: a collision names the rule that added the skipped samples", () => {
+  const adds = includeRule("PC reads", "regex", "^PC");
+  adds.includeSampleQC = false;
+  const { warnings } = buildConfig([columnWithQC()], [adds, includeRule("PC", "samples", "PC1")], newSkipSampleQC());
+  assert.deepEqual(warnings, [
+    'The set-level QC rule "PC" requires sample-level QC for "PC1", which is marked to skip it by the set-level QC rule "PC reads" ("Include all sample-level QC checks in this rule" is off). This will cause LIMSport to fail.',
+  ]);
+});
+
+test("skip from rules: import leaves rule-added entries to their rules, keeps one typed entry, and warns when the download will differ", () => {
+  const rules = [
+    "set_qc:",
+    '  - rule_name: "NTC"',
+    "    match_samples:",
+    '      sample_pattern: "NTC"',
+    "    checks:",
+    "      - input_column: reads",
+    "        qc:",
+    '          - {operator: "<=", value: 1000}',
+    "",
+  ].join("\n");
+  const same = importConfigYAML(rules + 'skip_sample_qc:\n  - samples: ["X1"]\n  - sample_pattern: "NTC"\n');
+  assert.deepEqual(same.errors, []);
+  assert.deepEqual(same.warnings, []);
+  assert.equal(same.skipSampleQC.match.samples, "X1");
+  const { plain } = buildConfig(same.columns, same.setQCRules, same.skipSampleQC);
+  assert.match(serializeYAML(plain), /^skip_sample_qc:\n {2}- samples: \["X1"\]\n {2}- sample_pattern: "NTC"$/m);
+
+  const added = importConfigYAML(rules);
+  assert.deepEqual(added.errors, []);
+  assert.equal(added.warnings.length, 1);
+  assert.match(added.warnings[0], /^skip_sample_qc will be different/);
+
+  const two = importConfigYAML(rules + 'skip_sample_qc:\n  - samples: ["X1"]\n  - samples: ["X2"]\n');
+  assert.equal(two.errors.length, 1);
+  assert.match(two.errors[0], /^Line \d+: skip_sample_qc\[1\]: the form holds one skip_sample_qc entry/);
+
+  assert.match(importConfigYAML(rules + "skip_sample_qc: []\n").errors[0], /skip_sample_qc: \[\] is rejected/);
 });

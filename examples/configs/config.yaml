@@ -101,10 +101,6 @@ set_qc:
         qc:
           - {operator: is_not_empty}
 
-  - rule_name: "No cross-contamination flagged in real samples"
-    match_samples:
-      samples: ["19050801924", "461023", "CL2021-00283104"]
-    checks:
-      - input_column: screening_notes
-        qc:
-          - {operator: does_not_contain, value: "contaminant", case_insensitive: true}
+skip_sample_qc:
+  - sample_pattern: "NTC"
+  - sample_regex: "^PC-?\\d*$"

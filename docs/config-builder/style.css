@@ -725,6 +725,19 @@ body.limsport-config-builder {
   margin: 0;
 }
 
+/* specific enough to beat the docs theme's own ul/li margins */
+.limsport-config-builder .set-qc-rule-card ul.skip-from-rules-list {
+  font-size: calc(0.85 * var(--unit));
+  margin: 0;
+  padding: 0;
+  list-style-position: inside;
+}
+
+.limsport-config-builder .set-qc-rule-card ul.skip-from-rules-list > li {
+  margin: 0;
+  padding: 0;
+}
+
 .limsport-config-builder .btn-add {
   align-self: flex-start;
   border-style: dashed;

@@ -661,15 +661,16 @@ class ExportConfig(_StrictModel):
         - sample_qc: the list of columns to keep in the output with any modifications/qc
           checks; read from `columns` in older configs
         - set_qc: a list of set-level qc rules to apply
-        - skip_sample_qc: the samples (e.g. negative controls) that skip per-row `qc`
-          but are still checked by `set_qc`, or None if every sample gets per-row `qc`
+        - skip_sample_qc: the matchers for samples (e.g. negative controls) that skip
+          per-row `qc` but are still checked by `set_qc`; a sample matched by any of
+          them is skipped. None if every sample gets per-row `qc`
     """
 
     sample_qc: list[ColumnConfig] | None = Field(
         default=None, validation_alias=AliasChoices("sample_qc", "columns")
     )
     set_qc: list[SetQCRule] = Field(default_factory=list)
-    skip_sample_qc: SetQCMatch | None = None
+    skip_sample_qc: list[SetQCMatch] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -691,6 +692,29 @@ class ExportConfig(_StrictModel):
                 "config sets both 'sample_qc' and 'columns'; 'columns' is the old name for 'sample_qc', so use only 'sample_qc'"
             )
         return data
+
+    @field_validator("skip_sample_qc", mode="before")
+    @classmethod
+    def _skip_sample_qc_as_list(cls, value: object) -> object:
+        """
+        `skip_sample_qc` takes one matcher or a list of them; one is read as a list of one.
+
+        Args:
+            value: the raw `skip_sample_qc` value.
+
+        Returns:
+            `value`, wrapped in a list if it is a single mapping
+
+        Raises:
+            ValueError: if `value` is an empty list.
+        """
+        if isinstance(value, dict):
+            return [value]
+        if value == []:
+            raise ValueError(
+                "skip_sample_qc: [] matches no samples; remove the key to turn it off"
+            )
+        return value
 
     @field_validator("set_qc")
     @classmethod
