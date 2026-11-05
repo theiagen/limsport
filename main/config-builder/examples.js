@@ -174,13 +174,5 @@ export function fullExampleSetQCRules() {
     setQCCheckFor("notes", noValueCondition("is_not_empty")),
   ];
 
-  const contaminationRule = newSetQCRule();
-  contaminationRule.ruleName = "No cross-contamination flagged in real samples";
-  contaminationRule.matchSamples.kind = "samples";
-  contaminationRule.matchSamples.samples = "19050801924, 461023, CL2021-00283104";
-  contaminationRule.checks = [
-    setQCCheckFor("screening_notes", caseInsensitiveCondition("does_not_contain", "contaminant")),
-  ];
-
-  return [ntcRule, pcRule, contaminationRule];
+  return [ntcRule, pcRule];
 }

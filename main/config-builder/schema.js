@@ -349,6 +349,26 @@ function buildSetQCRule(rule, idx, errors, hasSampleQC) {
     return out;
 }
 
+const isBlankMatch = (m) =>
+    !m.samples?.length && !m.sample_pattern && !m.sample_regex;
+
+/**
+ * The skip_sample_qc entries the set_qc rules add: every rule with
+ * "Include all sample-level QC checks" off has its samples skip sample-level
+ * QC. A rule whose matcher is still blank adds nothing.
+ *
+ * Returns a list of {match, ruleName}, `match` a plain matcher.
+ */
+export function skipMatchesFromRules(setQCRules) {
+    return setQCRules
+        .filter((rule) => !rule.includeSampleQC)
+        .map((rule) => ({
+            match: buildSetQCMatch(rule.matchSamples, "", []),
+            ruleName: rule.ruleName.trim() || "(unnamed rule)",
+        }))
+        .filter(({ match }) => !isBlankMatch(match));
+}
+
 /** Returns the names in `names` that `match` (a plain matcher) selects, or null if its regex won't compile in JS. */
 function namesMatching(match, names) {
     if (match.samples) {
@@ -379,48 +399,55 @@ function namesMatching(match, names) {
  * checked against the other matcher, or two patterns where one contains the
  * other. A regex against a pattern or regex can't be decided, so it's skipped.
  *
+ * `skipEntries` is a list of {match, ruleName}; ruleName is null for the
+ * entry typed into "Skip sample-level QC" itself.
+ *
  * Returns a list of warning strings.
  */
-function predictSkipCollisions(plainSetQC, skipMatch) {
+function predictSkipCollisions(plainSetQC, skipEntries) {
     const warnings = [];
-    if (!skipMatch) return warnings;
     for (const rule of plainSetQC) {
         if (!rule.include_sample_qc) continue;
-        const ruleMatch = rule.match_samples;
-        const name = rule.rule_name || "(unnamed rule)";
-        const rulePrefix = `The set-level QC rule "${name}" requires sample-level QC for`;
-        // A rule's `samples:` must all be in the run, so an overlap there
-        // always fails; any other overlap only fails if the sample shows up.
-        let overlap = null;
-        let certain = false;
-        if (ruleMatch.samples?.length) {
-            overlap = namesMatching(skipMatch, ruleMatch.samples);
-            certain = true;
-        } else if (skipMatch.samples?.length) {
-            overlap = namesMatching(ruleMatch, skipMatch.samples);
-        } else if (ruleMatch.sample_pattern && skipMatch.sample_pattern) {
-            const [a, b] = [ruleMatch.sample_pattern, skipMatch.sample_pattern];
-            if (a.includes(b) || b.includes(a)) {
-                const longer = a.length >= b.length ? a : b;
-                warnings.push(
-                    `${rulePrefix} samples containing "${longer}", which are marked to skip it. This may cause LIMSport to fail.`,
-                );
-            }
-            continue;
-        }
-        if (!overlap?.length) continue;
-        const matched =
-            overlap.length === 1
-                ? `"${overlap[0]}", which is marked to skip it.`
-                : `[${overlap.map((n) => `"${n}"`).join(", ")}], which are marked to skip it.`;
-        const consequence = certain
-            ? "This will cause LIMSport to fail."
-            : "This may cause LIMSport to fail.";
-        warnings.push(
-            `${rulePrefix} ${matched} ${consequence}`,
-        );
+        for (const entry of skipEntries)
+            warnings.push(...predictSkipCollision(rule, entry));
     }
     return warnings;
+}
+
+/** The warning (as a list of zero or one string) for one include_sample_qc rule against one skip entry. */
+function predictSkipCollision(rule, { match: skipMatch, ruleName: skipSource }) {
+    const ruleMatch = rule.match_samples;
+    const name = rule.rule_name || "(unnamed rule)";
+    const rulePrefix = `The set-level QC rule "${name}" requires sample-level QC for`;
+    const markedBy = skipSource
+        ? ` by the set-level QC rule "${skipSource}" ("Include all sample-level QC checks in this rule" is off)`
+        : "";
+    // A rule's `samples:` must all be in the run, so an overlap there
+    // always fails; any other overlap only fails if the sample shows up.
+    let overlap = null;
+    let certain = false;
+    if (ruleMatch.samples?.length) {
+        overlap = namesMatching(skipMatch, ruleMatch.samples);
+        certain = true;
+    } else if (skipMatch.samples?.length) {
+        overlap = namesMatching(ruleMatch, skipMatch.samples);
+    } else if (ruleMatch.sample_pattern && skipMatch.sample_pattern) {
+        const [a, b] = [ruleMatch.sample_pattern, skipMatch.sample_pattern];
+        if (!a.includes(b) && !b.includes(a)) return [];
+        const longer = a.length >= b.length ? a : b;
+        return [
+            `${rulePrefix} samples containing "${longer}", which are marked to skip it${markedBy}. This may cause LIMSport to fail.`,
+        ];
+    }
+    if (!overlap?.length) return [];
+    const matched =
+        overlap.length === 1
+            ? `"${overlap[0]}", which is marked to skip it${markedBy}.`
+            : `[${overlap.map((n) => `"${n}"`).join(", ")}], which are marked to skip it${markedBy}.`;
+    const consequence = certain
+        ? "This will cause LIMSport to fail."
+        : "This may cause LIMSport to fail.";
+    return [`${rulePrefix} ${matched} ${consequence}`];
 }
 
 /**
@@ -566,15 +593,26 @@ export function buildConfig(columns, setQCRules = [], skipSampleQC = null) {
         );
 
     const plain = { sample_qc: plainColumns };
+    const skipEntries = [];
     if (skipSampleQC?.enabled) {
-        plain.skip_sample_qc = buildSetQCMatch(
-            skipSampleQC.match,
-            "Skip sample-level QC",
-            errors,
-        );
+        skipEntries.push({
+            match: buildSetQCMatch(
+                skipSampleQC.match,
+                "Skip sample-level QC",
+                errors,
+            ),
+            ruleName: null,
+        });
     }
+    skipEntries.push(...skipMatchesFromRules(setQCRules));
+    // two rules (or a rule and the typed entry) can name the same samples
+    const seen = new Set();
+    const skipMatches = skipEntries
+        .map((e) => e.match)
+        .filter((m) => !seen.has(JSON.stringify(m)) && seen.add(JSON.stringify(m)));
+    if (skipMatches.length) plain.skip_sample_qc = skipMatches;
     if (setQCRules.length) plain.set_qc = plainSetQC;
-    const warnings = predictSkipCollisions(plainSetQC, plain.skip_sample_qc);
+    const warnings = predictSkipCollisions(plainSetQC, skipEntries);
     return { plain, errors, warnings };
 }
 
@@ -1033,14 +1071,70 @@ function setQCRuleFromConfig(raw, path, errors) {
 }
 
 /**
+ * Loads `skip_sample_qc` (one matcher or a list) into `result.skipSampleQC`.
+ * An entry that a set_qc rule would add itself (its "Include all sample-level
+ * QC checks" is off) is left to that rule; the form holds one other entry.
+ * Pushes a warning onto `result.warnings` when the downloaded skip_sample_qc
+ * will differ from the file's, e.g. because a rule adds its samples.
+ */
+function skipSampleQCFromConfig(raw, result, errors) {
+    const path = ["skip_sample_qc"];
+    let rawEntries = [];
+    if (Array.isArray(raw)) {
+        if (!raw.length)
+            errors.push({
+                path,
+                message: "skip_sample_qc: [] is rejected by limsport; remove the key to skip no samples",
+            });
+        rawEntries = raw.map((entry, i) => ({ entry, path: [...path, i] }));
+    } else if (raw !== undefined && raw !== null) {
+        rawEntries = [{ entry: raw, path }];
+    }
+    const fromRules = new Set(
+        skipMatchesFromRules(result.setQCRules).map((e) => JSON.stringify(e.match)),
+    );
+    const fileMatches = [];
+    const typed = [];
+    for (const { entry, path: entryPath } of rawEntries) {
+        const match = newSetQCMatch();
+        setQCMatchFromConfig(entry, match, entryPath, errors);
+        if (entry === undefined || entry === null)
+            errors.push({ path: entryPath, message: "expected one of sample_pattern, sample_regex, or samples" });
+        const plain = buildSetQCMatch(match, "", []);
+        fileMatches.push(plain);
+        if (!fromRules.has(JSON.stringify(plain))) typed.push({ match, path: entryPath });
+    }
+    if (typed.length > 1) {
+        errors.push({
+            path: typed[1].path,
+            message:
+                "the form holds one skip_sample_qc entry besides the ones set_qc rules add; combine these into one, or match them with a set_qc rule that has include_sample_qc off",
+        });
+        return;
+    }
+    if (typed.length) {
+        result.skipSampleQC.enabled = true;
+        result.skipSampleQC.match = typed[0].match;
+    }
+    if (errors.length) return;
+    const { plain } = buildConfig(result.columns, result.setQCRules, result.skipSampleQC);
+    if (JSON.stringify(plain.skip_sample_qc ?? []) !== JSON.stringify(fileMatches))
+        result.warnings.push(
+            "skip_sample_qc will be different in the downloaded config: the samples of every set-level QC rule without \"Include all sample-level QC checks in this rule\" are added to it.",
+        );
+}
+
+/**
  * The inverse of buildConfig(): turns a parsed config.yaml back into wizard
  * state. Anything the wizard can't hold exactly (an unknown key, a value
  * type the form has no control for, a combination buildConfig() would
- * drop) is an error, so a config that loads always downloads unchanged.
+ * drop) is an error, so a config that loads downloads unchanged, except
+ * that skip_sample_qc gains the samples of rules with include_sample_qc off
+ * (reported in `warnings`).
  * Checks buildConfig() already makes (missing names, duplicates, ...) are
  * left to it and show up in the usual error list once loaded.
  *
- * Returns {columns, setQCRules, skipSampleQC, errors}; each error is {path, message},
+ * Returns {columns, setQCRules, skipSampleQC, errors, warnings}; each error is {path, message},
  * where path is the keys/indexes leading to the offending node.
  */
 export function stateFromConfig(obj) {
@@ -1050,6 +1144,7 @@ export function stateFromConfig(obj) {
         setQCRules: [],
         skipSampleQC: newSkipSampleQC(),
         errors,
+        warnings: [],
     };
     if (obj === undefined || obj === null) {
         errors.push({ path: [], message: "the file is empty" });
@@ -1092,15 +1187,7 @@ export function stateFromConfig(obj) {
     result.setQCRules = listAt(obj.set_qc, ["set_qc"], errors, "rules").map(
         (rule, i) => setQCRuleFromConfig(rule, ["set_qc", i], errors),
     );
-    if (obj.skip_sample_qc !== undefined && obj.skip_sample_qc !== null) {
-        result.skipSampleQC.enabled = true;
-        setQCMatchFromConfig(
-            obj.skip_sample_qc,
-            result.skipSampleQC.match,
-            ["skip_sample_qc"],
-            errors,
-        );
-    }
+    skipSampleQCFromConfig(obj.skip_sample_qc, result, errors);
     return result;
 }
 
@@ -1223,16 +1310,23 @@ function renderColumn(col, dashInd) {
 // sample_pattern/sample_regex/samples are all free-form strings intended as
 // exact/substring/regex match targets against real sample names -- always
 // quoted, same "unambiguously a string" reasoning as yamlKey/rule keys.
+function renderMatchField(match) {
+    if (match.sample_pattern !== undefined)
+        return `sample_pattern: ${yamlKey(match.sample_pattern)}`;
+    if (match.sample_regex !== undefined)
+        return `sample_regex: ${yamlKey(match.sample_regex)}`;
+    return `samples: [${match.samples.map((s) => yamlKey(s)).join(", ")}]`;
+}
+
 function renderSetQCMatch(match, kInd, key = "match_samples") {
-    const contentInd = `${kInd}  `;
-    if (match.sample_pattern !== undefined) {
-        return `${kInd}${key}:\n${contentInd}sample_pattern: ${yamlKey(match.sample_pattern)}`;
-    }
-    if (match.sample_regex !== undefined) {
-        return `${kInd}${key}:\n${contentInd}sample_regex: ${yamlKey(match.sample_regex)}`;
-    }
-    const samples = match.samples.map((s) => yamlKey(s)).join(", ");
-    return `${kInd}${key}:\n${contentInd}samples: [${samples}]`;
+    return `${kInd}${key}:\n${kInd}  ${renderMatchField(match)}`;
+}
+
+// One matcher is written as a mapping, the form older limsport versions read.
+function renderSkipSampleQC(matches) {
+    if (matches.length === 1)
+        return renderSetQCMatch(matches[0], "", "skip_sample_qc");
+    return ["skip_sample_qc:", ...matches.map((m) => `  - ${renderMatchField(m)}`)].join("\n");
 }
 
 function renderSetQCCheck(check, dashInd) {
@@ -1282,9 +1376,7 @@ export function serializeYAML(plainConfig) {
     }
     if (plainConfig.skip_sample_qc) {
         if (lines.length) lines.push("");
-        lines.push(
-            renderSetQCMatch(plainConfig.skip_sample_qc, "", "skip_sample_qc"),
-        );
+        lines.push(renderSkipSampleQC(plainConfig.skip_sample_qc));
     }
     lines.push("");
     return lines.join("\n");
