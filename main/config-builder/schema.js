@@ -1160,20 +1160,11 @@ export function stateFromConfig(obj) {
     }
     checkKeys(
         obj,
-        ["sample_qc", "columns", "set_qc", "skip_sample_qc"],
+        ["sample_qc", "set_qc", "skip_sample_qc"],
         [],
         errors,
     );
-    // `columns` is limsport's old name for `sample_qc`, still accepted; the
-    // download always writes `sample_qc`.
-    if ("sample_qc" in obj && "columns" in obj) {
-        errors.push({
-            path: ["columns"],
-            message:
-                "columns is the old name for sample_qc; the file can't use both",
-        });
-    }
-    const columnsKey = "sample_qc" in obj ? "sample_qc" : "columns";
+    const columnsKey = "sample_qc";
     const rawColumns = obj[columnsKey];
     if (Array.isArray(rawColumns) && !rawColumns.length) {
         errors.push({
