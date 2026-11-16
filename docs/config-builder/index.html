@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LIMSport Config Builder</title>
   <link rel="stylesheet" href="style.css" />
+  <script>
+    // When this page is embedded in another docs site (e.g. PHB) with an
+    // <iframe>, that site sends {type: "limsport-theme", scheme: "light"|"slate"}
+    // via postMessage whenever its light/dark toggle changes. Stamping the
+    // scheme on <html> reuses the [data-md-color-scheme] rules in style.css,
+    // so the builder matches the host page instead of the OS preference.
+    // Only the two known values are accepted; anything else is ignored.
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+      if (msg && msg.type === "limsport-theme" && (msg.scheme === "light" || msg.scheme === "slate")) {
+        document.documentElement.setAttribute("data-md-color-scheme", msg.scheme);
+      }
+    });
+  </script>
 </head>
 <body class="limsport-config-builder">
   <header class="page-header">
