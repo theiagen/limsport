@@ -7,7 +7,7 @@
 Install with pip:
 
 ```
-pip install -e .
+pip install limsport
 ```
 
 LIMSport requires Python 3.10+.
