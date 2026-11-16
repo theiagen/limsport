@@ -20,10 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=gcr.io/google.com/cloudsdktool/google-cloud-cli:590.0.0-slim /usr/lib/google-cloud-sdk /usr/lib/google-cloud-sdk
 ENV PATH="/usr/lib/google-cloud-sdk/bin:${PATH}"
 
-COPY pyproject.toml LICENSE /limsport/
-COPY limsport /limsport/limsport
-RUN pip install --no-cache-dir /limsport && \
-    rm -rf /limsport
+RUN pip install --no-cache-dir limsport==${LIMSPORT_VER}
 
 ENV LC_ALL=C
 
