@@ -12,7 +12,7 @@ dependencies = [
     "PyYAML>=6.0",
 ]
 readme = "README.md"
-license = "GPL-3.0-only"   # check: "-only" vs "-or-later" depends on your intent
+license = "GPL-3.0-or-later"
 authors = [{ name = "Sage Wright" }]
 
 [project.urls]
