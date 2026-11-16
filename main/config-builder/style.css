@@ -37,7 +37,9 @@
 }
 
 
-[data-md-color-scheme] .limsport-config-builder {
+/* `div` limits this to the inline docs embed: the standalone page (body.limsport-config-builder)
+   can also get [data-md-color-scheme] from an iframe host, but shouldn't shrink or add header space */
+[data-md-color-scheme] div.limsport-config-builder {
   --unit: 0.8rem;
   --header-clearance: 2.4rem; /* don't let the box get hidden by the header */
 }
@@ -222,6 +224,15 @@ body.limsport-config-builder {
 [data-md-color-scheme="slate"] .limsport-config-builder #copy-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--brand-green) 85%, black);
   border-color: color-mix(in srgb, var(--brand-green) 85%, black);
+}
+
+/* Re-assert the light hover so the OS-dark media query above can't leak
+   through when the reader has explicitly picked light mode on the site
+   (mirrors the light palette re-assert near the top of this file). */
+[data-md-color-scheme="light"] .limsport-config-builder #download-btn:hover:not(:disabled),
+[data-md-color-scheme="light"] .limsport-config-builder #copy-btn:hover:not(:disabled) {
+  background: var(--brand-green);
+  border-color: var(--brand-green);
 }
 
 .limsport-config-builder #download-btn:disabled,
