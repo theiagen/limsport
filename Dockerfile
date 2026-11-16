@@ -1,6 +1,6 @@
 FROM python:3.12-slim AS app
 
-ARG LIMSPORT_VER="0.1.0"
+ARG LIMSPORT_VER="1.0.0"
 
 LABEL base.image="python:3.12-slim"
 LABEL dockerfile.version="1"

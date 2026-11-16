@@ -8,7 +8,7 @@ from limsport.exceptions import ConfigError
 
 def _first_qc(config: ExportConfig) -> QCCondition:
     """The first QC condition on the config's first column, narrowed past
-    the optional `columns` and the ConditionalQC form of `qc`."""
+    the optional `sample_qc` and the ConditionalQC form of `qc`."""
     assert config.sample_qc is not None
     qc = config.sample_qc[0].qc
     assert isinstance(qc, list)
@@ -535,23 +535,6 @@ def test_missing_column_config_raises_on_load(tmp_path):
     assert [c.input_column for c in config.sample_qc] == ["sample_id", "does_not_exist"]
 
 
-def test_columns_is_an_alias_for_sample_qc():
-    config = ExportConfig.model_validate({"columns": [{"input_column": "sample_id"}]})
-    assert config.sample_qc is not None
-    assert config.sample_qc[0].input_column == "sample_id"
-
-
-def test_rejects_both_sample_qc_and_columns():
-    with pytest.raises(ValidationError, match="'columns' is the old name"):
-        ExportConfig.model_validate(
-            {
-                "sample_qc": [{"input_column": "a"}],
-                "columns": [{"input_column": "b"}],
-            }
-        )
-
-
-def test_columns_alias_still_loads_from_yaml(tmp_path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text("columns:\n  - input_column: sample_id\n")
-    assert load_config(config_path).sample_qc[0].input_column == "sample_id"
+def test_rejects_old_columns_key():
+    with pytest.raises(ValidationError, match="columns"):
+        ExportConfig.model_validate({"columns": [{"input_column": "sample_id"}]})

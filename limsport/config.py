@@ -2,7 +2,7 @@
 Pydantic models for the YAML export config, plus the loader that turns a
 config file on disk into a validated ExportConfig.
 
-The config's `sample_qc` list (formerly `columns`, still accepted) works as a column
+The config's `sample_qc` list works as a column
 allow-list: if one is given, only the columns listed in it make it into the output. Each
 column can also be given a different output name and QC rules. `sample_qc` can be
 omitted entirely if the config only exists for its `set_qc` (run-level) rules
@@ -30,7 +30,6 @@ from typing import ClassVar
 
 import yaml
 from pydantic import (
-    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -659,39 +658,16 @@ class ExportConfig(_StrictModel):
 
     Attributes:
         - sample_qc: the list of columns to keep in the output with any modifications/qc
-          checks; read from `columns` in older configs
+          checks
         - set_qc: a list of set-level qc rules to apply
         - skip_sample_qc: the matchers for samples (e.g. negative controls) that skip
           per-row `qc` but are still checked by `set_qc`; a sample matched by any of
           them is skipped. None if every sample gets per-row `qc`
     """
 
-    sample_qc: list[ColumnConfig] | None = Field(
-        default=None, validation_alias=AliasChoices("sample_qc", "columns")
-    )
+    sample_qc: list[ColumnConfig] | None = None
     set_qc: list[SetQCRule] = Field(default_factory=list)
     skip_sample_qc: list[SetQCMatch] | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _not_both_sample_qc_and_columns(cls, data: object) -> object:
-        """
-        `columns` is the old name for `sample_qc`, so a config can't use both.
-
-        Args:
-            data: the raw config mapping.
-
-        Returns:
-            `data` unchanged
-
-        Raises:
-            ValueError: if both `sample_qc` and `columns` are given.
-        """
-        if isinstance(data, dict) and "sample_qc" in data and "columns" in data:
-            raise ValueError(
-                "config sets both 'sample_qc' and 'columns'; 'columns' is the old name for 'sample_qc', so use only 'sample_qc'"
-            )
-        return data
 
     @field_validator("skip_sample_qc", mode="before")
     @classmethod

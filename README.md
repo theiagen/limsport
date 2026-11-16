@@ -45,7 +45,7 @@ See `examples/` for a demo.
 
 A config is a YAML file with two primary keys: `sample_qc` and `set_qc`, plus the optional `skip_sample_qc`.
 
-`sample_qc` lists every column to keep in the output, ordered to match how they appear in the config, along with each column's sample-level QC (a column can have no QC and just be kept or renamed). The sample ID (the first input column) is always written as the first output column, even if it isn't listed (list it under `sample_qc` to move, rename, or hide it with `output: false`). `sample_qc` can be omitted entirely if a [`set_qc`](#set_qc-run-level-whole-run-qc) list exists. `sample_qc: []` will be rejected. (`sample_qc` was previously named `columns`; configs that use `columns` still work, but a config can't use both.)
+`sample_qc` lists every column to keep in the output, ordered to match how they appear in the config, along with each column's sample-level QC (a column can have no QC and just be kept or renamed). The sample ID (the first input column) is always written as the first output column, even if it isn't listed (list it under `sample_qc` to move, rename, or hide it with `output: false`). `sample_qc` can be omitted entirely if a [`set_qc`](#set-level-qc) list exists. `sample_qc: []` will be rejected.
 
 `set_qc` lists a series of rules where if one fails, all samples fail the run.
 
@@ -201,7 +201,7 @@ skip_sample_qc:
   - samples: ["PC1"]
 ```
 
-The [config builder](https://theiagen.github.io/limsport/config/) adds the samples of every `set_qc` rule without `include_sample_qc` to `skip_sample_qc` for you, and removes them when `include_sample_qc` is turned on for that rule.
+The [config builder](https://theiagen.github.io/limsport/latest/config/) adds the samples of every `set_qc` rule without `include_sample_qc` to `skip_sample_qc` for you, and removes them when `include_sample_qc` is turned on for that rule.
 
 A skipped sample is written to the output with its values as-is, and its `sample_qc_status` in the QC summary is `SKIPPED`, even when a `set_qc` rule checks it; its `set_qc_status` is the run's `set_qc` result, like every other sample's. Its `file_parsing` still runs, but a file that won't parse leaves that value blank instead of failing the row, and doesn't count toward `--max-file-parsing-failures`. Only list samples that should skip production QC, such as NTCs; a positive control left out of `skip_sample_qc` gets the same per-row `qc` as any other sample.
 
@@ -283,7 +283,7 @@ A QC failure report, named `<output-prefix>_qc_fail_report` with the same extens
 
 When a `set_qc` rule fails the run, every sample fails QC. A sample that broke the rule gets a row for each `set_qc` check it failed, and every other sample gets one row with only `reason` filled in, naming the rule(s) that failed the run. Each sample's own sample-level failures are listed as well, so a sample can have both kinds of rows. The output is header-only unless `--include-qc-fails` is set, in which case every row is written and marked `FAIL`.
 
-A QC summary, named `<output-prefix>_qc_summary` with the same extension and delimiter as the output (default: `limsport_qc_summary.tsv`), lists every sample QC ran on (after any `--samples` filter) with two statuses. `sample_qc_status` is specific to sample-level QC (the `qc` rules in `sample_qc`): `PASS`, `FAIL`, or `SKIPPED` for a sample in `skip_sample_qc` (see above). `set_qc_status` is the run's `set_qc` result, and is the same for every sample since `set_qc` is run-level: `PASS`, `FAIL`, or `SKIPPED` when the config has no `set_qc` rules. The `rationale` column lists why a sample failed either kind of QC, as `<column>: <reason>` for each failure separated by `; ` (a run-level `set_qc` failure is just the reason), and is blank when it failed neither. A sample listed more than once in the input gets one row, and its `sample_qc_status` is `FAIL` if any of its rows failed. Like the QC failure report, it is only written when a `--config` is given.
+A QC summary, named `<output-prefix>_qc_summary` with the same extension and delimiter as the output (default: `limsport_qc_summary.tsv`), lists every sample QC ran on (after any `--samples` filter) with two statuses. `sample_qc_status` is specific to sample-level QC (the `qc` rules in `sample_qc`): `PASS`, `FAIL`, or `SKIPPED` for a sample in `skip_sample_qc` (see above). `set_qc_status` is the run's `set_qc` result, and is the same for every sample since `set_qc` is run-level: `PASS`, `FAIL`, or `SKIPPED` when the config has no `set_qc` rules. The `rationale` column lists why a sample failed either kind of QC, as `<column>: <reason>` for each failure separated by `; ` (a run-level `set_qc` failure is just the reason), and is blank when it failed neither. A sample listed more than once in the input gets one row, and its `sample_qc_status` is `FAIL` if any of its rows failed. Without a `--config`, both reports are written header-only.
 
 ## Delimiter handling
 
@@ -303,15 +303,8 @@ limsport/
 ├── layout.py        validates the config against the input header, plans the output
 ├── ingest.py        reads the rows: sample filter, QC, writes the passers
 ├── pipeline.py      orchestrates one export: wires the above together
-├── report.py        turns QC results into log lines and the report TSV
+├── report.py        turns QC results into log lines, the QC failure report, and the QC summary
 └── exceptions.py    the LIMSportError hierarchy cli.py catches
 ```
 
-Tests mirror this layout (`tests/test_<module>.py`).
-
-## To-Do:
-
-- [ ] enable cell-parsing (eg BUSCO, etc.)
-- [x] substring QC
-- [x] set level QC - if "NTC" fails fail the entire run
-- [x] config builder from a html thingy
+Tests are named after the module they cover (`tests/test_<module>*.py`).

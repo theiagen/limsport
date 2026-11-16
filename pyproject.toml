@@ -4,13 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "limsport"
-version = "0.1.0"
+version = "1.0.0"
 description = "Transform a TSV table's column names and perform QC on rows to generate a LIMS-importable file."
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0,<3",
     "PyYAML>=6.0",
 ]
+readme = "README.md"
+license = "GPL-3.0-only"   # check: "-only" vs "-or-later" depends on your intent
+authors = [{ name = "Sage Wright" }]
+
+[project.urls]
+Documentation = "https://theiagen.github.io/limsport/latest/"
+Source = "https://github.com/theiagen/limsport"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov", "ruff", "pre-commit"]

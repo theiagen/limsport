@@ -754,7 +754,7 @@ test("import: the full example loads, and re-downloads semantically identical to
 test("import: unrepresentable content is rejected with the line it's on", () => {
   const { errors, columns } = importConfigYAML(
     [
-      "columns:",
+      "sample_qc:",
       "  - input_column: a",
       "    colour: red",
       "    qc:",
@@ -774,14 +774,14 @@ test("import: unrepresentable content is rejected with the line it's on", () => 
   );
   assert.deepEqual(columns, []);
   assert.equal(errors.length, 4);
-  assert.match(errors[0], /^Line 3: columns\[0\]\.colour: unknown key/);
-  assert.match(errors[1], /^Line 5: columns\[0\]\.qc\[0\]\.value: must be a number or a string/);
-  assert.match(errors[2], /^Line 8: columns\[1\]\.output_column: can't be combined with output: false/);
+  assert.match(errors[0], /^Line 3: sample_qc\[0\]\.colour: unknown key/);
+  assert.match(errors[1], /^Line 5: sample_qc\[0\]\.qc\[0\]\.value: must be a number or a string/);
+  assert.match(errors[2], /^Line 8: sample_qc\[1\]\.output_column: can't be combined with output: false/);
   assert.match(errors[3], /^Line 12: set_qc\[0\]\.match_samples\.samples\[0\]: sample names/);
 });
 
 test("import: a YAML syntax error reports its line", () => {
-  const { errors } = importConfigYAML("columns:\n  - input_column: a\n   bad: [\n");
+  const { errors } = importConfigYAML("sample_qc:\n  - input_column: a\n   bad: [\n");
   assert.equal(errors.length, 1);
   assert.match(errors[0], /^Line \d+: /);
 });
@@ -789,7 +789,7 @@ test("import: a YAML syntax error reports its line", () => {
 test("import: an empty conditional default and an unquoted YAML 1.1 boolean are rejected", () => {
   const { errors } = importConfigYAML(
     [
-      "columns:",
+      "sample_qc:",
       "  - input_column: a",
       "    qc:",
       "      match_column: taxon",
@@ -801,13 +801,13 @@ test("import: an empty conditional default and an unquoted YAML 1.1 boolean are 
   );
   assert.equal(errors.length, 2);
   assert.match(errors[0], /^Line 6: unquoted "yes"/);
-  assert.match(errors[1], /^Line 7: columns\[0\]\.qc\.default: an empty default/);
+  assert.match(errors[1], /^Line 7: sample_qc\[0\]\.qc\.default: an empty default/);
 });
 
 test("import: a quoted numeric '=' value stays a string, and small numbers aren't written in exponent form", () => {
   const { errors, columns } = importConfigYAML(
     [
-      "columns:",
+      "sample_qc:",
       "  - input_column: a",
       "    qc:",
       '      - {operator: "=", value: "1000"}',
@@ -829,18 +829,18 @@ test("import: a quoted numeric '=' value stays a string, and small numbers aren'
 
 test("import: unquoted numbers PyYAML reads differently from js-yaml are rejected", () => {
   for (const raw of ["1e5", "1.0e5", "017", "0o17", "1:30"]) {
-    const { errors } = importConfigYAML(`columns:\n  - input_column: a\n    qc:\n      - {operator: "=", value: ${raw}}\n`);
+    const { errors } = importConfigYAML(`sample_qc:\n  - input_column: a\n    qc:\n      - {operator: "=", value: ${raw}}\n`);
     assert.equal(errors.length, 1, raw);
     assert.match(errors[0], /^Line 4: unquoted .* is read differently by limsport/, raw);
   }
   for (const raw of ["1000", "0", "0.5", "-2.5", "1_000"]) {
-    assert.deepEqual(importConfigYAML(`columns:\n  - input_column: a\n    qc:\n      - {operator: "=", value: ${raw}}\n`).errors, [], raw);
+    assert.deepEqual(importConfigYAML(`sample_qc:\n  - input_column: a\n    qc:\n      - {operator: "=", value: ${raw}}\n`).errors, [], raw);
   }
 });
 
 test("import: comments warn, but a '#' inside a command block doesn't", () => {
   const config = [
-    "columns:",
+    "sample_qc:",
     "  - input_column: report",
     "    file_parsing:",
     "      - output_column: n50",
@@ -1047,17 +1047,10 @@ test("preview: an incomplete set_qc rule and skip_sample_qc still show as drafts
   assert.match(yaml, /^skip_sample_qc:\n {2}sample_pattern: ""$/m);
 });
 
-test("import: the old columns: key loads as sample_qc, and using both keys is rejected", () => {
-  const old = importConfigYAML("columns:\n  - input_column: sample_id\n");
-  assert.deepEqual(old.errors, []);
-  const { plain } = buildConfig(old.columns, old.setQCRules, old.skipSampleQC);
-  assert.equal(serializeYAML(plain), "sample_qc:\n  - input_column: sample_id\n");
-
-  const both = importConfigYAML(
-    "sample_qc:\n  - input_column: a\ncolumns:\n  - input_column: b\n"
-  );
-  assert.equal(both.errors.length, 1);
-  assert.match(both.errors[0], /^Line 3: columns: columns is the old name for sample_qc/);
+test("import: the old columns: key is rejected as unknown", () => {
+  const { errors } = importConfigYAML("columns:\n  - input_column: sample_id\n");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /^Line 1: columns: unknown key "columns"/);
 });
 
 // ---------------------------------------------------------------------------
